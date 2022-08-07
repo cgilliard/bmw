@@ -1,6 +1,7 @@
 [![Build Status](https://dev.azure.com/37miners/37miners/_apis/build/status/37miners.bmw?branchName=main)](https://dev.azure.com/37miners/37miners/_build?definitionId=3)
 [![License](https://img.shields.io/github/license/37miners/bmw.svg)](https://github.com/37miners/bmw/blob/master/LICENSE)
 [![Release Version](https://img.shields.io/github/v/release/37miners/bmw.svg)](https://github.com/37miners/bmw/releases)
+[![Code Coverage](https://img.shields.io/static/v1?label=Code%20Coverage&message=100.00%&color=blue)](https://github.com/cgilliard/bmw/blob/main/docs/bmw.svg)
 
 
 # BMW
