@@ -10,7 +10,5 @@ Core libraries for Bitcoin Mimblewimble (BMW).
 See documentation [here](https://37miners.github.io/bmw/).
 
 <p align="center">
-
-![bmw](https://user-images.githubusercontent.com/7232183/183282880-e3fac338-7ea6-44ab-b7f2-40c605d297c2.jpeg)
-
+<img src="https://user-images.githubusercontent.com/7232183/183282880-e3fac338-7ea6-44ab-b7f2-40c605d297c2.jpeg"/>
 </p>
