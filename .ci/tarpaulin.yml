@@ -25,7 +25,7 @@ steps:
    then
         echo "updating"
         gnuplot -e "set terminal svg;  plot 'docs/tarpaulin_summary.txt' using 1:2 with lines" > docs/bmw.svg ;
-        echo "$timestamp\t${splitIFS[0]}" >> docs/tarpaulin_summary.txt
+        echo "$timestamp        ${splitIFS[0]}" >> docs/tarpaulin_summary.txt
         git add --all
         git commit -m"Pipelines-Bot: Updated site Source Version is $(Build.SourceVersion)";
         git push https://$(github_pat)@github.com/37miners/bmw.git
