@@ -103,7 +103,6 @@ impl From<std::io::Error> for Error {
 mod test {
 	use crate::{Error, ErrorKind};
 	use bmw_deps::substring::Substring;
-	use std::env;
 
 	fn check_error<T: Sized, Q>(r: Result<T, Q>, ematch: Error) -> Result<(), Error>
 	where
