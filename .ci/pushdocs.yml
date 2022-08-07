@@ -1,0 +1,27 @@
+steps:
+- script: |
+   git clone https://anything:$(github_pat)@github.com/37miners/bmw.git bmw_new 
+   cd bmw_new
+   git config user.name "Pipeline-Bot"
+   git checkout main
+   cargo doc
+   mkdir -p docs/bmw_err
+   mkdir -p docs/bmw_crypt
+
+   cp -pr target/doc/bmw_err/* docs/bmw_err
+   cp -pr target/doc/bmw_crypt/* docs/bmw_crypt
+
+   changes_error=`git diff HEAD^^ HEAD --name-only | grep "^error" | wc -l`
+   changes_crypt=`git diff HEAD^^ HEAD --name-only | grep "^crypt" | wc -l`
+
+   if [ $changes_error -eq 0 && $changes_crypt -eq 0 ]
+   then
+      echo "no changes to relevant directories, not pushing"
+   else
+      git add --all
+      git commit -m"Pipelines-Bot: Updated site Source Version is $(Build.SourceVersion)";
+      git push https://$(github_pat)@github.com/37miners/bmw.git
+   fi
+
+  displayName: 'Create and Push Docs'
+  condition: succeeded()
