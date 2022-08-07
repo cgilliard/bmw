@@ -26,20 +26,20 @@ pub struct Error {
 pub enum ErrorKind {
 	/// IOError Error
 	#[fail(display = "IOError Error: {}", _0)]
-	IOError(String),
+	IO(String),
 	/// UTF8 Error
 	#[fail(display = "UTF8 Error: {}", _0)]
-	Utf8Error(String),
+	Utf8(String),
 	/// ArrayIndexOutOfBounds
 	#[fail(display = "ArrayIndexOutofBounds: {}", _0)]
 	ArrayIndexOutofBounds(String),
-	/// EventHandlerConfigurationError
+	/// Configuration Error
 	#[fail(display = "Configuration Error: {}", _0)]
 	Configuration(String),
 	/// Poison error multiple locks
 	#[fail(display = "Poison Error: {}", _0)]
 	Poison(String),
-	/// CorruptedDataError
+	/// CorruptedData
 	#[fail(display = "Corrupted Data Error: {}", _0)]
 	CorruptedData(String),
 	/// Timeout
@@ -48,7 +48,7 @@ pub enum ErrorKind {
 	/// Capacity Exceeded
 	#[fail(display = "Capacity Exceeded: {}", _0)]
 	CapacityExceeded(String),
-	/// UnexpectedEof error
+	/// UnexpectedEof Error
 	#[fail(display = "UnexpectedEOF: {}", _0)]
 	UnexpectedEof(String),
 	/// IllegalArgument
