@@ -1,0 +1,37 @@
+<html>
+	<head>
+		<title>Code Coverage Report</title>
+	</head>
+	<body>
+		<div class="chart">
+			<canvas id="chart"></canvas>
+		</div>
+		<script>
+			let raw_data = [100.00, 100.00, 100.00];
+			let labels = [1659895655, 1659896021, 1659906423];
+
+			const data = {
+				labels: labels,
+				datasets: [{
+					label: 'Code Coverage',
+					backgroundColor: 'rgb(74, 20, 140)',
+					borderColor: 'rgb(74, 20, 140)',
+					raw_data,
+				}]
+			};
+
+			const config = {
+				type: 'line',
+				data: data,
+				options: {}
+			};
+
+			const chart = new Chart(
+				document.getElementById('chart'),
+				config
+			);
+
+		</script>
+	</body>
+</html>
+
