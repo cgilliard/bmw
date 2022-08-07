@@ -105,7 +105,7 @@ impl From<ErrorKind> for Error {
 impl From<std::io::Error> for Error {
 	fn from(e: std::io::Error) -> Error {
 		Error {
-			inner: Context::new(ErrorKind::IOError(format!("{}", e))),
+			inner: Context::new(ErrorKind::IO(format!("{}", e))),
 		}
 	}
 }
