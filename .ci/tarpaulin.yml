@@ -15,9 +15,9 @@ steps:
    read -rasplitIFS<<< "$str"
    timestamp=$(date +%s)
    echo "${splitIFS[0]} $timestamp" >> docs/tarpaulin_summary.txt
-   git add --all
-   git commit -m"Pipelines-Bot: Updated site Source Version is $(Build.SourceVersion)";
-   git push https://$(github_pat)@github.com/37miners/bmw.git
+   #git add --all
+   #git commit -m"Pipelines-Bot: Updated site Source Version is $(Build.SourceVersion)";
+   #git push https://$(github_pat)@github.com/37miners/bmw.git
 
   displayName: 'Code Coverage'
   condition: succeeded()
