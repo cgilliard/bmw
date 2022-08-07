@@ -14,3 +14,4 @@
 
 pub use failure;
 pub use failure_derive;
+pub use substring;

@@ -24,15 +24,15 @@ pub struct Error {
 /// Kinds of errors that can occur
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
-	/// IOError Error
-	#[fail(display = "IOError Error: {}", _0)]
+	/// IO Error
+	#[fail(display = "IO Error: {}", _0)]
 	IO(String),
 	/// UTF8 Error
 	#[fail(display = "UTF8 Error: {}", _0)]
 	Utf8(String),
 	/// ArrayIndexOutOfBounds
 	#[fail(display = "ArrayIndexOutofBounds: {}", _0)]
-	ArrayIndexOutofBounds(String),
+	ArrayIndexOutOfBounds(String),
 	/// Configuration Error
 	#[fail(display = "Configuration Error: {}", _0)]
 	Configuration(String),
@@ -58,18 +58,7 @@ pub enum ErrorKind {
 
 impl Display for Error {
 	fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-		let cause = match self.cause() {
-			Some(c) => format!("{}", c),
-			None => String::from("Unknown"),
-		};
-		let backtrace = match self.backtrace() {
-			Some(b) => format!("{}", b),
-			None => String::from("Unknown"),
-		};
-		let output = format!(
-			"{} \n Cause: {} \n Backtrace: {}",
-			self.inner, cause, backtrace
-		);
+		let output = format!("{} \n Backtrace: {:?}", self.inner, self.backtrace());
 		Display::fmt(&output, f)
 	}
 }
@@ -107,5 +96,53 @@ impl From<std::io::Error> for Error {
 		Error {
 			inner: Context::new(ErrorKind::IO(format!("{}", e))),
 		}
+	}
+}
+
+#[cfg(test)]
+mod test {
+	use crate::{Error, ErrorKind};
+	use bmw_deps::substring::Substring;
+	use std::env;
+
+	fn check_error<T: Sized, Q>(r: Result<T, Q>, ematch: Error) -> Result<(), Error>
+	where
+		crate::Error: From<Q>,
+	{
+		if let Err(r) = r {
+			let e: Error = r.into();
+			assert_eq!(
+				e.to_string().substring(0, e.inner().len()),
+				ematch.to_string().substring(0, e.inner().len())
+			);
+			assert_eq!(
+				e.kind().to_string(),
+				ematch.to_string().substring(0, e.kind().to_string().len())
+			);
+			assert!(e.cause().is_none());
+			assert!(e.backtrace().is_some());
+			assert_eq!(e.inner(), ematch.to_string().substring(0, e.inner().len()),);
+			println!("e.backtrace()={:?}", e.backtrace());
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn test_errors() -> Result<(), Error> {
+		env::remove_var("RUST_BACKTRACE");
+		check_error(
+			std::fs::File::open("/no/path/here"),
+			ErrorKind::IO("No such file or directory (os error 2)".to_string()).into(),
+		)?;
+		env::set_var("RUST_BACKTRACE", "1");
+		check_error(
+			std::fs::File::open("/no/path/here"),
+			ErrorKind::IO("No such file or directory (os error 2)".to_string()).into(),
+		)?;
+
+		let error: Error = ErrorKind::ArrayIndexOutOfBounds("test".to_string()).into();
+		println!("error={}", error);
+
+		Ok(())
 	}
 }
