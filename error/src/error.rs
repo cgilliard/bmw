@@ -124,7 +124,10 @@ mod test {
 			);
 			assert!(e.cause().is_none());
 			assert!(e.backtrace().is_some());
-			assert_eq!(e.inner(), ematch.to_string().substring(0, e.inner().len()),);
+			assert_eq!(
+				e.inner().substring(0, 9),
+				ematch.to_string().substring(0, 9),
+			);
 			println!("e.backtrace()={:?}", e.backtrace());
 		}
 		Ok(())
