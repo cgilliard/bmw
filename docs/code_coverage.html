@@ -67,6 +67,52 @@
 			);
 
 		</script>
+
+		Raw tarpaulin output:
+		<textarea contenteditable='false'>
+Aug 07 16:12:02.879  INFO cargo_tarpaulin::config: Creating config
+Aug 07 16:12:02.901  INFO cargo_tarpaulin: Running Tarpaulin
+Aug 07 16:12:02.901  INFO cargo_tarpaulin: Building project
+   Compiling bmw v0.0.1-beta1 (/home/chris/cgilliard/bmw)
+    Finished test [unoptimized + debuginfo] target(s) in 0.63s
+Aug 07 16:12:03.586  INFO cargo_tarpaulin::process_handling::linux: Launching test
+Aug 07 16:12:03.586  INFO cargo_tarpaulin::process_handling: running /home/chris/cgilliard/bmw/target/debug/deps/bmw_deps-b30134f2f46529f5
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Aug 07 16:12:04.046  INFO cargo_tarpaulin::process_handling::linux: Launching test
+Aug 07 16:12:04.046  INFO cargo_tarpaulin::process_handling: running /home/chris/cgilliard/bmw/target/debug/deps/bmw_err-40bf503c0307e1cd
+
+running 1 test
+test error::test::test_errors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+Aug 07 16:12:04.526  INFO cargo_tarpaulin::process_handling::linux: Launching test
+Aug 07 16:12:04.526  INFO cargo_tarpaulin::process_handling: running /home/chris/cgilliard/bmw/target/debug/deps/bmw_crypt-17b7658160340539
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Aug 07 16:12:04.714  INFO cargo_tarpaulin::process_handling::linux: Launching test
+Aug 07 16:12:04.714  INFO cargo_tarpaulin::process_handling: running /home/chris/cgilliard/bmw/target/debug/deps/bmw-2bf949c7706d0a82
+
+running 1 test
+test test::test_main ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+Aug 07 16:12:05.183  INFO cargo_tarpaulin::report: Coverage Results:
+|| Uncovered Lines:
+|| Tested/Total Lines:
+|| error/src/error.rs: 37/37 +0.00%
+|| src/main.rs: 5/5 +0.00%
+|| 
+100.00% coverage, 42/42 lines covered, +0% change in coverage
+		</textarea>
 	</body>
 </html>
 
