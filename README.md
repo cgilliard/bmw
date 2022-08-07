@@ -3,7 +3,7 @@
 [![Release Version](https://img.shields.io/github/v/release/37miners/bmw.svg)](https://github.com/37miners/bmw/releases)
 
 
-# bmw
+# BMW
 
 Core libraries for Bitcoin Mimblewimble (BMW).
 
