@@ -1,0 +1,31 @@
+[package]
+name = "bmw"
+version = "0.0.1-beta1"
+authors = ["BMW Develoeprs"]
+description = "Bitcoin Mimblewimble (BMW) core libraries"
+license = "Apache-2.0"
+repository = "https://github.com/37miners/bmw"
+keywords = [ "crypto", "bitcoinmw"]
+readme = "README.md"
+exclude = ["**/*.bmw", "**/*.bmw"]
+build = "src/build/build.rs"
+edition = "2018"
+
+[workspace]
+members = [
+	"error", "deps"
+]
+exclude = ["etc"]
+
+[dependencies]
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+jemallocator = "0.5.0"
+
+bmw_err   = { path = "./error" }
+bmw_deps  = { path = "./deps"  }
+bmw_crypt = { path = "./crypt" }
+
+[build-dependencies]
+built = { version = "0.5.1", features = ["git2"]}
+
