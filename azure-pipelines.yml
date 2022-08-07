@@ -74,3 +74,14 @@ jobs:
         choco install -y llvm
       displayName: Windows Install Dependencies
     - template: '.ci/test.yml'
+- job: Docs
+  timeoutInMinutes: 60
+  pool:
+    vmImage: ubuntu-latest
+  strategy:
+    matrix:
+      release:
+        CI_JOB: release
+        PLATFORM: linux-amd64
+  steps:
+    - template: '.ci/pushdocs.yml'
