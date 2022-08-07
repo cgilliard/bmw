@@ -2,7 +2,7 @@ steps:
 - script: |
    git clone https://anything:$(github_pat)@github.com/37miners/bmw.git bmw_new 
    cd bmw_new
-   git config user.name "Pipeline-Bot"
+   git config user.name "Pipelines-Bot"
    git checkout main
    cargo doc
    mkdir -p docs/bmw_err
