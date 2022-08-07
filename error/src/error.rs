@@ -27,7 +27,7 @@ pub enum ErrorKind {
 	/// IOError Error
 	#[fail(display = "IOError Error: {}", _0)]
 	IOError(String),
-	/// UTF8Error
+	/// UTF8 Error
 	#[fail(display = "UTF8 Error: {}", _0)]
 	Utf8Error(String),
 	/// ArrayIndexOutOfBounds
