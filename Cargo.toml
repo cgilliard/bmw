@@ -19,12 +19,12 @@ exclude = ["etc"]
 
 [dependencies]
 
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-jemallocator = "0.5.0"
-
 bmw_err   = { path = "./error" }
 bmw_deps  = { path = "./deps"  }
 bmw_crypt = { path = "./crypt" }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+jemallocator = "0.5.0"
 
 [build-dependencies]
 built = { version = "0.5.1", features = ["git2"]}
