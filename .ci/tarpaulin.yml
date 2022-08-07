@@ -1,0 +1,22 @@
+steps:
+- script: |
+   sudo apt-get update -yqq
+   sudo apt-get install -yqq --no-install-recommends libncursesw5-dev tor libssl-dev
+   git clone https://anything:$(github_pat)@github.com/37miners/bmw.git bmw_new 
+   cd bmw_new
+   git config user.name "Pipelines-Bot"
+   git checkout main
+   cargo tarpaulin --all > /tmp/tarpaulin.out
+   last=$( tail -n 1 /tmp/tarpaulin.out )
+   spl=( $last )
+   str=${spl[0]}
+   IFS='%';
+   read -rasplitIFS<<< "$str"
+   timestamp=$(date +%s)
+   echo "${splitIFS[0]} $timestamp" >> docs/tarpaulin_summary.txt
+   git add --all
+   git commit -m"Pipelines-Bot: Updated site Source Version is $(Build.SourceVersion)";
+   git push https://$(github_pat)@github.com/37miners/bmw.git
+
+  displayName: 'Code Coverage'
+  condition: succeeded()
