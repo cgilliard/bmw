@@ -1,0 +1,17 @@
+[package]
+name = "bmw_deps"
+version = "0.0.1-beta1"
+authors = ["BMW Develoeprs"]
+description = "Dependencies this library"
+license = "Apache-2.0"
+repository = "https://github.com/37miners/bmw"
+keywords = [ "crypto", "bitcoinmw"]
+readme = "README.md"
+exclude = ["**/*.bmw", "**/*.bmw"]
+edition = "2018"
+
+[dependencies]
+failure = "0.1.0"
+failure_derive = "0.1.0"
+
+
