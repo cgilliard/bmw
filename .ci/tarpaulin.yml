@@ -2,6 +2,7 @@ steps:
 - script: |
    sudo apt-get update -yqq
    sudo apt-get install -yqq --no-install-recommends libncursesw5-dev tor libssl-dev
+   cargo install cargo-tarpaulin
    git clone https://anything:$(github_pat)@github.com/37miners/bmw.git bmw_new 
    cd bmw_new
    git config user.name "Pipelines-Bot"
