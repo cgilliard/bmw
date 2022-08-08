@@ -33,6 +33,8 @@ steps:
         chmod 755 ./.ci/make_cc_graph.sh 
         ./.ci/make_cc_graph.sh
 
+        git config --global user.email "pipelinesbot.noreply@37miners.com"
+        git config --global user.name "Pipelines-Bot"
         git add --all
         git commit -m"Pipelines-Bot: Updated site Source Version is $(Build.SourceVersion)";
         git push https://$(github_pat)@github.com/37miners/bmw.git
