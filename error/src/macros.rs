@@ -12,6 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Build the specified [`crate::ErrorKind`] and convert it into an [`crate::Error`]. The desired
+/// [`crate::ErrorKind`] is specified using the [`crate::ErrKind`] name enum.
+///
+/// Example:
+///
+///```
+/// use bmw_err::{Error, ErrorKind, ErrKind, errkind};
+///
+/// fn show_err_kind(do_error: bool) -> Result<(), Error> {
+///     let e = errkind!(ErrKind::Configuration, "invalid parameter name");
+///
+///     if do_error {
+///         return Err(e);
+///     }
+///
+///     Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! errkind {
 	($kind:expr, $msg:expr) => {{
@@ -74,6 +92,26 @@ macro_rules! errkind {
 	}};
 }
 
+/// Map the specified error into the [`crate::ErrKind`] enum name from this crate.
+/// Optionally specify an additional message to be included in the error.
+///
+/// Example:
+///
+///```
+/// use bmw_err::{Error, ErrorKind, ErrKind, map_err};
+/// use std::fs::File;
+/// use std::io::Write;
+///
+/// fn show_map_err(do_error: bool) -> Result<(), Error> {
+///     let file = map_err!(File::open("/path/to/something"), ErrKind::IO, "file open failed")?;
+///     println!("file_type={:?}", file.metadata()?.file_type());
+///
+///     let mut x = map_err!(File::open("/invalid/log/path.log"), ErrKind::Log)?;
+///     x.write(b"test")?;
+///
+///     Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! map_err {
 	($in_err:expr, $kind:expr) => {{

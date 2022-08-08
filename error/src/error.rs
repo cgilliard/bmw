@@ -16,13 +16,13 @@ use bmw_deps::failure::{Backtrace, Context, Fail};
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
 
-/// Base Error struct which is used throught this crate
+/// Base Error struct which is used throughout bmw.
 #[derive(Debug, Fail)]
 pub struct Error {
 	inner: Context<ErrorKind>,
 }
 
-/// Kinds of errors that can occur
+/// Kinds of errors that can occur.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum ErrorKind {
 	/// IO Error
@@ -63,18 +63,33 @@ pub enum ErrorKind {
 	Misc(String),
 }
 
+/// The names of ErrorKinds in this crate. This enum is used to map to error
+/// names using the [`crate::errkind`] and [`crate::map_err`] macros.
 pub enum ErrKind {
+	/// IO Error.
 	IO,
+	/// Log Error.
 	Log,
+	/// A conversion to the utf8 format resulted in an error.
 	Utf8,
+	/// An array index was out of bounds.
 	ArrayIndexOutOfBounds,
+	/// Configuration error.
 	Configuration,
+	/// Attempt to obtain a lock resulted in a poison error. See [`std::sync::PoisonError`]
+	/// for further details.
 	Poison,
+	/// Data is corrupted.
 	CorruptedData,
+	/// A timeout has occurred.
 	Timeout,
+	/// The capacity is exceeded.
 	CapacityExceeded,
+	/// Unexpected end of file.
 	UnexpectedEof,
+	/// Illegal argument was specified.
 	IllegalArgument,
+	/// A Miscellaneous Error occurred.
 	Misc,
 }
 
@@ -86,20 +101,22 @@ impl Display for Error {
 }
 
 impl Error {
-	/// get kind
+	/// get the kind of error that occurred.
 	pub fn kind(&self) -> ErrorKind {
 		self.inner.get_context().clone()
 	}
-	/// get cause
+
+	/// get the cause (if available) of this error.
 	pub fn cause(&self) -> Option<&dyn Fail> {
 		self.inner.cause()
 	}
-	/// get backtrace
+
+	/// get the backtrace (if available) of this error.
 	pub fn backtrace(&self) -> Option<&Backtrace> {
 		self.inner.backtrace()
 	}
 
-	/// get inner
+	/// get the inner error as a string.
 	pub fn inner(&self) -> String {
 		self.inner.to_string()
 	}
