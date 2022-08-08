@@ -7,8 +7,8 @@
 
 # BMW
 
-Core libraries for Bitcoin Mimblewimble (BMW).
-
 <p align="center">
 <img src="https://user-images.githubusercontent.com/7232183/183282880-e3fac338-7ea6-44ab-b7f2-40c605d297c2.jpeg"/>
 </p>
+
+Core libraries for Bitcoin Mimblewimble (BMW).
