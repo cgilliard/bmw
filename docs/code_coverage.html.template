@@ -50,14 +50,8 @@
 					hours + ':' + minutes + ':' + seconds + ' ' + am_pm;
 			}
 
-			let raw_data = [100.00,
-100.00,
-100.00,
-100.00,];
-			let labels = [format_date(1659895655 * 1000 ),
-format_date(1659896021 * 1000 ),
-format_date(1659908181 * 1000 ),
-format_date(1659913250 * 1000 ),];
+			let raw_data = [REPLACECOVERAGE];
+			let labels = [REPLACETIMESTAMP];
 
 			const data = {
 				labels: labels,
@@ -85,12 +79,7 @@ format_date(1659913250 * 1000 ),];
 		<p align="center">
 			Raw tarpaulin output:<br/>
 			<textarea readonly class="textarea" rows="50" cols="100">
-				this is tarp out
-1
-2
-3
-4
-end
+				REPLACETARPAULINOUTPUT
 			</textarea>
 		</p>
 	</body>
