@@ -26,6 +26,10 @@ steps:
    then
         echo "updating"
         echo "$timestamp ${splitIFS[0]}" >> docs/tarpaulin_summary.txt
+
+        cp README.md.template README.md
+        export ccvalue=${splitIFS[0]}
+        perl -pi -e 's/CODECOVERAGE/$ENV{ccvalue}/g' README.md
        
         chmod 755 ./.ci/make_cc_graph.sh 
         ./.ci/make_cc_graph.sh
