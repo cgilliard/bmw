@@ -1,8 +1,8 @@
 [package]
 name = "bmw_deps"
-version = "0.0.1-beta1"
+version = "0.0.2-beta1"
 authors = ["BMW Develoeprs"]
-description = "Dependencies this library"
+description = "Dependencies of this library"
 license = "Apache-2.0"
 repository = "https://github.com/37miners/bmw"
 keywords = [ "crypto", "bitcoinmw"]
@@ -14,4 +14,8 @@ edition = "2018"
 failure = "0.1.0"
 failure_derive = "0.1.0"
 substring = "1.4.5"
-
+colored = "2.0.0"
+rand = "0.8.4"
+lazy_static = "1.4.0"
+backtrace = "0.3.63"
+chrono = "0.4"

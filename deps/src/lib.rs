@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use backtrace;
+pub use chrono;
+pub use colored;
 pub use failure;
 pub use failure_derive;
+pub use lazy_static;
+pub use rand;
 pub use substring;
