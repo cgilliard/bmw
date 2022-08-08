@@ -57,8 +57,8 @@
 				labels: labels,
 				datasets: [{
 					label: 'Code Coverage',
-					backgroundColor: 'rgb(74, 20, 140)',
-					borderColor: 'rgb(74, 20, 140)',
+					backgroundColor: 'rgb(31,176,245)',
+					borderColor: 'rgb(31,176,245)',
 					data: raw_data,
 				}]
 			};
@@ -78,9 +78,7 @@
 
 		<p align="center">
 			Raw tarpaulin output:<br/>
-			<textarea readonly class="textarea" rows="50" cols="100">
-				REPLACETARPAULINOUTPUT
-			</textarea>
+			<textarea readonly class="textarea" rows="50" cols="100">REPLACETARPAULINOUTPUT</textarea>
 		</p>
 	</body>
 </html>
