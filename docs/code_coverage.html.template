@@ -78,9 +78,7 @@
 
 		<p align="center">
 			Raw tarpaulin output:<br/>
-			<textarea readonly class="textarea" rows="50" cols="100">
-				REPLACETARPAULINOUTPUT
-			</textarea>
+			<textarea readonly class="textarea" rows="50" cols="100">REPLACETARPAULINOUTPUT</textarea>
 		</p>
 	</body>
 </html>
