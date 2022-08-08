@@ -1,7 +1,5 @@
 use bmw_err::Error;
 
-fn test() {}
-
 fn main() -> Result<(), Error> {
 	Ok(())
 }
