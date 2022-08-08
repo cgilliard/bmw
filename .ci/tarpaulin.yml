@@ -1,6 +1,5 @@
 steps:
 - script: |
-   sudo apt-get install gnuplot
    sudo apt-get update -yqq
    sudo apt-get install -yqq --no-install-recommends libncursesw5-dev tor libssl-dev
    cargo install cargo-tarpaulin
