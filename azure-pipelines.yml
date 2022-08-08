@@ -76,7 +76,7 @@ jobs:
         choco install -y llvm
       displayName: Windows Install Dependencies
     - template: '.ci/test.yml'
-    - template: '.ci/release.yml'
+    - template: '.ci/windows-release.yml'
 - job: docs
   timeoutInMinutes: 60
   pool:
