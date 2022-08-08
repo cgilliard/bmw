@@ -1,8 +1,9 @@
-#!bin/bash
+#!/bin/bash
 
+cp docs/code_coverage.html.template docs/code_coverage.html;
 # copy tarpaulin output into template
 export tarpaulin_output=`cat /tmp/tarpaulin.out`;
-perl -pi -e 's/REPLACETARPAULINOUTPUT/$ENV{tarpaulin_output}/g' docs/code_coverage.html.template
+perl -pi -e 's/REPLACETARPAULINOUTPUT/$ENV{tarpaulin_output}/g' docs/code_coverage.html
 
 # read in data from summary
 entries=`cat docs/tarpaulin_summary.txt`;
@@ -24,8 +25,6 @@ done
 
 # update our template with real values
 export coverage=`cat /tmp/values`;
-perl -pi -e 's/REPLACECOVERAGE/$ENV{coverage}/g' docs/code_coverage.html.template
+perl -pi -e 's/REPLACECOVERAGE/$ENV{coverage}/g' docs/code_coverage.html
 export timestampsv=`cat /tmp/timestamps`;
-perl -pi -e 's/REPLACETIMESTAMP/$ENV{timestampsv}/g' docs/code_coverage.html.template
-cp docs/code_coverage.html.template docs/code_coverage.html;
-git checkout docs/code_coverage.html.template
+perl -pi -e 's/REPLACETIMESTAMP/$ENV{timestampsv}/g' docs/code_coverage.html
