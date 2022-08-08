@@ -57,8 +57,8 @@
 				labels: labels,
 				datasets: [{
 					label: 'Code Coverage',
-					backgroundColor: 'rgb(74, 20, 140)',
-					borderColor: 'rgb(74, 20, 140)',
+					backgroundColor: 'rgb(31,176,245)',
+					borderColor: 'rgb(31,176,245)',
 					data: raw_data,
 				}]
 			};
