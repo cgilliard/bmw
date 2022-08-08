@@ -50,8 +50,16 @@
 					hours + ':' + minutes + ':' + seconds + ' ' + am_pm;
 			}
 
-			let raw_data = [REPLACECOVERAGE];
-			let labels = [REPLACETIMESTAMP];
+			let raw_data = [100.00
+1659896021,
+100.00
+1659913250,
+100.00,];
+			let labels = [format_date(1659895655 * 1000 ),
+format_date(100.00
+1659908181 * 1000 ),
+format_date(100.00
+1659920698 * 1000 ),];
 
 			const data = {
 				labels: labels,
@@ -79,7 +87,47 @@
 		<p align="center">
 			Raw tarpaulin output:<br/>
 			<textarea readonly class="textarea" rows="50" cols="100">
-				REPLACETARPAULINOUTPUT
+				[2mAug 08 01:03:17.208[0m [32m INFO[0m cargo_tarpaulin::config: Creating config
+[2mAug 08 01:03:18.180[0m [32m INFO[0m cargo_tarpaulin: Running Tarpaulin
+[2mAug 08 01:03:18.180[0m [32m INFO[0m cargo_tarpaulin: Building project
+[2mAug 08 01:03:18.180[0m [32m INFO[0m cargo_tarpaulin::cargo: Cleaning project
+[2mAug 08 01:04:55.239[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mAug 08 01:04:55.240[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/bmw_new/target/debug/deps/bmw_deps-9c27b45144457ffb
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[2mAug 08 01:04:56.032[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mAug 08 01:04:56.041[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/bmw_new/target/debug/deps/bmw_err-5c1efbbf9fddee8e
+
+running 1 test
+test error::test::test_errors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+[2mAug 08 01:04:57.305[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mAug 08 01:04:57.305[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/bmw_new/target/debug/deps/bmw_crypt-db3ad5e6b3453352
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[2mAug 08 01:04:57.677[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mAug 08 01:04:57.677[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/bmw_new/target/debug/deps/bmw-40add6e79bee4af8
+
+running 1 test
+test test::test_main ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+[2mAug 08 01:04:58.494[0m [32m INFO[0m cargo_tarpaulin::report: Coverage Results:
+|| Uncovered Lines:
+|| Tested/Total Lines:
+|| error/src/error.rs: 37/37
+|| src/main.rs: 5/5
+|| 
+100.00% coverage, 42/42 lines covered
 			</textarea>
 		</p>
 	</body>
