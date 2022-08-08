@@ -44,6 +44,7 @@ jobs:
         sudo apt-get install -yqq --no-install-recommends libncursesw5-dev tor libssl-dev
       displayName: Linux Install Dependencies
     - template: '.ci/test.yml'
+    - template: '.ci/release.yml'
 - job: macos
   pool:
     vmImage: macos-latest
@@ -59,6 +60,7 @@ jobs:
         brew uninstall llvm
       displayName: macOS Uninstall LLVM
     - template: '.ci/test.yml'
+    - template: '.ci/release.yml'
 - job: windows
   pool:
     vmImage: windows-latest
@@ -74,6 +76,7 @@ jobs:
         choco install -y llvm
       displayName: Windows Install Dependencies
     - template: '.ci/test.yml'
+    - template: '.ci/release.yml'
 - job: docs
   timeoutInMinutes: 60
   pool:

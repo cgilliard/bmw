@@ -1,6 +1,8 @@
 use bmw_err::Error;
 
 fn main() -> Result<(), Error> {
+	println!("not implemented yet");
+
 	Ok(())
 }
 
