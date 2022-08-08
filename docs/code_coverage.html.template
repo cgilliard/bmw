@@ -50,8 +50,8 @@
 					hours + ':' + minutes + ':' + seconds + ' ' + am_pm;
 			}
 
-			let raw_data = [REPLACETIMESTAMP];
-			let labels = [REPLACECOVERAGE];
+			let raw_data = [REPLACECOVERAGE];
+			let labels = [REPLACETIMESTAMP];
 
 			const data = {
 				labels: labels,
