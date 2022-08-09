@@ -15,14 +15,12 @@
 use bmw_err::Error;
 
 pub fn setup_test_dir(test_dir: &str) -> Result<(), Error> {
-	println!("setup {}", test_dir);
 	let _ = std::fs::remove_dir_all(test_dir);
 	std::fs::create_dir_all(test_dir)?;
 	Ok(())
 }
 
 pub fn tear_down_test_dir(test_dir: &str) -> Result<(), Error> {
-	println!("tear down {}", test_dir);
 	let _ = std::fs::remove_dir_all(test_dir);
 	Ok(())
 }

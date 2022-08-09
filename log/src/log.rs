@@ -31,6 +31,13 @@ use std::time::Instant;
 
 const NEWLINE: &[u8] = &['\n' as u8];
 
+#[derive(PartialEq)]
+enum LogType {
+	Regular,
+	All,
+	Plain,
+}
+
 struct LogImpl {
 	config: LogConfig,
 	init: bool,
@@ -40,7 +47,277 @@ struct LogImpl {
 }
 
 impl Log for LogImpl {
+	fn log_all(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error> {
+		self.log_impl(level, line, now, LogType::All)
+	}
+	fn log_plain(
+		&mut self,
+		level: LogLevel,
+		line: &str,
+		now: Option<Instant>,
+	) -> Result<(), Error> {
+		self.log_impl(level, line, now, LogType::Plain)
+	}
 	fn log(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error> {
+		self.log_impl(level, line, now, LogType::Regular)
+	}
+
+	fn rotate(&mut self) -> Result<(), Error> {
+		if !self.init {
+			return Err(errkind!(ErrKind::Log, "log not initialized"));
+		}
+
+		if self.file.is_none() {
+			// no file, nothing to rotate
+			return Ok(());
+		}
+
+		let now: DateTime<Local> = Local::now();
+		let rotation_string = now.format(".r_%m_%d_%Y_%T").to_string().replace(":", "-");
+
+		let original_file_path = match self.config.file_path.clone() {
+			FilePath(file_path) => match file_path {
+				Some(file_path) => file_path,
+				None => {
+					return Err(errkind!(
+						ErrKind::IllegalArgument,
+						"file_path must be of the for FilePath(Option<PathBuf>)"
+					))
+				}
+			},
+			_ => {
+				return Err(errkind!(
+					ErrKind::IllegalArgument,
+					"file_path must be of the for FilePath(Option<PathBuf>)"
+				));
+			}
+		};
+
+		// get the parent directory and the file name
+		let parent = match original_file_path.parent() {
+			Some(parent) => parent,
+			None => {
+				return Err(errkind!(
+					ErrKind::IllegalArgument,
+					"file_path has an unexpected illegal value of None for parent"
+				));
+			}
+		};
+
+		let file_name = match original_file_path.file_name() {
+			Some(file_name) => file_name,
+			None => {
+				return Err(errkind!(
+					ErrKind::IllegalArgument,
+					"file_path has an unexpected illegal value of None for file_name"
+				))
+			}
+		};
+
+		let file_name = match file_name.to_str() {
+			Some(file_name) => file_name,
+			None => {
+				return Err(errkind!(
+					ErrKind::IllegalArgument,
+					"file_path has an unexpected illegal value of None for file_name"
+				))
+			}
+		};
+
+		let mut new_file_path_buf = parent.to_path_buf();
+		let file_name = match file_name.rfind(".") {
+			Some(pos) => &file_name[0..pos],
+			_ => &file_name,
+		};
+		let file_name = format!("{}{}_{}.log", file_name, rotation_string, random::<u64>());
+		new_file_path_buf.push(file_name);
+
+		match self.config.delete_rotation {
+			DeleteRotation(delete_rotation) => {
+				if delete_rotation {
+					remove_file(&original_file_path)?;
+				} else {
+					rename(&original_file_path, new_file_path_buf.clone())?;
+				}
+			}
+			_ => {
+				return Err(errkind!(
+					ErrKind::IllegalArgument,
+					"delete_rotation has an unexpected illegal value"
+				))
+			}
+		}
+
+		let mut open_options = OpenOptions::new();
+		let open_options = open_options.append(true).create(true);
+		let mut file = open_options.open(&original_file_path)?;
+		self.check_open(&mut file, &original_file_path)?;
+		self.file = Some(file);
+
+		Ok(())
+	}
+
+	fn need_rotate(&self, now: Option<Instant>) -> Result<bool, Error> {
+		if !self.init {
+			return Err(errkind!(ErrKind::Log, "log not initialized"));
+		}
+
+		let now = now.unwrap_or(Instant::now());
+
+		let max_age_millis = match self.config.max_age_millis {
+			MaxAgeMillis(m) => m,
+			_ => {
+				// should not get here, but return an error if we do
+				return Err(errkind!(
+					ErrKind::IllegalArgument,
+					"max_age_millis must be of form MaxAgeMillis(u128)"
+				));
+			}
+		};
+		let max_size_bytes = match self.config.max_size_bytes {
+			MaxSizeBytes(m) => m,
+			_ => {
+				// should not get here, but return an error if we do
+				return Err(errkind!(
+					ErrKind::IllegalArgument,
+					"max_size_bytes must be of form MaxSizeBytes(u64)"
+				));
+			}
+		};
+
+		if now.duration_since(self.last_rotation).as_millis() > max_age_millis
+			|| self.cur_size > max_size_bytes
+		{
+			Ok(true)
+		} else {
+			Ok(false)
+		}
+	}
+
+	fn init(&mut self) -> Result<(), Error> {
+		if self.init {
+			return Err(errkind!(ErrKind::Log, "log already initialized"));
+		}
+
+		match self.config.file_path.clone() {
+			FilePath(file_path) => match file_path {
+				Some(file_path) => {
+					let mut file = if file_path.exists() {
+						OpenOptions::new().append(true).open(file_path.clone())
+					} else {
+						OpenOptions::new()
+							.append(true)
+							.create(true)
+							.open(file_path.clone())
+					}?;
+					self.check_open(&mut file, &file_path)?;
+					self.file = Some(file);
+				}
+				None => {}
+			},
+			_ => {
+				// should not be able to get here
+				return Err(errkind!(
+					ErrKind::Log,
+					"file_path must be of the form FilePath(Option<PathBuf>)"
+				));
+			}
+		}
+
+		self.init = true;
+
+		Ok(())
+	}
+	fn set_config_option(&mut self, value: LogConfigOption) -> Result<(), Error> {
+		match value {
+			Colors(_) => {
+				self.config.colors = value;
+			}
+			Stdout(_) => {
+				self.config.stdout = value;
+			}
+			MaxSizeBytes(_) => {
+				self.config.max_size_bytes = value;
+			}
+			MaxAgeMillis(_) => {
+				self.config.max_age_millis = value;
+			}
+			Timestamp(_) => {
+				self.config.timestamp = value;
+			}
+			Level(_) => {
+				self.config.level = value;
+			}
+			LineNum(_) => {
+				self.config.line_num = value;
+			}
+			ShowMillis(_) => {
+				self.config.show_millis = value;
+			}
+			AutoRotate(_) => {
+				self.config.auto_rotate = value;
+			}
+			FilePath(_) => {
+				return Err(errkind!(
+					ErrKind::Log,
+					"filepath cannot be set after log is initialized"
+				));
+			}
+			ShowBt(_) => {
+				self.config.show_bt = value;
+			}
+			LineNumDataMaxLen(_) => {
+				self.config.line_num_data_max_len = value;
+			}
+			DeleteRotation(_) => {
+				self.config.delete_rotation = value;
+			}
+			FileHeader(_) => {
+				self.config.file_header = value;
+			}
+		}
+
+		Ok(())
+	}
+	fn get_config_option(&self, option: LogConfigOptionName) -> Result<&LogConfigOption, Error> {
+		Ok(match option {
+			LogConfigOptionName::Colors => &self.config.colors,
+			LogConfigOptionName::Stdout => &self.config.stdout,
+			LogConfigOptionName::MaxSizeBytes => &self.config.max_size_bytes,
+			LogConfigOptionName::MaxAgeMillis => &self.config.max_age_millis,
+			LogConfigOptionName::Timestamp => &self.config.timestamp,
+			LogConfigOptionName::Level => &self.config.level,
+			LogConfigOptionName::LineNum => &self.config.line_num,
+			LogConfigOptionName::ShowMillis => &self.config.show_millis,
+			LogConfigOptionName::AutoRotate => &self.config.auto_rotate,
+			LogConfigOptionName::FilePath => &self.config.file_path,
+			LogConfigOptionName::ShowBt => &self.config.show_bt,
+			LogConfigOptionName::LineNumDataMaxLen => &self.config.line_num_data_max_len,
+			LogConfigOptionName::DeleteRotation => &self.config.delete_rotation,
+			LogConfigOptionName::FileHeader => &self.config.file_header,
+		})
+	}
+}
+
+impl LogImpl {
+	fn new(config: LogConfig) -> Result<Self, Error> {
+		Self::check_config(&config)?;
+		Ok(Self {
+			config,
+			init: false,
+			file: None,
+			cur_size: 0,
+			last_rotation: Instant::now(),
+		})
+	}
+
+	fn log_impl(
+		&mut self,
+		level: LogLevel,
+		line: &str,
+		now: Option<Instant>,
+		log_type: LogType,
+	) -> Result<(), Error> {
 		if !self.init {
 			return Err(errkind!(ErrKind::Log, "log not initialized"));
 		}
@@ -48,7 +325,7 @@ impl Log for LogImpl {
 		self.rotate_if_needed(now)?;
 
 		let show_stdout = match self.config.stdout {
-			Stdout(s) => s,
+			Stdout(s) => s || log_type == LogType::All,
 			_ => {
 				return Err(errkind!(
 					ErrKind::IllegalArgument,
@@ -58,7 +335,7 @@ impl Log for LogImpl {
 		};
 
 		let show_timestamp = match self.config.timestamp {
-			Timestamp(t) => t,
+			Timestamp(t) => t && log_type != LogType::Plain,
 			_ => {
 				return Err(errkind!(
 					ErrKind::IllegalArgument,
@@ -78,7 +355,7 @@ impl Log for LogImpl {
 		};
 
 		let show_log_level = match self.config.level {
-			Level(l) => l,
+			Level(l) => l && log_type != LogType::Plain,
 			_ => {
 				return Err(errkind!(
 					ErrKind::IllegalArgument,
@@ -88,7 +365,7 @@ impl Log for LogImpl {
 		};
 
 		let show_line_num = match self.config.line_num {
-			LineNum(l) => l,
+			LineNum(l) => l && log_type != LogType::Plain,
 			_ => {
 				return Err(errkind!(
 					ErrKind::IllegalArgument,
@@ -98,7 +375,7 @@ impl Log for LogImpl {
 		};
 
 		let show_millis = match self.config.show_millis {
-			ShowMillis(m) => m,
+			ShowMillis(m) => m && log_type != LogType::Plain,
 			_ => {
 				return Err(errkind!(
 					ErrKind::IllegalArgument,
@@ -122,8 +399,18 @@ impl Log for LogImpl {
 		if show_timestamp {
 			let date = Local::now();
 			let millis = date.timestamp_millis() % 1_000;
+			let mut millis_format = format!("{}", millis);
+			if millis < 100 {
+				millis_format = format!("0{}", millis_format);
+			}
+			if millis < 10 {
+				millis_format = format!("0{}", millis_format);
+			}
+			if millis < 1 {
+				millis_format = format!("0{}", millis_format);
+			}
 			let formatted_timestamp = if show_millis {
-				format!("{}.{}", date.format("%Y-%m-%d %H:%M:%S"), millis)
+				format!("{}.{}", date.format("%Y-%m-%d %H:%M:%S"), millis_format)
 			} else {
 				format!("{}", date.format("%Y-%m-%d %H:%M:%S"))
 			};
@@ -278,254 +565,6 @@ impl Log for LogImpl {
 		}
 
 		Ok(())
-	}
-
-	fn rotate(&mut self) -> Result<(), Error> {
-		if !self.init {
-			return Err(errkind!(ErrKind::Log, "log not initialized"));
-		}
-
-		if self.file.is_none() {
-			// no file, nothing to rotate
-			return Ok(());
-		}
-
-		let now: DateTime<Local> = Local::now();
-		let rotation_string = now.format(".r_%m_%d_%Y_%T").to_string().replace(":", "-");
-
-		let original_file_path = match self.config.file_path.clone() {
-			FilePath(file_path) => match file_path {
-				Some(file_path) => file_path,
-				None => {
-					return Err(errkind!(
-						ErrKind::IllegalArgument,
-						"file_path must be of the for FilePath(Option<PathBuf>)"
-					))
-				}
-			},
-			_ => {
-				return Err(errkind!(
-					ErrKind::IllegalArgument,
-					"file_path must be of the for FilePath(Option<PathBuf>)"
-				));
-			}
-		};
-
-		// get the parent directory and the file name
-		let parent = match original_file_path.parent() {
-			Some(parent) => parent,
-			None => {
-				return Err(errkind!(
-					ErrKind::IllegalArgument,
-					"file_path has an unexpected illegal value of None for parent"
-				));
-			}
-		};
-
-		let file_name = match original_file_path.file_name() {
-			Some(file_name) => file_name,
-			None => {
-				return Err(errkind!(
-					ErrKind::IllegalArgument,
-					"file_path has an unexpected illegal value of None for file_name"
-				))
-			}
-		};
-
-		let file_name = match file_name.to_str() {
-			Some(file_name) => file_name,
-			None => {
-				return Err(errkind!(
-					ErrKind::IllegalArgument,
-					"file_path has an unexpected illegal value of None for file_name"
-				))
-			}
-		};
-
-		let mut new_file_path_buf = parent.to_path_buf();
-		let file_name = match file_name.rfind(".") {
-			Some(pos) => &file_name[0..pos],
-			_ => &file_name,
-		};
-		let file_name = format!("{}{}_{}.log", file_name, rotation_string, random::<u64>());
-		new_file_path_buf.push(file_name);
-
-		match self.config.delete_rotation {
-			DeleteRotation(delete_rotation) => {
-				if delete_rotation {
-					remove_file(&original_file_path)?;
-				} else {
-					rename(&original_file_path, new_file_path_buf.clone())?;
-				}
-			}
-			_ => {
-				return Err(errkind!(
-					ErrKind::IllegalArgument,
-					"delete_rotation has an unexpected illegal value"
-				))
-			}
-		}
-
-		let mut file = OpenOptions::new()
-			.append(true)
-			.create(true)
-			.open(&original_file_path)?;
-		self.check_open(&mut file, &original_file_path)?;
-		self.file = Some(file);
-
-		Ok(())
-	}
-
-	fn rotation_needed(&self, now: Option<Instant>) -> Result<bool, Error> {
-		if !self.init {
-			return Err(errkind!(ErrKind::Log, "log not initialized"));
-		}
-
-		let now = now.unwrap_or(Instant::now());
-
-		let max_age_millis = match self.config.max_age_millis {
-			MaxAgeMillis(m) => m,
-			_ => {
-				// should not get here, but return an error if we do
-				return Err(errkind!(
-					ErrKind::IllegalArgument,
-					"max_age_millis must be of form MaxAgeMillis(u128)"
-				));
-			}
-		};
-		let max_size_bytes = match self.config.max_size_bytes {
-			MaxSizeBytes(m) => m,
-			_ => {
-				// should not get here, but return an error if we do
-				return Err(errkind!(
-					ErrKind::IllegalArgument,
-					"max_size_bytes must be of form MaxSizeBytes(u64)"
-				));
-			}
-		};
-
-		if now.duration_since(self.last_rotation).as_millis() > max_age_millis
-			|| self.cur_size > max_size_bytes
-		{
-			Ok(true)
-		} else {
-			Ok(false)
-		}
-	}
-
-	fn init(&mut self) -> Result<(), Error> {
-		if self.init {
-			return Err(errkind!(ErrKind::Log, "log already initialized"));
-		}
-
-		match self.config.file_path.clone() {
-			FilePath(file_path) => match file_path {
-				Some(file_path) => {
-					println!("opening file = {:?}", file_path);
-					let mut file = if file_path.exists() {
-						OpenOptions::new().append(true).open(file_path.clone())
-					} else {
-						OpenOptions::new()
-							.append(true)
-							.create(true)
-							.open(file_path.clone())
-					}?;
-					self.check_open(&mut file, &file_path)?;
-					self.file = Some(file);
-				}
-				None => {}
-			},
-			_ => {
-				// should not be able to get here
-				return Err(errkind!(
-					ErrKind::Log,
-					"file_path must be of the form FilePath(Option<PathBuf>)"
-				));
-			}
-		}
-
-		self.init = true;
-
-		Ok(())
-	}
-	fn set_config_option(&mut self, value: LogConfigOption) -> Result<(), Error> {
-		match value {
-			Colors(_) => {
-				self.config.colors = value;
-			}
-			Stdout(_) => {
-				self.config.stdout = value;
-			}
-			MaxSizeBytes(_) => {
-				self.config.max_size_bytes = value;
-			}
-			MaxAgeMillis(_) => {
-				self.config.max_age_millis = value;
-			}
-			Timestamp(_) => {
-				self.config.timestamp = value;
-			}
-			Level(_) => {
-				self.config.level = value;
-			}
-			LineNum(_) => {
-				self.config.line_num = value;
-			}
-			ShowMillis(_) => {
-				self.config.show_millis = value;
-			}
-			AutoRotate(_) => {
-				self.config.auto_rotate = value;
-			}
-			FilePath(_) => {
-				self.config.file_path = value;
-			}
-			ShowBt(_) => {
-				self.config.show_bt = value;
-			}
-			LineNumDataMaxLen(_) => {
-				self.config.line_num_data_max_len = value;
-			}
-			DeleteRotation(_) => {
-				self.config.delete_rotation = value;
-			}
-			FileHeader(_) => {
-				self.config.file_header = value;
-			}
-		}
-
-		Ok(())
-	}
-	fn get_config_option(&self, option: LogConfigOptionName) -> Result<&LogConfigOption, Error> {
-		Ok(match option {
-			LogConfigOptionName::Colors => &self.config.colors,
-			LogConfigOptionName::Stdout => &self.config.stdout,
-			LogConfigOptionName::MaxSizeBytes => &self.config.max_size_bytes,
-			LogConfigOptionName::MaxAgeMillis => &self.config.max_age_millis,
-			LogConfigOptionName::Timestamp => &self.config.timestamp,
-			LogConfigOptionName::Level => &self.config.level,
-			LogConfigOptionName::LineNum => &self.config.line_num,
-			LogConfigOptionName::ShowMillis => &self.config.show_millis,
-			LogConfigOptionName::AutoRotate => &self.config.auto_rotate,
-			LogConfigOptionName::FilePath => &self.config.file_path,
-			LogConfigOptionName::ShowBt => &self.config.show_bt,
-			LogConfigOptionName::LineNumDataMaxLen => &self.config.line_num_data_max_len,
-			LogConfigOptionName::DeleteRotation => &self.config.delete_rotation,
-			LogConfigOptionName::FileHeader => &self.config.file_header,
-		})
-	}
-}
-
-impl LogImpl {
-	fn new(config: LogConfig) -> Result<Self, Error> {
-		Self::check_config(&config)?;
-		Ok(Self {
-			config,
-			init: false,
-			file: None,
-			cur_size: 0,
-			last_rotation: Instant::now(),
-		})
 	}
 
 	fn rotate_if_needed(&mut self, now_param: Option<Instant>) -> Result<(), Error> {
@@ -794,13 +833,15 @@ not terminate in a root or a prefix"
 pub struct LogBuilder {}
 
 impl LogBuilder {
-	pub fn build(config: LogConfig) -> Result<Box<dyn Log>, Error> {
+	pub fn build(config: LogConfig) -> Result<Box<dyn Log + Send + Sync>, Error> {
 		Ok(Box::new(LogImpl::new(config)?))
 	}
 }
 
 #[cfg(test)]
 mod test {
+	use crate::log::LogImpl;
+	use crate::types::Log;
 	use crate::LogConfigOption::{
 		AutoRotate, Colors, DeleteRotation, FileHeader, FilePath, Level, LineNum,
 		LineNumDataMaxLen, MaxAgeMillis, MaxSizeBytes, ShowBt, ShowMillis, Stdout, Timestamp,
@@ -808,7 +849,10 @@ mod test {
 	use crate::{LogBuilder, LogConfig, LogConfigOptionName, LogLevel};
 	use bmw_err::Error;
 	use bmw_test::testdir::{setup_test_dir, tear_down_test_dir};
+	use std::fs::{read_dir, read_to_string};
 	use std::path::PathBuf;
+	use std::thread::sleep;
+	use std::time::Duration;
 
 	#[test]
 	fn test_bad_configs() -> Result<(), Error> {
@@ -1102,11 +1146,8 @@ mod test {
 		);
 		let mut path = PathBuf::new();
 		path.push("./anything");
-		log.set_config_option(FilePath(Some(path.clone())))?;
-		assert_eq!(
-			log.get_config_option(LogConfigOptionName::FilePath)?,
-			&FilePath(Some(path))
-		);
+		// file_path cannot be set
+		assert!(log.set_config_option(FilePath(Some(path.clone()))).is_err());
 
 		assert_eq!(
 			log.get_config_option(LogConfigOptionName::ShowBt)?,
@@ -1164,6 +1205,504 @@ mod test {
 		log.init()?;
 		log.log(LogLevel::Info, "test", None)?;
 		log.log(LogLevel::Debug, "test2", None)?;
+
+		assert!(PathBuf::from(format!("{}/test.log", test_dir)).exists());
+
+		tear_down_test_dir(test_dir)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_configuration_options() -> Result<(), Error> {
+		let test_dir = ".test_config.bmw";
+		setup_test_dir(test_dir)?;
+
+		let log_file = format!("{}/test.log", test_dir);
+
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			..Default::default()
+		};
+
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+		log.set_config_option(ShowBt(false))?;
+		log.log(LogLevel::Trace, "trace", None)?;
+		log.log(LogLevel::Debug, "debug", None)?;
+		log.log(LogLevel::Info, "info", None)?;
+		log.log(LogLevel::Warn, "warn", None)?;
+		log.log(LogLevel::Error, "error", None)?;
+		log.log(LogLevel::Fatal, "fatal", None)?;
+
+		let contents = read_to_string(log_file.clone())?;
+		assert_eq!(contents.rfind("trace"), Some(66));
+		assert_eq!(contents.rfind("debug"), Some(138));
+		assert_eq!(contents.rfind("info"), Some(209));
+		assert_eq!(contents.rfind("warn"), Some(279));
+		assert_eq!(contents.rfind("error"), Some(350));
+		assert_eq!(contents.rfind("fatal"), Some(422));
+		assert_eq!(contents.len(), 428);
+
+		//try with a header
+		let log_file = format!("{}/test2.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			file_header: FileHeader("this is a test".to_string()),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+
+		log.log(LogLevel::Trace, "trace", None)?;
+		log.log(LogLevel::Debug, "debug", None)?;
+		log.log(LogLevel::Info, "info", None)?;
+		log.log(LogLevel::Warn, "warn", None)?;
+		log.log(LogLevel::Error, "error", None)?;
+		log.log(LogLevel::Fatal, "fatal", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		// original location + length of header + 1 for the newline
+		assert_eq!(
+			contents.rfind("trace"),
+			Some(66 + "this is a test".len() + 1)
+		);
+
+		// no millis
+		let log_file = format!("{}/test3.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			show_millis: ShowMillis(false),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+
+		log.log(LogLevel::Trace, "trace", None)?;
+		log.log(LogLevel::Debug, "debug", None)?;
+		log.log(LogLevel::Info, "info", None)?;
+		log.log(LogLevel::Warn, "warn", None)?;
+		log.log(LogLevel::Error, "error", None)?;
+		log.log(LogLevel::Fatal, "fatal", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		assert_eq!(
+			contents.rfind("trace"),
+			Some(66 - 4) // millis are four chars (one for the dot and three decimal places).
+		);
+
+		// no level
+		let log_file = format!("{}/test4.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			level: Level(false),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+
+		log.log(LogLevel::Trace, "trace", None)?;
+		log.log(LogLevel::Debug, "debug", None)?;
+		log.log(LogLevel::Info, "info", None)?;
+		log.log(LogLevel::Warn, "warn", None)?;
+		log.log(LogLevel::Error, "error", None)?;
+		log.log(LogLevel::Fatal, "fatal", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		assert_eq!(
+			contents.rfind("trace"),
+			Some(66 - 8) // len is 5 for "TRACE" and the '(' and ')' and one space.
+		);
+
+		// no timestamp
+		let log_file = format!("{}/test5.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			timestamp: Timestamp(false),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+
+		log.log(LogLevel::Trace, "trace", None)?;
+		log.log(LogLevel::Debug, "debug", None)?;
+		log.log(LogLevel::Info, "info", None)?;
+		log.log(LogLevel::Warn, "warn", None)?;
+		log.log(LogLevel::Error, "error", None)?;
+		log.log(LogLevel::Fatal, "fatal", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		assert_eq!(contents.rfind("trace"), Some(39));
+
+		// no linenum
+		let log_file = format!("{}/test6.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			line_num: LineNum(false),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+
+		log.log(LogLevel::Trace, "trace", None)?;
+		log.log(LogLevel::Debug, "debug", None)?;
+		log.log(LogLevel::Info, "info", None)?;
+		log.log(LogLevel::Warn, "warn", None)?;
+		log.log(LogLevel::Error, "error", None)?;
+		log.log(LogLevel::Fatal, "fatal", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		assert_eq!(contents.rfind("trace"), Some(66 - 31)); // 31 less (25 maxlen, 2 brackets, colon, space, and two dots
+
+		// 20 as line_num_data_max_len (default is 25).
+		let log_file = format!("{}/test7.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			line_num_data_max_len: LineNumDataMaxLen(20),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+
+		log.log(LogLevel::Trace, "trace", None)?;
+		log.log(LogLevel::Debug, "debug", None)?;
+		log.log(LogLevel::Info, "info", None)?;
+		log.log(LogLevel::Warn, "warn", None)?;
+		log.log(LogLevel::Error, "error", None)?;
+		log.log(LogLevel::Fatal, "fatal", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		assert_eq!(contents.rfind("trace"), Some(66 - 5)); // 31 less (25 maxlen, 2 brackets, colon, space, and two dots
+
+		// test a dynamic configuration change
+		let log_file = format!("{}/test8.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			line_num_data_max_len: LineNumDataMaxLen(20),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+
+		log.log(LogLevel::Info, "abc", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		assert_eq!(contents.rfind("abc"), Some(60));
+		log.set_config_option(ShowMillis(false))?;
+		log.log(LogLevel::Info, "abc", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		assert_eq!(contents.rfind("abc"), Some(120));
+
+		tear_down_test_dir(test_dir)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_log_rotation() -> Result<(), Error> {
+		let test_dir = ".test_log_rotation.bmw";
+		setup_test_dir(test_dir)?;
+
+		let log_file = format!("{}/test.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			max_size_bytes: MaxSizeBytes(100),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+
+		log.init()?;
+		log.log(LogLevel::Info, "1", None)?;
+		log.log(LogLevel::Info, "2", None)?;
+
+		let files = read_dir(test_dir).unwrap();
+		let mut count = 0;
+		for file in files {
+			let file = file.unwrap().path().display().to_string();
+			if file.find(".log").is_some() {
+				count += 1;
+			}
+		}
+		assert_eq!(count, 1);
+
+		// this triggers an auto rotate
+		log.log(LogLevel::Info, "3", None)?;
+
+		let files = read_dir(test_dir).unwrap();
+		let mut count = 0;
+		for file in files {
+			let file = file.unwrap().path().display().to_string();
+			if file.find(".log").is_some() {
+				count += 1;
+			}
+		}
+		assert_eq!(count, 2);
+
+		tear_down_test_dir(test_dir)?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_manual_rotation() -> Result<(), Error> {
+		let test_dir = ".test_log_manual_rotation.bmw";
+		setup_test_dir(test_dir)?;
+
+		let log_file = format!("{}/test.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			max_size_bytes: MaxSizeBytes(100),
+			auto_rotate: AutoRotate(false),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+
+		log.init()?;
+		log.log(LogLevel::Info, "a", None)?;
+		log.log(LogLevel::Info, "b", None)?;
+
+		let files = read_dir(test_dir).unwrap();
+		let mut count = 0;
+		for file in files {
+			let file = file.unwrap().path().display().to_string();
+			if file.find(".log").is_some() {
+				count += 1;
+			}
+		}
+		assert_eq!(count, 1);
+
+		// this would trigger an auto rotate, but set to false so it doesn't
+		log.log(LogLevel::Info, "c", None)?;
+
+		let files = read_dir(test_dir).unwrap();
+		let mut count = 0;
+		for file in files {
+			let file = file.unwrap().path().display().to_string();
+			if file.find(".log").is_some() {
+				count += 1;
+			}
+		}
+		assert_eq!(count, 1);
+
+		assert!(log.need_rotate(None)?);
+		log.rotate()?;
+
+		let files = read_dir(test_dir).unwrap();
+		let mut count = 0;
+		for file in files {
+			let file = file.unwrap().path().display().to_string();
+			if file.find(".log").is_some() {
+				count += 1;
+			}
+		}
+		assert_eq!(count, 2);
+		assert_eq!(log.need_rotate(None)?, false);
+
+		tear_down_test_dir(test_dir)?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_time_based_rotation() -> Result<(), Error> {
+		let test_dir = ".test_log_time_rotation.bmw";
+		setup_test_dir(test_dir)?;
+
+		let log_file = format!("{}/test.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			max_age_millis: MaxAgeMillis(1_000),
+			auto_rotate: AutoRotate(false),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+
+		log.init()?;
+		log.log(LogLevel::Info, "a", None)?;
+		log.log(LogLevel::Info, "b", None)?;
+		assert_eq!(log.need_rotate(None)?, false);
+		sleep(Duration::from_millis(2_000));
+		assert_eq!(log.need_rotate(None)?, true);
+		log.rotate()?;
+		assert_eq!(log.need_rotate(None)?, false);
+
+		let log_file = format!("{}/othertestlog", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			max_age_millis: MaxAgeMillis(1_000),
+			auto_rotate: AutoRotate(false),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+
+		log.init()?;
+		log.log(LogLevel::Info, "a", None)?;
+		log.log(LogLevel::Info, "b", None)?;
+		assert_eq!(log.need_rotate(None)?, false);
+		sleep(Duration::from_millis(2_000));
+		assert_eq!(log.need_rotate(None)?, true);
+		log.rotate()?;
+		assert_eq!(log.need_rotate(None)?, false);
+
+		tear_down_test_dir(test_dir)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_other_situations() -> Result<(), Error> {
+		let test_dir = ".test_log_other.bmw";
+		setup_test_dir(test_dir)?;
+
+		let log_file = format!("{}/test.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			stdout: Stdout(false),
+			max_age_millis: MaxAgeMillis(1_000),
+			auto_rotate: AutoRotate(false),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+
+		assert!(log.rotate().is_err());
+		assert!(log.log(LogLevel::Info, "a", None).is_err());
+		assert!(log.need_rotate(None).is_err());
+
+		log.init()?;
+		log.log(LogLevel::Info, "a", None)?;
+		log.log_all(LogLevel::Info, "b", None)?;
+		let contents = read_to_string(log_file.clone())?;
+
+		// both entries logged
+		assert_eq!(contents.len(), 134);
+
+		// log without a file and try to rotate
+		let config = LogConfig::default();
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+		log.rotate()?; // should return without error
+
+		// use log impl to get into situations we normally wouldn't see
+		let mut log_as_impl = LogImpl::new(LogConfig {
+			file_path: FilePath(Some(PathBuf::from(format!("{}/test.log", test_dir)))),
+			..Default::default()
+		})?;
+		log_as_impl.init()?;
+		log_as_impl.log(LogLevel::Info, "a", None)?;
+		log_as_impl.config.file_path = FilePath(None);
+		assert!(log_as_impl.rotate().is_err());
+		log_as_impl.config.file_path = FileHeader("".to_string());
+		assert!(log_as_impl.rotate().is_err());
+		log_as_impl.config.file_path = FilePath(Some(PathBuf::new()));
+		assert!(log_as_impl.rotate().is_err());
+		log_as_impl.config.file_path = FilePath(Some(PathBuf::from(format!("{}/..", test_dir))));
+		assert!(log_as_impl.rotate().is_err());
+
+		tear_down_test_dir(test_dir)?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_delete_rotation() -> Result<(), Error> {
+		let test_dir = ".test_log_delete_rotation.bmw";
+		setup_test_dir(test_dir)?;
+		let log_file = format!("{}/test.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			max_size_bytes: MaxSizeBytes(100),
+			auto_rotate: AutoRotate(false),
+			delete_rotation: DeleteRotation(true),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+
+		log.init()?;
+		log.log(LogLevel::Info, "a", None)?;
+		log.log(LogLevel::Info, "b", None)?;
+
+		let files = read_dir(test_dir).unwrap();
+		let mut count = 0;
+		for file in files {
+			let file = file.unwrap().path().display().to_string();
+			if file.find(".log").is_some() {
+				count += 1;
+			}
+		}
+		assert_eq!(count, 1);
+
+		// this would trigger an auto rotate, but set to false so it doesn't
+		log.log(LogLevel::Info, "c", None)?;
+
+		let files = read_dir(test_dir).unwrap();
+		let mut count = 0;
+		for file in files {
+			let file = file.unwrap().path().display().to_string();
+			if file.find(".log").is_some() {
+				count += 1;
+			}
+		}
+		assert_eq!(count, 1);
+
+		assert!(log.need_rotate(None)?);
+		log.rotate()?;
+		let files = read_dir(test_dir).unwrap();
+		let mut count = 0;
+		for file in files {
+			let file = file.unwrap().path().display().to_string();
+			if file.find(".log").is_some() {
+				count += 1;
+			}
+		}
+
+		// rotation occurs but it's deleted so still just one log file
+		assert_eq!(count, 1);
+
+		// log some more
+		log.log(LogLevel::Info, "a", None)?;
+		log.log(LogLevel::Info, "b", None)?;
+		log.log(LogLevel::Info, "c", None)?;
+		assert!(log.need_rotate(None)?);
+
+		// use the log_impl
+		let log_file = format!("{}/test2.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			max_size_bytes: MaxSizeBytes(100),
+			auto_rotate: AutoRotate(false),
+			delete_rotation: DeleteRotation(true),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogImpl::new(config)?;
+
+		// test a bad filepath
+		log.config.file_path = AutoRotate(true);
+		assert!(log.init().is_err());
+		// fix to correct path
+		log.config.file_path = FilePath(Some(PathBuf::from(log_file.clone())));
+
+		log.init()?;
+
+		log.log(LogLevel::Info, "x", None)?;
+		log.log(LogLevel::Info, "y", None)?;
+		log.log(LogLevel::Info, "z", None)?;
+		assert!(log.need_rotate(None)?);
+		// set the delete_rotation to an illegal value
+		log.config.delete_rotation = AutoRotate(true);
+		assert!(log.rotate().is_err());
+
+		// test need_rotate with bad values
+		log.config.max_size_bytes = AutoRotate(true);
+		assert!(log.need_rotate(None).is_err());
+
+		log.config.max_age_millis = AutoRotate(true);
+		assert!(log.need_rotate(None).is_err());
+
+		assert!(log.init().is_err());
 
 		tear_down_test_dir(test_dir)?;
 		Ok(())

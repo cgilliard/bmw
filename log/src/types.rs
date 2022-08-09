@@ -115,8 +115,11 @@ impl Default for LogConfig {
 
 pub trait Log {
 	fn log(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error>;
+	fn log_all(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error>;
+	fn log_plain(&mut self, level: LogLevel, line: &str, now: Option<Instant>)
+		-> Result<(), Error>;
 	fn rotate(&mut self) -> Result<(), Error>;
-	fn rotation_needed(&self, now: Option<Instant>) -> Result<bool, Error>;
+	fn need_rotate(&self, now: Option<Instant>) -> Result<bool, Error>;
 	fn init(&mut self) -> Result<(), Error>;
 	fn set_config_option(&mut self, value: LogConfigOption) -> Result<(), Error>;
 	fn get_config_option(&self, option: LogConfigOptionName) -> Result<&LogConfigOption, Error>;
