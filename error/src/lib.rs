@@ -23,8 +23,10 @@
 //! # Examples
 //!```
 //! // Example of the errkind macro
-//! use bmw_err::{Error, ErrorKind, ErrKind, errkind};
+//! use bmw_err::{Error, ErrorKind, ErrKind, errkind, map_err};
 //! use std::path::PathBuf;
+//! use std::fs::File;
+//! use std::io::Write;
 //!
 //! fn process_file(path: &str) -> Result<(), Error> {
 //!     if ! PathBuf::from(path).exists() {
@@ -37,10 +39,6 @@
 //! }
 //!
 //! // Example of the map_err macro
-//! use bmw_err::{Error, ErrorKind, ErrKind, map_err};
-//! use std::fs::File;
-//! use std::io::Write;
-//!
 //! fn show_map_err(do_error: bool) -> Result<(), Error> {
 //!     // map the file open error to a 'Log' Error. The text of the original error will be
 //!     // included in the mapped error.
