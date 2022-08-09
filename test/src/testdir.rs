@@ -14,20 +14,13 @@
 
 use bmw_err::Error;
 
-fn main() -> Result<(), Error> {
-	println!("not implemented yet");
-
+pub fn setup_test_dir(test_dir: &str) -> Result<(), Error> {
+	let _ = std::fs::remove_dir_all(test_dir);
+	std::fs::create_dir_all(test_dir)?;
 	Ok(())
 }
 
-#[cfg(test)]
-mod test {
-	use crate::main;
-	use bmw_err::Error;
-
-	#[test]
-	fn test_main() -> Result<(), Error> {
-		assert!(main().is_ok());
-		Ok(())
-	}
+pub fn tear_down_test_dir(test_dir: &str) -> Result<(), Error> {
+	let _ = std::fs::remove_dir_all(test_dir);
+	Ok(())
 }
