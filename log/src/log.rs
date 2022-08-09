@@ -477,10 +477,15 @@ impl LogImpl {
 							None => "".to_string(),
 						};
 
-						if filename.find("/log/src/log.rs").is_some() {
+						if filename.find("/log/src/log.rs").is_some()
+							|| filename.find("\\log\\src\\log.rs").is_some()
+						{
 							found_logger = true;
 						}
-						if filename.find("/log/src/log.rs").is_none() && found_logger {
+						if (filename.find("/log/src/log.rs").is_none()
+							&& filename.find("\\log\\src\\log.rs").is_none())
+							&& found_logger
+						{
 							logged_from_file = format!("{}:{}", filename, lineno);
 							found_frame = true;
 						}
@@ -542,7 +547,8 @@ impl LogImpl {
 			let mut file = self.file.as_ref().unwrap();
 			file.write(line_bytes)?;
 			file.write(NEWLINE)?;
-			let line_bytes_len: u64 = line_bytes.len().try_into()?;
+			let mut line_bytes_len: u64 = line_bytes.len().try_into()?;
+			line_bytes_len += 1;
 			self.cur_size += line_bytes_len;
 
 			if show_bt {
@@ -1701,7 +1707,6 @@ mod test {
 
 		log.config.max_age_millis = AutoRotate(true);
 		assert!(log.need_rotate(None).is_err());
-
 		assert!(log.init().is_err());
 
 		tear_down_test_dir(test_dir)?;
