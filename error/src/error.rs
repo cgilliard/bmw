@@ -15,6 +15,7 @@
 use bmw_deps::failure::{Backtrace, Context, Fail};
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
+use std::num::TryFromIntError;
 
 /// Base Error struct which is used throughout bmw.
 #[derive(Debug, Fail)]
@@ -142,6 +143,14 @@ impl From<OsString> for Error {
 	fn from(e: OsString) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::Misc(format!("{:?}", e))),
+		}
+	}
+}
+
+impl From<TryFromIntError> for Error {
+	fn from(e: TryFromIntError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("TryFromIntError: {}", e))),
 		}
 	}
 }

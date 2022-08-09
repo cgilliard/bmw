@@ -15,3 +15,6 @@ edition = "2018"
 bmw_deps = { path = "../deps"  }
 bmw_err  = { path = "../error" }
 
+
+[dev-dependencies]
+bmw_test = { path = "../test" }

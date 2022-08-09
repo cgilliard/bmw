@@ -13,17 +13,11 @@
 // limitations under the License.
 
 use bmw_err::Error;
+use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
+use std::time::Instant;
 
-pub enum RotationStatus {
-	/// A rotation is not needed.
-	NotNeeded,
-	/// A rotation is needed.
-	Needed,
-	/// A rotation has occurred automatically.
-	AutoRotated,
-}
-
+#[derive(PartialEq)]
 pub enum LogLevel {
 	Trace,
 	Debug,
@@ -31,6 +25,19 @@ pub enum LogLevel {
 	Warn,
 	Error,
 	Fatal,
+}
+
+impl Display for LogLevel {
+	fn fmt(&self, w: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+		match self {
+			LogLevel::Trace => write!(w, "TRACE"),
+			LogLevel::Debug => write!(w, "DEBUG"),
+			LogLevel::Info => write!(w, "INFO"),
+			LogLevel::Warn => write!(w, "WARN"),
+			LogLevel::Error => write!(w, "ERROR"),
+			LogLevel::Fatal => write!(w, "FATAL"),
+		}
+	}
 }
 
 pub enum LogConfigOptionName {
@@ -50,12 +57,12 @@ pub enum LogConfigOptionName {
 	FileHeader,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum LogConfigOption {
 	Colors(bool),
 	Stdout(bool),
 	MaxSizeBytes(u64),
-	MaxAgeMillis(u64),
+	MaxAgeMillis(u128),
 	Timestamp(bool),
 	Level(bool),
 	LineNum(bool),
@@ -63,7 +70,7 @@ pub enum LogConfigOption {
 	AutoRotate(bool),
 	FilePath(Option<PathBuf>),
 	ShowBt(bool),
-	LineNumDataMaxLen(u64),
+	LineNumDataMaxLen(usize),
 	DeleteRotation(bool),
 	FileHeader(String),
 }
@@ -79,6 +86,10 @@ pub struct LogConfig {
 	pub show_millis: LogConfigOption,
 	pub auto_rotate: LogConfigOption,
 	pub file_path: LogConfigOption,
+	pub show_bt: LogConfigOption,
+	pub line_num_data_max_len: LogConfigOption,
+	pub delete_rotation: LogConfigOption,
+	pub file_header: LogConfigOption,
 }
 
 impl Default for LogConfig {
@@ -94,17 +105,21 @@ impl Default for LogConfig {
 			show_millis: LogConfigOption::ShowMillis(true),
 			auto_rotate: LogConfigOption::AutoRotate(true),
 			file_path: LogConfigOption::FilePath(None),
+			show_bt: LogConfigOption::ShowBt(true),
+			line_num_data_max_len: LogConfigOption::LineNumDataMaxLen(25),
+			delete_rotation: LogConfigOption::DeleteRotation(false),
+			file_header: LogConfigOption::FileHeader("".to_string()),
 		}
 	}
 }
 
 pub trait Log {
-	fn log(&mut self, level: LogLevel, line: &str) -> Result<(), Error>;
+	fn log(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error>;
 	fn rotate(&mut self) -> Result<(), Error>;
-	fn rotation_status(&self) -> Result<RotationStatus, Error>;
+	fn rotation_needed(&self, now: Option<Instant>) -> Result<bool, Error>;
 	fn init(&mut self) -> Result<(), Error>;
 	fn set_config_option(&mut self, value: LogConfigOption) -> Result<(), Error>;
-	fn get_config_option(&self, option: LogConfigOptionName) -> Result<LogConfigOption, Error>;
+	fn get_config_option(&self, option: LogConfigOptionName) -> Result<&LogConfigOption, Error>;
 }
 
 #[cfg(test)]

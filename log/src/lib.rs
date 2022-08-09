@@ -17,6 +17,4 @@ mod types;
 
 pub use crate::log::LogBuilder;
 
-pub use crate::types::{
-	Log, LogConfig, LogConfigOption, LogConfigOptionName, LogLevel, RotationStatus,
-};
+pub use crate::types::{Log, LogConfig, LogConfigOption, LogConfigOptionName, LogLevel};
