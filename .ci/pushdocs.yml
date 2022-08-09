@@ -5,13 +5,14 @@ steps:
    git config user.name "Pipelines-Bot"
    git checkout main
    cargo doc
-   mkdir -p docs/bmw_err
-   mkdir -p docs/bmw_crypt
-   mkdir -p docs/bmw_log
 
-   cp -pr target/doc/bmw_err/* docs/bmw_err
-   cp -pr target/doc/bmw_crypt/* docs/bmw_crypt
-   cp -pr target/doc/bmw_log/* docs/bmw_log
+   mkdir -p docs/doc/bmw_err
+   mkdir -p docs/doc/bmw_crypt
+   mkdir -p docs/doc/bmw_log
+
+   cp -pr target/doc/bmw_err/* docs/doc/bmw_err
+   cp -pr target/doc/bmw_crypt/* docs/doc/bmw_crypt
+   cp -pr target/doc/bmw_log/* docs/doc/bmw_log
 
    changes_error=`git diff HEAD^^ HEAD --name-only | grep "^error" | wc -l`
    changes_crypt=`git diff HEAD^^ HEAD --name-only | grep "^crypt" | wc -l`
