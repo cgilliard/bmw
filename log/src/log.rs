@@ -836,9 +836,13 @@ not terminate in a root or a prefix"
 	}
 }
 
+/// The publicly accessible builder struct. This is the only way a log can be created outside of
+/// this crate. See [`LogBuilder::build`].
 pub struct LogBuilder {}
 
 impl LogBuilder {
+	/// Build a [`crate::Log`] based on specified [`crate::LogConfig`] or return a
+	/// [`bmw_err::Error`] if the configuration is invalid.
 	pub fn build(config: LogConfig) -> Result<Box<dyn Log + Send + Sync>, Error> {
 		Ok(Box::new(LogImpl::new(config)?))
 	}
