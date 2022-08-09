@@ -15,9 +15,9 @@ steps:
 
    changes_error=`git diff HEAD^^ HEAD --name-only | grep "^error" | wc -l`
    changes_crypt=`git diff HEAD^^ HEAD --name-only | grep "^crypt" | wc -l`
-   changes_log  =`git diff HEAD^^ HEAD --name-only | grep "^log" | wc -l`
+   changes_log=`git diff HEAD^^ HEAD --name-only | grep "^log" | wc -l`
 
-   if [[ $changes_error -eq 0 ]] && [[ $changes_crypt -eq 0 ]] &&  [[ $changes_log -eq 0 ]]
+   if [[ $changes_error -eq 0 ]] && [[ $changes_crypt -eq 0 ]] && [[ $changes_log -eq 0 ]]
    then
       echo "no changes to relevant directories, not pushing"
    else
