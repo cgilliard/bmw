@@ -124,13 +124,26 @@ pub trait Log {
 
 #[cfg(test)]
 mod test {
-	use crate::types::{LogConfig, LogConfigOption};
+	use crate::types::{LogConfig, LogConfigOption, LogLevel};
 	use bmw_err::Error;
 
 	#[test]
 	fn test_log_config() -> Result<(), Error> {
 		let d = LogConfig::default();
 		assert_eq!(d.colors, LogConfigOption::Colors(true));
+		Ok(())
+	}
+
+	#[test]
+	fn test_display_levels() -> Result<(), Error> {
+		assert_eq!(format!("{}", LogLevel::Trace), "TRACE".to_string());
+		assert_eq!(format!("{}", LogLevel::Debug), "DEBUG".to_string());
+
+		assert_eq!(format!("{}", LogLevel::Info), "INFO".to_string());
+		assert_eq!(format!("{}", LogLevel::Warn), "WARN".to_string());
+		assert_eq!(format!("{}", LogLevel::Error), "ERROR".to_string());
+		assert_eq!(format!("{}", LogLevel::Fatal), "FATAL".to_string());
+
 		Ok(())
 	}
 }

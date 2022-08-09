@@ -159,6 +159,7 @@ impl From<TryFromIntError> for Error {
 mod test {
 	use crate::{Error, ErrorKind};
 	use bmw_deps::substring::Substring;
+	use std::convert::TryInto;
 	use std::ffi::OsString;
 
 	fn get_os_string() -> Result<(), Error> {
@@ -202,6 +203,9 @@ mod test {
 		)?;
 
 		check_error(get_os_string(), ErrorKind::Misc("".to_string()).into())?;
+
+		let x: Result<u32, _> = u64::MAX.try_into();
+		check_error(x, ErrorKind::Misc(format!("TryFromIntError..")).into())?;
 
 		Ok(())
 	}
