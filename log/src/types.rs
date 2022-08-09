@@ -224,15 +224,112 @@ impl Default for LogConfig {
 	}
 }
 
+/// The main trait implemented by our logger. Some features include: color coding, timestamps,
+/// stdout/file, rotation by size and time, log levels, file/line number to help with debugging,
+/// millisecond precision, auto-rotation capabilities, backtraces, file headers and ability to
+/// delete log rotations. Most implementations can use the log macros in this library instead
+/// of using the logger directly.
+///
+/// Examples:
+///```
+/// use bmw_err::Error;
+/// use bmw_log::LogBuilder;
+/// use bmw_log::LogConfigOption::*;
+/// use bmw_log::LogConfig;
+/// use bmw_log::LogLevel;
+/// use std::path::PathBuf;
+///
+/// fn my_log() -> Result<(), Error> {
+///
+///     let config = LogConfig {
+///         show_bt: ShowBt(false),
+///         file_path: FilePath(Some(PathBuf::from("/path/to/my.log"))),
+///         auto_rotate: AutoRotate(false),
+///         ..Default::default()
+///     };
+///
+///     let mut log = LogBuilder::build(config)?;
+///     log.init()?;
+///
+///     log.log(LogLevel::Info, "test1", None)?;
+///     log.log_all(LogLevel::Debug, "test2", None)?;
+///     log.log_plain(LogLevel::Warn, "test3", None)?;
+///
+///     Ok(())
+/// }
+///```
+///
+/// The output of the above code will look something like this:
+///
+///```text
+/// [2022-08-09 15:41:55.633]: (INFO) [../ops/function.rs:248]: test1
+/// [2022-08-09 15:41:55.633]: (DEBUG) [../ops/function.rs:248]: test2
+/// test3
+///```
 pub trait Log {
+	/// Log data to disk/stdout. Note that even though a log level is specified,
+	/// the line is always logged for display purposes. If you wish to use log levels to
+	/// filter, use the macros: [`crate::fatal`], [`crate::error`], [`crate::warn`], [`crate::info`],
+	/// [`crate::debug`], [`crate::trace`]. Optionally an Instant may be specified to avoid
+	/// having the logger create it's own instant. This function returns () or a
+	/// [`bmw_err::Error`].
 	fn log(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error>;
+
+	/// The same as [`Log::log`], but this function will always log to standard output even if
+	/// standard output logging is currently disabled by the underlying logger. Optionally an
+	/// Instant may be specified to avoid having the logger create it's own instant.
+	/// This function returns () or a [`bmw_err::Error`].
 	fn log_all(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error>;
+	/// Log without any of the header details. As seen in the example, only 'test3' was logged.
+	/// no timestamp, log level, or line num info is logged. Optionally an Instant may be specified to avoid
+	/// having the logger create it's own instant. This function returns () or a
+	/// [`bmw_err::Error`].
 	fn log_plain(&mut self, level: LogLevel, line: &str, now: Option<Instant>)
 		-> Result<(), Error>;
+	/// Do a log rotation. The name of the file rotated is automatically generated and stored
+	/// in the same directory as the original log file. Logging then proceeds with the original
+	/// log file. The name of the rotated log file will be of the form:
+	/// <log_name_without_extension>.r_%M_%D_%Y_%H-%M-%S_<random_value>.log
+	/// where
+	/// %M is month
+	/// %D is day
+	/// %Y is year
+	/// %H is hour (0-23)
+	/// %M is minute
+	/// %S is second
+	/// These values are based on the local time
+	/// An example log file rotation name might look like:
+	/// test.r_08_09_2022_15-54-58_11545678356999821787.log
+	///
+	/// If auto rotation is enabled, then this function does not need to be called, however it
+	/// still may be called manually. Note that auto-rotation only occurs when the logger is
+	/// called so it might take some time to happen unless called manually. This function has
+	/// no parameters and returns () or a [`bmw_err::Error`].
 	fn rotate(&mut self) -> Result<(), Error>;
+
+	/// This function checks if a log rotation is needed. It returns true if it is needed and
+	/// false otherwise. Optionally an Instant may be specified to avoid
+	/// having the logger create it's own instant. This function returns () or a
+	/// [`bmw_err::Error`].
 	fn need_rotate(&self, now: Option<Instant>) -> Result<bool, Error>;
+
+	/// Initialize the log. This function must be called before any logging or rotation
+	/// functions can be called. This function has no parameters and returns () or a
+	/// [`bmw_err::Error`].
 	fn init(&mut self) -> Result<(), Error>;
+
+	/// Set the specified LogConfigOption. It may seem a little non-intuitive to see a set
+	/// function with a single parameter, however part of the design of the logger is such that
+	/// there is only a single function to set these values which have multiple types. It is
+	/// possible to do that with enums and that is how it was implemented. The examples should
+	/// make it clear how to set these options which can be set in the initial config or after
+	/// logging has began with the exception of FilePath. This function returns () or a
+	/// [`bmw_err::Error`].
 	fn set_config_option(&mut self, value: LogConfigOption) -> Result<(), Error>;
+
+	/// Get the specified [`crate::LogConfigOptionName`]. These names correpsond to the
+	/// [`crate::LogConfigOption`]. The function returns either a reference to a
+	/// [`crate::LogConfigOption`] or a [`bmw_err::Error`].
 	fn get_config_option(&self, option: LogConfigOptionName) -> Result<&LogConfigOption, Error>;
 }
 

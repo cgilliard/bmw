@@ -18,22 +18,23 @@
 //! with the [log](https://docs.rs/log/latest/log/) crate. So any code
 //! that was written to work with that crate will work with this crate with minor
 //! adjustments. In addition to the [`trace`], [`debug`], [`info`], [`warn`], [`error`]
-//! and [`fatal`] log levels, this crate provides an 'all' version and 'plain'
+//! and [`fatal`] macros, this crate provides an 'all' version and 'plain'
 //! version of each macro. For example: [`info_all`] and [`info_plain`].
 //! These macros allow for logging to standard out, no matter how the log is
-//! configured and log without the timestamp respectively. The main difference
-//! from the rust log crate is that this crate returns errors so you will have
-//! to add the error handling which can be as simple as using the question mark operator.
+//! configured and log without the timestamp respectively. The main adjustment a developer
+//! accustomed to using the rust log crate would need to make is that this crate returns
+//! errors so you will have to add the error handling which can be as simple as using
+//! the question mark operator or using the [`bmw_err::map_err`] macro.
 //!
 //! The default output will look something like this:
 //!
 //! ```text
-//! [2022-02-24 13:52:24]: (FATAL) [..ioruntime/src/main.rs:116]: fatal
-//! [2022-02-24 13:52:24]: (ERROR) [..ioruntime/src/main.rs:120]: error
-//! [2022-02-24 13:52:24]: (WARN) [..ioruntime/src/main.rs:124]: warn
-//! [2022-02-24 13:52:24]: (INFO) [..ioruntime/src/main.rs:128]: info
-//! [2022-02-24 13:52:24]: (DEBUG) [..ioruntime/src/main.rs:132]: debug
-//! [2022-02-24 13:52:24]: (TRACE) [..ioruntime/src/main.rs:136]: trace
+//! [2022-02-24 13:52:24.123]: (FATAL) [..ibconcord/src/main.rs:116]: fatal
+//! [2022-02-24 13:52:24.123]: (ERROR) [..ibconcord/src/main.rs:120]: error
+//! [2022-02-24 13:52:24.123]: (WARN) [..ibconcord/src/main.rs:124]: warn
+//! [2022-02-24 13:52:24.123]: (INFO) [..ibconcord/src/main.rs:128]: info
+//! [2022-02-24 13:52:24.123]: (DEBUG) [..ibconcord/src/main.rs:132]: debug
+//! [2022-02-24 13:52:24.123]: (TRACE) [..ibconcord/src/main.rs:136]: trace
 //! ```
 //!
 //! If enabled color coding is included as well.
