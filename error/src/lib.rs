@@ -19,6 +19,44 @@
 //! into [`crate::ErrorKind`] in this crate. The [`crate::errkind`] macro
 //! can be used to generate errors. In most cases errors should be created
 //! using one of these two macros.
+//!
+//! # Examples
+//!```
+//! // Example of the errkind macro
+//! use bmw_err::{Error, ErrorKind, ErrKind, errkind};
+//! use std::path::PathBuf;
+//!
+//! fn process_file(path: &str) -> Result<(), Error> {
+//!     if ! PathBuf::from(path).exists() {
+//!         return Err(errkind!(ErrKind::IllegalArgument, "path does not exist"));
+//!     }
+//!
+//!     // .. process file
+//!
+//!     Ok(())
+//! }
+//!
+//! // Example of the map_err macro
+//! use bmw_err::{Error, ErrorKind, ErrKind, map_err};
+//! use std::fs::File;
+//! use std::io::Write;
+//!
+//! fn show_map_err(do_error: bool) -> Result<(), Error> {
+//!     // map the file open error to a 'Log' Error. The text of the original error will be
+//!     // included in the mapped error.
+//!     let mut x = map_err!(File::open("/invalid/log/path.log"), ErrKind::Log)?;
+//!     x.write(b"test")?;
+//!
+//!     // optionally an additional message can be included as below. The original error's message
+//!     // will still be displayed.
+//!     let file = map_err!(File::open("/path/to/something"), ErrKind::IO, "file open failed")?;
+//!     println!("file_type={:?}", file.metadata()?.file_type());
+//!
+//!
+//!     Ok(())
+//! }
+//!
+//!```
 
 use bmw_deps::failure;
 
