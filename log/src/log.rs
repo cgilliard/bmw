@@ -1707,7 +1707,6 @@ mod test {
 
 		log.config.max_age_millis = AutoRotate(true);
 		assert!(log.need_rotate(None).is_err());
-
 		assert!(log.init().is_err());
 
 		tear_down_test_dir(test_dir)?;
