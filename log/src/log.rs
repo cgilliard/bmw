@@ -542,7 +542,8 @@ impl LogImpl {
 			let mut file = self.file.as_ref().unwrap();
 			file.write(line_bytes)?;
 			file.write(NEWLINE)?;
-			let line_bytes_len: u64 = line_bytes.len().try_into()?;
+			let mut line_bytes_len: u64 = line_bytes.len().try_into()?;
+			line_bytes_len += 1;
 			self.cur_size += line_bytes_len;
 
 			if show_bt {
