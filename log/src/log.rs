@@ -477,10 +477,15 @@ impl LogImpl {
 							None => "".to_string(),
 						};
 
-						if filename.find("/log/src/log.rs").is_some() {
+						if filename.find("/log/src/log.rs").is_some()
+							|| filename.find("\\log\\src\\log.rs").is_some()
+						{
 							found_logger = true;
 						}
-						if filename.find("/log/src/log.rs").is_none() && found_logger {
+						if (filename.find("/log/src/log.rs").is_none()
+							&& filename.find("\\log\\src\\log.rs").is_none())
+							&& found_logger
+						{
 							logged_from_file = format!("{}:{}", filename, lineno);
 							found_frame = true;
 						}
