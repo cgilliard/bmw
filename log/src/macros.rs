@@ -634,7 +634,7 @@ mod test {
 
 	#[test]
 	fn test_log_macros() -> Result<(), Error> {
-		let test_dir = ".test_macros";
+		let test_dir = ".test_macros.bmw";
 		setup_test_dir(test_dir)?;
 
 		let log_file = format!("{}/test.log", test_dir);
