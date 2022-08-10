@@ -21,60 +21,120 @@ lazy_static! {
 	pub static ref STATIC_LOG: Arc<RwLock<Option<Box<dyn Log + Send + Sync>>>> = Arc::new(RwLock::new(None));
 }
 
+/// Set [`crate::LogLevel`] to [`crate::LogLevel::Fatal`] or log at the [`crate::LogLevel::Fatal`] log level.
+/// If no parameters are specified the log level will be set. If a single parameter is specified,
+/// that string will be logged. If two or more parameters are specified, the first parameter is a format
+/// string, the additonal parameters will be formatted based on the format string. Logging
+/// is done by the global logger which can be configured using the [`crate::log_init`]
+/// macro. If [`crate::log_init`] is not called, the default values are used.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::Error;
+/// use bmw_log::*;
+///
+/// fatal!();
+///
+/// fn main() -> Result<(), Error> {
+///     fatal!("v1={},v2={}", 123, "def")?;
+///
+///     Ok(())
+/// }
+///
+///```
+///
+/// Note: log level must be set before using the logger or a compilation error will occur. Log
+/// level can be changed at any time and the inner most scope is used. The suggested method of use
+/// is to set the level at the top of each file and adjust as development is completed. You may
+/// start with debug or trace and eventually end up at info or warn.
 #[macro_export]
 macro_rules! fatal {
 	() => {
-		bmw_log::log!(bmw_log::types::LogLevel::Fatal);
+		bmw_log::log!(bmw_log::LogLevel::Fatal);
 	};
 	($a:expr) => {
 		{
-                        bmw_log::log!(bmw_log::types::LogLevel::Fatal, $a)
+                        bmw_log::log!(bmw_log::LogLevel::Fatal, $a)
 		}
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        bmw_log::log!(bmw_log::types::LogLevel::Fatal, $a, $($b)*)
+                        bmw_log::log!(bmw_log::LogLevel::Fatal, $a, $($b)*)
 		}
 	};
 }
 
+/// Same as [`fatal`] except that the [`crate::Log::log_plain`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! fatal_plain {
 	($a:expr) => {
 		{
-			bmw_log::log_plain!(bmw_log::types::LogLevel::Fatal, $a)
+			bmw_log::log_plain!(bmw_log::LogLevel::Fatal, $a)
 		}
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-			bmw_log::log_plain!(bmw_log::types::LogLevel::Fatal, $a, $($b)*)
+			bmw_log::log_plain!(bmw_log::LogLevel::Fatal, $a, $($b)*)
 		}
 	};
 }
 
+/// Same as [`fatal`] except that the [`crate::Log::log_all`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! fatal_all {
 	($a:expr) => {
 		{
-			bmw_log::log_all!(bmw_log::types::LogLevel::Fatal, $a)
+			bmw_log::log_all!(bmw_log::LogLevel::Fatal, $a)
 		}
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        bmw_log::log_all!(bmw_log::types::LogLevel::Fatal, $a, $($b)*)
+                        bmw_log::log_all!(bmw_log::LogLevel::Fatal, $a, $($b)*)
 		}
 	};
 }
 
+/// Set [`crate::LogLevel`] to [`crate::LogLevel::Error`] or log at the [`crate::LogLevel::Error`] log level.
+/// If no parameters are specified the log level will be set. If a single parameter is specified,
+/// that string will be logged. If two or more parameters are specified, the first parameter is a format
+/// string, the additonal parameters will be formatted based on the format string. Logging
+/// is done by the global logger which can be configured using the [`crate::log_init`]
+/// macro. If [`crate::log_init`] is not called, the default values are used.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::Error;
+/// use bmw_log::*;
+///
+/// error!();
+///
+/// fn main() -> Result<(), Error> {
+///     error!("v1={},v2={}", 123, "def")?;
+///
+///     Ok(())
+/// }
+///
+///```
+///
+/// Note: log level must be set before using the logger or a compilation error will occur. Log
+/// level can be changed at any time and the inner most scope is used. The suggested method of use
+/// is to set the level at the top of each file and adjust as development is completed. You may
+/// start with debug or trace and eventually end up at info or warn.
 #[macro_export]
 macro_rules! error {
 	() => {
-		bmw_log::log!(bmw_log::types::LogLevel::Error);
+		bmw_log::log!(bmw_log::LogLevel::Error);
 	};
 	($a:expr) => {
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal {
-				bmw_log::log!(bmw_log::types::LogLevel::Error, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal {
+				bmw_log::log!(bmw_log::LogLevel::Error, $a)
                         } else {
                                 Ok(())
                         }
@@ -82,8 +142,8 @@ macro_rules! error {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal {
-				bmw_log::log!(bmw_log::types::LogLevel::Error, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal {
+				bmw_log::log!(bmw_log::LogLevel::Error, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -91,12 +151,15 @@ macro_rules! error {
 	};
 }
 
+/// Same as [`error`] except that the [`crate::Log::log_plain`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! error_plain {
 	($a:expr) => {
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Error, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal {
+				bmw_log::log_plain!(bmw_log::LogLevel::Error, $a)
                         } else {
                                 Ok(())
                         }
@@ -104,8 +167,8 @@ macro_rules! error_plain {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Error, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal {
+				bmw_log::log_plain!(bmw_log::LogLevel::Error, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -113,12 +176,15 @@ macro_rules! error_plain {
 	};
 }
 
+/// Same as [`error`] except that the [`crate::Log::log_all`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! error_all {
 	($a:expr) => {
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal {
-				bmw_log::log_all!(bmw_log::types::LogLevel::Error, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal {
+				bmw_log::log_all!(bmw_log::LogLevel::Error, $a)
                         } else {
                                 Ok(())
                         }
@@ -126,8 +192,8 @@ macro_rules! error_all {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal {
-				bmw_log::log_all!(bmw_log::types::LogLevel::Error, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal {
+				bmw_log::log_all!(bmw_log::LogLevel::Error, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -135,15 +201,42 @@ macro_rules! error_all {
 	};
 }
 
+/// Set [`crate::LogLevel`] to [`crate::LogLevel::Warn`] or log at the [`crate::LogLevel::Warn`] log level.
+/// If no parameters are specified the log level will be set. If a single parameter is specified,
+/// that string will be logged. If two or more parameters are specified, the first parameter is a format
+/// string, the additonal parameters will be formatted based on the format string. Logging
+/// is done by the global logger which can be configured using the [`crate::log_init`]
+/// macro. If [`crate::log_init`] is not called, the default values are used.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::Error;
+/// use bmw_log::*;
+///
+/// warn!();
+///
+/// fn main() -> Result<(), Error> {
+///     warn!("v1={},v2={}", 123, "def")?;
+///
+///     Ok(())
+/// }
+///
+///```
+///
+/// Note: log level must be set before using the logger or a compilation error will occur. Log
+/// level can be changed at any time and the inner most scope is used. The suggested method of use
+/// is to set the level at the top of each file and adjust as development is completed. You may
+/// start with debug or trace and eventually end up at info or warn.
 #[macro_export]
 macro_rules! warn {
 	() => {
-		bmw_log::log!(bmw_log::types::LogLevel::Warn);
+		bmw_log::log!(bmw_log::LogLevel::Warn);
 	};
 	($a:expr) => {
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error {
-				bmw_log::log!(bmw_log::types::LogLevel::Warn, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error {
+				bmw_log::log!(bmw_log::LogLevel::Warn, $a)
                         } else {
                                 Ok(())
                         }
@@ -151,8 +244,8 @@ macro_rules! warn {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error {
-				bmw_log::log!(bmw_log::types::LogLevel::Warn, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error {
+				bmw_log::log!(bmw_log::LogLevel::Warn, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -160,12 +253,15 @@ macro_rules! warn {
 	};
 }
 
+/// Same as [`warn`] except that the [`crate::Log::log_plain`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! warn_plain {
 	($a:expr) => {
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Warn, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error {
+				bmw_log::log_plain!(bmw_log::LogLevel::Warn, $a)
                         } else {
                                 Ok(())
                         }
@@ -173,8 +269,8 @@ macro_rules! warn_plain {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Warn, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error {
+				bmw_log::log_plain!(bmw_log::LogLevel::Warn, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -182,12 +278,15 @@ macro_rules! warn_plain {
 	};
 }
 
+/// Same as [`warn`] except that the [`crate::Log::log_all`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! warn_all {
 	($a:expr) => {
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error {
-				bmw_log::log_all!(bmw_log::types::LogLevel::Warn, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error {
+				bmw_log::log_all!(bmw_log::LogLevel::Warn, $a)
                         } else {
                                 Ok(())
                         }
@@ -195,8 +294,8 @@ macro_rules! warn_all {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error {
-				bmw_log::log_all!(bmw_log::types::LogLevel::Warn, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error {
+				bmw_log::log_all!(bmw_log::LogLevel::Warn, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -204,16 +303,43 @@ macro_rules! warn_all {
 	};
 }
 
+/// Set [`crate::LogLevel`] to [`crate::LogLevel::Info`] or log at the [`crate::LogLevel::Info`] log level.
+/// If no parameters are specified the log level will be set. If a single parameter is specified,
+/// that string will be logged. If two or more parameters are specified, the first parameter is a format
+/// string, the additonal parameters will be formatted based on the format string. Logging
+/// is done by the global logger which can be configured using the [`crate::log_init`]
+/// macro. If [`crate::log_init`] is not called, the default values are used.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::Error;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///     info!("v1={},v2={}", 123, "def")?;
+///
+///     Ok(())
+/// }
+///
+///```
+///
+/// Note: log level must be set before using the logger or a compilation error will occur. Log
+/// level can be changed at any time and the inner most scope is used. The suggested method of use
+/// is to set the level at the top of each file and adjust as development is completed. You may
+/// start with debug or trace and eventually end up at info or warn.
 #[macro_export]
 macro_rules! info {
 	() => {
-		bmw_log::log!(bmw_log::types::LogLevel::Info);
+		bmw_log::log!(bmw_log::LogLevel::Info);
 	};
 	($a:expr) => {
 		{
 
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn {
-				bmw_log::log!(bmw_log::types::LogLevel::Info, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn {
+				bmw_log::log!(bmw_log::LogLevel::Info, $a)
                         } else {
                                 Ok(())
                         }
@@ -221,8 +347,8 @@ macro_rules! info {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn {
-				bmw_log::log!(bmw_log::types::LogLevel::Info, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn {
+				bmw_log::log!(bmw_log::LogLevel::Info, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -230,12 +356,15 @@ macro_rules! info {
 	};
 }
 
+/// Same as [`info`] except that the [`crate::Log::log_plain`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! info_plain {
 	($a:expr) => {
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Info, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn {
+				bmw_log::log_plain!(bmw_log::LogLevel::Info, $a)
                         } else {
                                 Ok(())
                         }
@@ -243,8 +372,8 @@ macro_rules! info_plain {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Info, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn {
+				bmw_log::log_plain!(bmw_log::LogLevel::Info, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -252,12 +381,15 @@ macro_rules! info_plain {
 	};
 }
 
+/// Same as [`info`] except that the [`crate::Log::log_all`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! info_all {
 	($a:expr) => {
                 {
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn {
-				bmw_log::log_all!(bmw_log::types::LogLevel::Info, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn {
+				bmw_log::log_all!(bmw_log::LogLevel::Info, $a)
                         } else {
                                 Ok(())
                         }
@@ -265,8 +397,8 @@ macro_rules! info_all {
         };
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn {
-				bmw_log::log_all!(bmw_log::types::LogLevel::Info, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn {
+				bmw_log::log_all!(bmw_log::LogLevel::Info, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -274,15 +406,42 @@ macro_rules! info_all {
 	};
 }
 
+/// Set [`crate::LogLevel`] to [`crate::LogLevel::Debug`] or log at the [`crate::LogLevel::Debug`] log level.
+/// If no parameters are specified the log level will be set. If a single parameter is specified,
+/// that string will be logged. If two or more parameters are specified, the first parameter is a format
+/// string, the additonal parameters will be formatted based on the format string. Logging
+/// is done by the global logger which can be configured using the [`crate::log_init`]
+/// macro. If [`crate::log_init`] is not called, the default values are used.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::Error;
+/// use bmw_log::*;
+///
+/// debug!();
+///
+/// fn main() -> Result<(), Error> {
+///     debug!("v1={},v2={}", 123, "def")?;
+///
+///     Ok(())
+/// }
+///
+///```
+///
+/// Note: log level must be set before using the logger or a compilation error will occur. Log
+/// level can be changed at any time and the inner most scope is used. The suggested method of use
+/// is to set the level at the top of each file and adjust as development is completed. You may
+/// start with debug or trace and eventually end up at info or warn.
 #[macro_export]
 macro_rules! debug {
 	() => {
-		bmw_log::log!(bmw_log::types::LogLevel::Debug);
+		bmw_log::log!(bmw_log::LogLevel::Debug);
 	};
 	($a:expr) => {
 		{
-                    if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info {
-				bmw_log::log!(bmw_log::types::LogLevel::Debug, $a)
+                    if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info {
+				bmw_log::log!(bmw_log::LogLevel::Debug, $a)
                         } else {
                                 Ok(())
                         }
@@ -290,8 +449,8 @@ macro_rules! debug {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                    if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info {
-				bmw_log::log_multi!(bmw_log::types::LogLevel::Debug, $a, $($b)*)
+                    if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info {
+				bmw_log::log!(bmw_log::LogLevel::Debug, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -299,12 +458,15 @@ macro_rules! debug {
 	};
 }
 
+/// Same as [`debug`] except that the [`crate::Log::log_plain`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! debug_plain {
 	($a:expr) => {
 		{
-                    if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Debug, $a)
+                    if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info {
+				bmw_log::log_plain!(bmw_log::LogLevel::Debug, $a)
                         } else {
                                 Ok(())
                         }
@@ -312,8 +474,8 @@ macro_rules! debug_plain {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Debug, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info {
+				bmw_log::log_plain!(bmw_log::LogLevel::Debug, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -321,12 +483,15 @@ macro_rules! debug_plain {
 	};
 }
 
+/// Same as [`debug`] except that the [`crate::Log::log_all`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! debug_all {
 	($a:expr) => {
 		{
-                    if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info {
-				bmw_log::log_all!(bmw_log::types::LogLevel::Debug, $a)
+                    if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info {
+				bmw_log::log_all!(bmw_log::LogLevel::Debug, $a)
                         } else {
                                 Ok(())
                         }
@@ -334,8 +499,8 @@ macro_rules! debug_all {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info {
-                                bmw_log::log_all!(bmw_log::types::LogLevel::Debug, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info {
+                                bmw_log::log_all!(bmw_log::LogLevel::Debug, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -343,15 +508,42 @@ macro_rules! debug_all {
 	};
 }
 
+/// Set [`crate::LogLevel`] to [`crate::LogLevel::Trace`] or log at the [`crate::LogLevel::Trace`] log level.
+/// If no parameters are specified the log level will be set. If a single parameter is specified,
+/// that string will be logged. If two or more parameters are specified, the first parameter is a format
+/// string, the additonal parameters will be formatted based on the format string. Logging
+/// is done by the global logger which can be configured using the [`crate::log_init`]
+/// macro. If [`crate::log_init`] is not called, the default values are used.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::Error;
+/// use bmw_log::*;
+///
+/// trace!();
+///
+/// fn main() -> Result<(), Error> {
+///     trace!("v1={},v2={}", 123, "def")?;
+///
+///     Ok(())
+/// }
+///
+///```
+///
+/// Note: log level must be set before using the logger or a compilation error will occur. Log
+/// level can be changed at any time and the inner most scope is used. The suggested method of use
+/// is to set the level at the top of each file and adjust as development is completed. You may
+/// start with debug or trace and eventually end up at info or warn.
 #[macro_export]
 macro_rules! trace {
 	() => {
-		    bmw_log::log!(bmw_log::types::LogLevel::Trace);
+		    bmw_log::log!(bmw_log::LogLevel::Trace);
 	};
 	($a:expr) => {
 		{
-			if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info && LOG_LEVEL != bmw_log::types::LogLevel::Debug {
-                                bmw_log::log!(bmw_log::types::LogLevel::Trace, $a)
+			if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info && LOG_LEVEL != bmw_log::LogLevel::Debug {
+                                bmw_log::log!(bmw_log::LogLevel::Trace, $a)
 			} else {
 				Ok(())
 			}
@@ -359,8 +551,8 @@ macro_rules! trace {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info && LOG_LEVEL != bmw_log::types::LogLevel::Debug {
-			        bmw_log::log!(bmw_log::types::LogLevel::Trace, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info && LOG_LEVEL != bmw_log::LogLevel::Debug {
+			        bmw_log::log!(bmw_log::LogLevel::Trace, $a, $($b)*)
 			} else {
 		                Ok(())
                         }
@@ -368,12 +560,15 @@ macro_rules! trace {
 	};
 }
 
+/// Same as [`trace`] except that the [`crate::Log::log_plain`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! trace_plain {
 	($a:expr) => {
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info && LOG_LEVEL != bmw_log::types::LogLevel::Debug {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Trace, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info && LOG_LEVEL != bmw_log::LogLevel::Debug {
+				bmw_log::log_plain!(bmw_log::LogLevel::Trace, $a)
                         } else {
                                 Ok(())
                         }
@@ -381,8 +576,8 @@ macro_rules! trace_plain {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info && LOG_LEVEL != bmw_log::types::LogLevel::Debug {
-				bmw_log::log_plain!(bmw_log::types::LogLevel::Trace, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info && LOG_LEVEL != bmw_log::LogLevel::Debug {
+				bmw_log::log_plain!(bmw_log::LogLevel::Trace, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -390,12 +585,15 @@ macro_rules! trace_plain {
 	};
 }
 
+/// Same as [`trace`] except that the [`crate::Log::log_all`] function of the underlying logger
+/// is called instead of the the [`crate::Log::log`] function. See the [`crate::Log`] trait for
+/// details on each.
 #[macro_export]
 macro_rules! trace_all {
 	($a:expr) => {
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info && LOG_LEVEL != bmw_log::types::LogLevel::Debug {
-				bmw_log::log_all!(bmw_log::types::LogLevel::Trace, $a)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info && LOG_LEVEL != bmw_log::LogLevel::Debug {
+				bmw_log::log_all!(bmw_log::LogLevel::Trace, $a)
                         } else {
                                 Ok(())
                         }
@@ -403,8 +601,8 @@ macro_rules! trace_all {
 	};
 	($a:expr,$($b:tt)*)=>{
 		{
-                        if LOG_LEVEL != bmw_log::types::LogLevel::Fatal && LOG_LEVEL != bmw_log::types::LogLevel::Error && LOG_LEVEL != bmw_log::types::LogLevel::Warn && LOG_LEVEL != bmw_log::types::LogLevel::Info && LOG_LEVEL != bmw_log::types::LogLevel::Debug {
-				bmw_log::log_all!(bmw_log::types::LogLevel::Trace, $a, $($b)*)
+                        if LOG_LEVEL != bmw_log::LogLevel::Fatal && LOG_LEVEL != bmw_log::LogLevel::Error && LOG_LEVEL != bmw_log::LogLevel::Warn && LOG_LEVEL != bmw_log::LogLevel::Info && LOG_LEVEL != bmw_log::LogLevel::Debug {
+				bmw_log::log_all!(bmw_log::LogLevel::Trace, $a, $($b)*)
                         } else {
                                 Ok(())
                         }
@@ -412,6 +610,8 @@ macro_rules! trace_all {
 	};
 }
 
+/// This macro is called by the [`fatal`], [`error`], [`warn`], [`info`], [`debug`] and [`trace`] macros to process logging.
+/// Generally those macros should be used in favor of calling this one directly.
 #[macro_export]
 macro_rules! log {
         ($level:expr) => {
@@ -425,6 +625,8 @@ macro_rules! log {
         }
 }
 
+/// This macro is called by the [`fatal_plain`], [`error_plain`], [`warn_plain`], [`info_plain`], [`debug_plain`] and [`trace_plain`]
+/// macros to process logging. Generally those macros should be used in favor of calling this one directly.
 #[macro_export]
 macro_rules! log_plain {
         ($level:expr) => {
@@ -438,6 +640,8 @@ macro_rules! log_plain {
         }
 }
 
+/// This macro is called by the [`fatal_all`], [`error_all`], [`warn_all`], [`info_all`], [`debug_all`] and [`trace_all`] macros
+/// to process logging. Generally those macros should be used in favor of calling this one directly.
 #[macro_export]
 macro_rules! log_all {
         ($level:expr) => {
@@ -451,6 +655,8 @@ macro_rules! log_all {
         }
 }
 
+/// This macro is called by the [`fatal`], [`error`], [`warn`], [`info`], [`debug`] and [`trace`] macros and the 'all' / 'plain'
+/// macros to process logging. Generally those macros should be used in favor of calling this one directly.
 #[macro_export]
 macro_rules! do_log {
 	($flavor:expr, $level:expr, $a:expr) => {{
@@ -489,6 +695,32 @@ macro_rules! do_log {
 	};
 }
 
+/// Get the current value of the specified log option. The single parameter must be of the
+/// type [`crate::LogConfigOptionName`]. The macro returns a [`crate::LogConfigOption`] on
+/// success and [`bmw_err::Error`] on error. See [`crate::Log::get_config_option`] which
+/// is the underlying function call for full details.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::Error;
+/// use bmw_log::*;
+///
+/// debug!();
+///
+/// fn test() -> Result<(), Error> {
+///
+///     // first init the logger
+///     log_init!(LogConfig::default());
+///     // get the configured value for FilePath
+///     let v = get_log_option!(LogConfigOptionName::FilePath)?;
+///     // It should be the default value which is None
+///     assert_eq!(v, LogConfigOption::FilePath(None));
+///     info!("file_path={:?}", v)?;
+///
+///     Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! get_log_option {
 	($option:expr) => {{
@@ -503,6 +735,10 @@ macro_rules! get_log_option {
 	}};
 }
 
+/// Configure the log with the specified [`crate::LogConfigOption`]. This macro takes
+/// a single argument. The macro returns () on success or [`bmw_err::Error`] on failure.
+/// See [`crate::Log::set_config_option`] which is the underlying function call for
+/// full details.
 #[macro_export]
 macro_rules! set_log_option {
 	($option:expr) => {{
@@ -517,6 +753,56 @@ macro_rules! set_log_option {
 	}};
 }
 
+/// Initialize the global log. This macro takes a single parameter, if none are
+/// specified, the default [`crate::LogConfig`] is used. Note that if this macro
+/// is not called before logging occurs, the default configuration is used. After
+/// either this macro is called or the default is set via another logging macro,
+/// calling this macro again will result in an error. It usually makes sense to
+/// initilize this macro very early in the startup of an application so that no
+/// unanticipated logging occurs before this macro is called by mistake.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::Error;
+/// use bmw_log::*;
+/// use bmw_log::LogConfigOption::*;
+/// use std::path::PathBuf;
+///
+/// debug!();
+///
+/// fn main() -> Result<(), Error> {
+///     let main_log_path = "./main.log";
+///     log_init!(LogConfig {
+///         show_bt: ShowBt(false),
+///         show_millis: ShowMillis(false),
+///         // comment this line out to avoid tests actually creating this file
+///         // file_path: FilePath(Some(PathBuf::from(main_log_path))),
+///         ..Default::default()
+///     });
+///
+///     info!("Startup complete!")?;
+///
+///     Ok(())
+/// }
+///```
+///
+/// Or without calling [`crate::log_init`]...
+///```
+/// use bmw_err::Error;
+/// use bmw_log::*;
+/// use bmw_log::LogConfigOption::*;
+///
+/// debug!();
+///
+/// fn main() -> Result<(), Error> {
+///     info!("Startup complete!")?;
+///     
+///     Ok(())
+/// }
+///```
+///
+/// Note that in the last example, the default [`crate::LogConfig`] will be used.
 #[macro_export]
 macro_rules! log_init {
 	() => {{
@@ -538,6 +824,8 @@ macro_rules! log_init {
 	}};
 }
 
+/// Rotate the global log. See [`crate::Log::rotate`] for full details on
+/// the underlying rotate function and log rotation in general.
 #[macro_export]
 macro_rules! log_rotate {
 	() => {{
@@ -552,6 +840,8 @@ macro_rules! log_rotate {
 	}};
 }
 
+/// See if the global log needs to be rotated. See [`crate::Log::need_rotate`] for full details
+/// on the underlying need_rotate function.
 #[macro_export]
 macro_rules! need_rotate {
 	() => {{

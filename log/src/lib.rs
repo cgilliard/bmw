@@ -20,10 +20,10 @@
 //! adjustments. In addition to the [`trace`], [`debug`], [`info`], [`warn`], [`error`]
 //! and [`fatal`] macros, this crate provides an 'all' version and 'plain'
 //! version of each macro. For example: [`info_all`] and [`info_plain`].
-//! These macros allow for logging to standard out, no matter how the log is
-//! configured and log without the timestamp respectively. The main adjustment a developer
+//! These macros allow for logging to standard out no matter how the log is
+//! configured and for logging without the timestamp respectively. The main adjustment a developer
 //! accustomed to using the rust log crate would need to make is that this crate returns
-//! errors so you will have to add the error handling which can be as simple as using
+//! errors so you will have to add error handling which can be as simple as using
 //! the question mark operator or using the [`bmw_err::map_err`] macro.
 //!
 //! The default output will look something like this:
