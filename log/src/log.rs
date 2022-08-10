@@ -38,6 +38,7 @@ enum LogType {
 	Plain,
 }
 
+#[derive(Debug)]
 struct LogImpl {
 	config: LogConfig,
 	init: bool,
@@ -114,15 +115,15 @@ impl Log for LogImpl {
 			}
 		};
 
-		let file_name = match file_name.to_str() {
-			Some(file_name) => file_name,
-			None => {
-				return Err(errkind!(
-					ErrKind::IllegalArgument,
-					"file_path has an unexpected illegal value of None for file_name"
-				))
-			}
-		};
+		let file_name = file_name.to_str();
+		if file_name.is_none() || self.config.debug_invalid_os_str {
+			return Err(errkind!(
+				ErrKind::IllegalArgument,
+				"file_path has an unexpected illegal value of None for file_name"
+			));
+		}
+
+		let file_name = file_name.unwrap();
 
 		let mut new_file_path_buf = parent.to_path_buf();
 		let file_name = match file_name.rfind(".") {
@@ -467,9 +468,13 @@ impl LogImpl {
 					#[cfg(debug_assertions)]
 					if let Some(filename) = symbol.filename() {
 						let filename = filename.display().to_string();
-						let lineno = match symbol.lineno() {
-							Some(lineno) => lineno.to_string(),
-							None => "".to_string(),
+
+						let lineno = symbol.lineno();
+
+						let lineno = if lineno.is_none() || self.config.debug_lineno_none {
+							"".to_string()
+						} else {
+							lineno.unwrap().to_string()
 						};
 
 						if filename.find("/log/src/log.rs").is_some()
@@ -625,39 +630,24 @@ impl LogImpl {
 		match &config.file_path {
 			FilePath(file_path) => match &file_path {
 				Some(file_path) => {
-					match file_path.parent() {
-						Some(parent) => {
-							if !parent.exists() {
+					match canonicalize(file_path) {
+						Ok(file_path) => {
+							if file_path.is_dir() {
 								return Err(errkind!(
 									ErrKind::Configuration,
-									"file_path parent must exist"
+									"file_path must not be a directory"
 								));
 							}
 						}
-						None => {
-							return Err(errkind!(
-								ErrKind::Configuration,
-								"if file_path specifies a PathBuf, the PathBuf must\
-not terminate in a root or a prefix"
-							));
-						}
+						Err(_) => {} // it might not have been created yet which is ok. Just check dir here.
 					}
 
-					if file_path.is_dir() {
+					if file_path.parent().is_none() {
 						return Err(errkind!(
 							ErrKind::Configuration,
-							"file_path must not be a directory"
+							"if file_path specifies a PathBuf, the PathBuf must\
+not terminate in a root or a prefix"
 						));
-					}
-
-					match file_path.file_name() {
-						Some(_) => {}
-						None => {
-							return Err(errkind!(
-								ErrKind::Configuration,
-								"file_path file_name must not terminate in a root or a prefix"
-							))
-						}
 					}
 				}
 				None => {}
@@ -793,15 +783,14 @@ not terminate in a root or a prefix"
 	}
 
 	fn check_open(&mut self, file: &mut File, path: &PathBuf) -> Result<(), Error> {
-		let metadata = match file.metadata() {
-			Ok(metadata) => metadata,
-			Err(_) => {
-				return Err(errkind!(
-					ErrKind::Log,
-					format!("failed to retreive metadata for file: {}", path.display())
-				));
-			}
-		};
+		let metadata = file.metadata();
+		if metadata.is_err() || self.config.debug_invalid_metadata {
+			return Err(errkind!(
+				ErrKind::Log,
+				format!("failed to retreive metadata for file: {}", path.display())
+			));
+		}
+		let metadata = metadata.unwrap();
 
 		let len = metadata.len();
 		if len == 0 {
@@ -864,6 +853,7 @@ mod test {
 	use std::path::PathBuf;
 	use std::thread::sleep;
 	use std::time::Duration;
+	use std::time::Instant;
 
 	#[test]
 	fn test_bad_configs() -> Result<(), Error> {
@@ -1646,7 +1636,31 @@ mod test {
 		log_as_impl.config.file_header = AutoRotate(false);
 		assert!(log_as_impl.rotate().is_err());
 		log_as_impl.config.auto_rotate = Colors(false);
-		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
+		assert!(log_as_impl
+			.log(LogLevel::Info, "test", Some(Instant::now()))
+			.is_err());
+		log_as_impl.config.auto_rotate = AutoRotate(true);
+		log_as_impl.config.max_age_millis = AutoRotate(true);
+		assert!(log_as_impl
+			.log(LogLevel::Info, "test", Some(Instant::now()))
+			.is_err());
+		log_as_impl.config.max_age_millis = MaxAgeMillis(100_000);
+		log_as_impl.config.max_size_bytes = AutoRotate(false);
+		assert!(log_as_impl
+			.log(LogLevel::Info, "test", Some(Instant::now()))
+			.is_err());
+
+		assert!(LogImpl::new(LogConfig {
+			file_path: FilePath(Some(PathBuf::from(test_dir))),
+			..Default::default()
+		})
+		.is_err());
+
+		assert!(LogImpl::new(LogConfig {
+			file_path: FilePath(Some(PathBuf::from(format!("{}/..", test_dir)))),
+			..Default::default()
+		})
+		.is_err());
 
 		tear_down_test_dir(test_dir)?;
 
@@ -1831,6 +1845,34 @@ mod test {
 		let contents = read_to_string(log_file.clone())?;
 		// we don't know exactly how big the stack trace will be so just assert it's larger
 		assert!(contents.len() > 71);
+
+		tear_down_test_dir(test_dir)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_invalid_flags() -> Result<(), Error> {
+		let test_dir = ".test_log_file_invalid_metadata.bmw";
+		setup_test_dir(test_dir)?;
+		let log_file = format!("{}/test.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			debug_invalid_metadata: true,
+			..Default::default()
+		};
+		let mut log = LogImpl::new(config)?;
+		assert!(log.init().is_err());
+
+		log.config.debug_invalid_metadata = false;
+		log.config.file_header = AutoRotate(true);
+		assert!(log.init().is_err());
+		log.config.file_header = FileHeader("".to_string());
+		log.config.debug_invalid_os_str = true;
+		log.init()?;
+		assert!(log.rotate().is_err());
+		log.config.debug_invalid_os_str = false;
+		log.config.debug_lineno_none = true;
+		assert!(log.log(LogLevel::Info, "", None).is_ok());
 
 		tear_down_test_dir(test_dir)?;
 		Ok(())

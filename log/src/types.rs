@@ -150,6 +150,9 @@ pub enum LogConfigOption {
 ///     line_num_data_max_len: LineNumDataMaxLen(20),
 ///     delete_rotation: DeleteRotation(false),
 ///     file_header: FileHeader("BMW Log V1.1".to_string()),
+///     debug_invalid_metadata: false,
+///     debug_invalid_os_str: false,
+///     debug_lineno_none: false,
 /// };
 ///```
 ///
@@ -170,6 +173,7 @@ pub enum LogConfigOption {
 /// };
 /// ```
 ///
+#[derive(Debug)]
 pub struct LogConfig {
 	/// See [`LogConfigOption::Colors`]. The default value is Colors(true).
 	pub colors: LogConfigOption,
@@ -201,6 +205,12 @@ pub struct LogConfig {
 	/// See [`LogConfigOption::FileHeader`]. The default value is FileHeader("".to_string()) or
 	/// no file header.
 	pub file_header: LogConfigOption,
+	/// Parameter used in testing. Must always be set false in normal use.
+	pub debug_invalid_metadata: bool,
+	/// Parameter used in testing. Must always be set false in normal use.
+	pub debug_invalid_os_str: bool,
+	/// Parameter used in testing. Must always be set false in normal use.
+	pub debug_lineno_none: bool,
 }
 
 impl Default for LogConfig {
@@ -220,6 +230,9 @@ impl Default for LogConfig {
 			line_num_data_max_len: LogConfigOption::LineNumDataMaxLen(25),
 			delete_rotation: LogConfigOption::DeleteRotation(false),
 			file_header: LogConfigOption::FileHeader("".to_string()),
+			debug_invalid_metadata: false,
+			debug_invalid_os_str: false,
+			debug_lineno_none: false,
 		}
 	}
 }
