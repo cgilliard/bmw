@@ -964,6 +964,13 @@ mod test {
 		error_plain!("5")?;
 		fatal_plain!("6")?;
 
+		trace_all!("1")?;
+		debug_all!("2")?;
+		info_all!("3")?;
+		warn_all!("4")?;
+		error_all!("5")?;
+		fatal_all!("6")?;
+
 		let need_rotate = need_rotate!()?;
 		info!("need_rotate={}", need_rotate)?;
 		assert_eq!(need_rotate, true);
