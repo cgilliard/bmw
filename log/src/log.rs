@@ -311,6 +311,18 @@ impl LogImpl {
 		})
 	}
 
+	fn format_millis(&self, millis: i64) -> String {
+		let mut millis_format = format!("{}", millis);
+		if millis < 100 {
+			millis_format = format!("0{}", millis_format);
+		}
+		if millis < 10 {
+			millis_format = format!("0{}", millis_format);
+		}
+
+		millis_format
+	}
+
 	fn log_impl(
 		&mut self,
 		level: LogLevel,
@@ -323,7 +335,6 @@ impl LogImpl {
 		}
 
 		self.rotate_if_needed(now)?;
-
 		let show_stdout = match self.config.stdout {
 			Stdout(s) => s || log_type == LogType::All,
 			_ => {
@@ -333,7 +344,6 @@ impl LogImpl {
 				));
 			}
 		};
-
 		let show_timestamp = match self.config.timestamp {
 			Timestamp(t) => t && log_type != LogType::Plain,
 			_ => {
@@ -343,7 +353,6 @@ impl LogImpl {
 				));
 			}
 		};
-
 		let show_colors = match self.config.colors {
 			Colors(c) => c,
 			_ => {
@@ -353,7 +362,6 @@ impl LogImpl {
 				));
 			}
 		};
-
 		let show_log_level = match self.config.level {
 			Level(l) => l && log_type != LogType::Plain,
 			_ => {
@@ -363,7 +371,6 @@ impl LogImpl {
 				));
 			}
 		};
-
 		let show_line_num = match self.config.line_num {
 			LineNum(l) => l && log_type != LogType::Plain,
 			_ => {
@@ -395,20 +402,10 @@ impl LogImpl {
 		};
 
 		let file_is_some = self.file.is_some();
-
 		if show_timestamp {
 			let date = Local::now();
 			let millis = date.timestamp_millis() % 1_000;
-			let mut millis_format = format!("{}", millis);
-			if millis < 100 {
-				millis_format = format!("0{}", millis_format);
-			}
-			if millis < 10 {
-				millis_format = format!("0{}", millis_format);
-			}
-			if millis < 1 {
-				millis_format = format!("0{}", millis_format);
-			}
+			let millis_format = self.format_millis(millis);
 			let formatted_timestamp = if show_millis {
 				format!("{}.{}", date.format("%Y-%m-%d %H:%M:%S"), millis_format)
 			} else {
@@ -431,7 +428,6 @@ impl LogImpl {
 				}
 			}
 		}
-
 		if show_log_level {
 			if file_is_some {
 				let formatted_level = format!("({}) ", level);
@@ -462,7 +458,6 @@ impl LogImpl {
 				}
 			}
 		}
-
 		if show_line_num {
 			let mut found_logger = false;
 			let mut found_frame = false;
@@ -512,12 +507,15 @@ impl LogImpl {
 				});
 				!found_frame
 			});
-
 			let max_len = match self.config.line_num_data_max_len {
 				LineNumDataMaxLen(max_len) => max_len,
-				_ => 25, // should not be possible but just use default here
+				_ => {
+					return Err(errkind!(
+						ErrKind::IllegalArgument,
+						"unexpected illegal value for LineNumDataMaxLen"
+					));
+				}
 			};
-
 			let len = logged_from_file.len();
 			if len > max_len {
 				let start = len.saturating_sub(max_len);
@@ -821,7 +819,10 @@ not terminate in a root or a prefix"
 					}
 				}
 				_ => {
-					self.cur_size = 0;
+					return Err(errkind!(
+						ErrKind::Configuration,
+						"file_header must be of the form FileHeader(String)"
+					));
 				}
 			}
 		} else {
@@ -1521,7 +1522,7 @@ mod test {
 		let log_file = format!("{}/test.log", test_dir);
 		let config = LogConfig {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
-			max_age_millis: MaxAgeMillis(1_000),
+			max_age_millis: MaxAgeMillis(10_000),
 			auto_rotate: AutoRotate(false),
 			show_bt: ShowBt(false),
 			..Default::default()
@@ -1532,7 +1533,7 @@ mod test {
 		log.log(LogLevel::Info, "a", None)?;
 		log.log(LogLevel::Info, "b", None)?;
 		assert_eq!(log.need_rotate(None)?, false);
-		sleep(Duration::from_millis(2_000));
+		sleep(Duration::from_millis(20_000));
 		assert_eq!(log.need_rotate(None)?, true);
 		log.rotate()?;
 		assert_eq!(log.need_rotate(None)?, false);
@@ -1540,7 +1541,7 @@ mod test {
 		let log_file = format!("{}/othertestlog", test_dir);
 		let config = LogConfig {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
-			max_age_millis: MaxAgeMillis(1_000),
+			max_age_millis: MaxAgeMillis(10_000),
 			auto_rotate: AutoRotate(false),
 			show_bt: ShowBt(false),
 			..Default::default()
@@ -1551,7 +1552,7 @@ mod test {
 		log.log(LogLevel::Info, "a", None)?;
 		log.log(LogLevel::Info, "b", None)?;
 		assert_eq!(log.need_rotate(None)?, false);
-		sleep(Duration::from_millis(2_000));
+		sleep(Duration::from_millis(20_000));
 		assert_eq!(log.need_rotate(None)?, true);
 		log.rotate()?;
 		assert_eq!(log.need_rotate(None)?, false);
@@ -1609,6 +1610,43 @@ mod test {
 		assert!(log_as_impl.rotate().is_err());
 		log_as_impl.config.file_path = FilePath(Some(PathBuf::from(format!("{}/..", test_dir))));
 		assert!(log_as_impl.rotate().is_err());
+		log_as_impl.config.stdout = AutoRotate(false);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
+		log_as_impl.config.stdout = Stdout(false);
+		log_as_impl.config.timestamp = AutoRotate(false);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
+		log_as_impl.config.timestamp = Timestamp(false);
+		log_as_impl.config.level = AutoRotate(false);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
+		log_as_impl.config.level = Level(false);
+		log_as_impl.config.line_num = AutoRotate(false);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
+		log_as_impl.config.line_num = LineNum(false);
+		log_as_impl.config.show_millis = AutoRotate(false);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
+		log_as_impl.config.show_millis = ShowMillis(false);
+		log_as_impl.config.show_bt = AutoRotate(false);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
+		log_as_impl.config.show_bt = ShowBt(true);
+		log_as_impl.config.colors = AutoRotate(false);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
+		log_as_impl.config.colors = Colors(false);
+		log_as_impl.config.stdout = Stdout(true);
+		log_as_impl.config.timestamp = Timestamp(true);
+		log_as_impl.config.level = Level(true);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_ok());
+		log_as_impl.config.line_num_data_max_len = AutoRotate(false);
+		log_as_impl.config.line_num = LineNum(true);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
+		log_as_impl.config.colors = Colors(false);
+		log_as_impl.config.stdout = Stdout(true);
+		log_as_impl.config.line_num = LineNum(true);
+		log_as_impl.config.line_num_data_max_len = LineNumDataMaxLen(20);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_ok());
+		log_as_impl.config.file_header = AutoRotate(false);
+		assert!(log_as_impl.rotate().is_err());
+		log_as_impl.config.auto_rotate = Colors(false);
+		assert!(log_as_impl.log(LogLevel::Info, "test", None).is_err());
 
 		tear_down_test_dir(test_dir)?;
 
@@ -1714,6 +1752,97 @@ mod test {
 		assert!(log.init().is_err());
 
 		tear_down_test_dir(test_dir)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_other_config_options() -> Result<(), Error> {
+		let test_dir = ".test_other_config_options.bmw";
+		setup_test_dir(test_dir)?;
+
+		const STR: &str = "01234567890123456789012345678901234567890123456789";
+
+		let log_file = format!("{}/test.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			auto_rotate: AutoRotate(false),
+			delete_rotation: DeleteRotation(true),
+			show_bt: ShowBt(false),
+			..Default::default()
+		};
+		let mut log = LogImpl::new(config)?;
+		log.init()?;
+
+		log.log(LogLevel::Info, STR, None)?;
+		log.log(LogLevel::Info, STR, None)?;
+		log.log(LogLevel::Info, STR, None)?;
+		log.log(LogLevel::Info, STR, None)?;
+		log.log(LogLevel::Info, STR, None)?;
+
+		// this is more than 100 bytes check if rotation needed.
+
+		assert!(!log.need_rotate(None)?);
+
+		assert_eq!(
+			log.get_config_option(LogConfigOptionName::MaxSizeBytes)?,
+			&MaxSizeBytes(1024 * 1024)
+		);
+		log.set_config_option(MaxSizeBytes(100))?;
+		assert_eq!(
+			log.get_config_option(LogConfigOptionName::MaxSizeBytes)?,
+			&MaxSizeBytes(100)
+		);
+
+		// we now need a rotation
+		assert!(log.need_rotate(None)?);
+
+		tear_down_test_dir(test_dir)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_log_file_and_bt() -> Result<(), Error> {
+		let test_dir = ".test_log_file_and_bt.bmw";
+		setup_test_dir(test_dir)?;
+		let log_file = format!("{}/test.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			show_bt: ShowBt(true),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+		log.log(LogLevel::Debug, "test", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		// since we're info level we don't log the bt, so standard length for info
+		// with all options set
+		assert_eq!(contents.len(), 71);
+
+		// now with bt
+		let log_file = format!("{}/test2.log", test_dir);
+		let config = LogConfig {
+			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			show_bt: ShowBt(true),
+			..Default::default()
+		};
+		let mut log = LogBuilder::build(config)?;
+		log.init()?;
+		log.log(LogLevel::Error, "test", None)?;
+		let contents = read_to_string(log_file.clone())?;
+		// we don't know exactly how big the stack trace will be so just assert it's larger
+		assert!(contents.len() > 71);
+
+		tear_down_test_dir(test_dir)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_format_millis() -> Result<(), Error> {
+		let log = LogImpl::new(LogConfig::default())?;
+		assert_eq!(log.format_millis(777), "777".to_string());
+		assert_eq!(log.format_millis(77), "077".to_string());
+		assert_eq!(log.format_millis(7), "007".to_string());
+		assert_eq!(log.format_millis(0), "000".to_string());
 		Ok(())
 	}
 }
