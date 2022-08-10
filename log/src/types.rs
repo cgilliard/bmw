@@ -224,13 +224,14 @@ impl Default for LogConfig {
 	}
 }
 
-/// The main trait implemented by our logger. Some features include: color coding, timestamps,
+/// The main trait implemented by the bmw logger. Some features include: color coding, timestamps,
 /// stdout/file, rotation by size and time, log levels, file/line number to help with debugging,
 /// millisecond precision, auto-rotation capabilities, backtraces, file headers and ability to
 /// delete log rotations. Most implementations can use the log macros in this library instead
 /// of using the logger directly.
 ///
-/// Examples:
+/// # Examples
+///
 ///```
 /// use bmw_err::Error;
 /// use bmw_log::LogBuilder;
