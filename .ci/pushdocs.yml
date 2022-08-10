@@ -23,7 +23,7 @@ steps:
       echo "no changes to relevant directories, not pushing"
    else
       git add --all
-      git commit -m"Pipelines-Bot: Updated site Source Version is $(Build.SourceVersion)";
+      git commit -m"Pipelines-Bot: Updated site (via pushdocs.yml) Source Version is $(Build.SourceVersion)";
       git push https://$(github_pat)@github.com/37miners/bmw.git
    fi
 
