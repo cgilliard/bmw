@@ -660,39 +660,65 @@ macro_rules! log_all {
 #[macro_export]
 macro_rules! do_log {
 	($flavor:expr, $level:expr, $a:expr) => {{
-		let mut static_log = bmw_log::lockw!(bmw_log::STATIC_LOG)?;
-		let (ret, log) = match (*static_log).as_mut() {
-			Some(log) => {
-                            if $flavor == 0 {
-                                (log.log($level, $a, None), None)
-                            } else if $flavor == 1 {
-                                (log.log_plain($level, $a, None), None)
-                            } else {
-                                (log.log_all($level, $a, None), None)
-                            }
-                        },
-			None => {
-				let mut log = bmw_log::LogBuilder::build(bmw_log::LogConfig::default())?;
-				log.init()?;
+                match bmw_log::lockw!(bmw_log::STATIC_LOG) {
+                    Ok(mut static_log) => {
+                        let (ret, log) = match (*static_log).as_mut() {
+                            Some(log) => {
                                 if $flavor == 0 {
-				    (log.log($level, $a, None), Some(log))
+                                    (log.log($level, $a, None), None)
                                 } else if $flavor == 1 {
                                     (log.log_plain($level, $a, None), None)
                                 } else {
                                     (log.log_all($level, $a, None), None)
                                 }
-			}
-		};
+                            },
+                            None => {
+                                match bmw_log::LogBuilder::build(bmw_log::LogConfig::default()) {
+                                    Ok(mut log) => {
+                                        match log.init() {
+                                            Ok(_) => {
+                                                if $flavor == 0 {
+                                                    (log.log($level, $a, None), Some(log))
+                                                } else if $flavor == 1 {
+                                                    (log.log_plain($level, $a, None), Some(log))
+                                                } else {
+                                                    (log.log_all($level, $a, None), Some(log))
+                                                }
+                                            }
+                                            Err(e) => {
+                                                (
+                                                    Err(
+                                                        bmw_err::err!(
+                                                            bmw_err::ErrKind::Log,
+                                                            format!(
+                                                                "error initializing log: {}",
+                                                                e
+                                                            )
+                                                        )
+                                                    ),
+                                                    None
+                                                )
+                                            },
+                                        }
+                                    },
+                                    Err(e) => {
+                                        (Err(e), None)
+                                    },
+                                }
+                            }
+                        };
 
-		if log.is_some() {
-			(*static_log) = log;
-		}
-
-		ret
-	}};
-	($flavor:expr, $level:expr, $a:expr, $($b:tt)*) => {
-		do_log!($flavor, $level, &format!($a, $($b)*)[..])
-	};
+                        if log.is_some() {
+                            (*static_log) = log;
+                        }
+                    ret
+                },
+                Err(e) => Err(e),
+            }
+        }};
+        ($flavor:expr, $level:expr, $a:expr, $($b:tt)*) => {
+                do_log!($flavor, $level, &format!($a, $($b)*)[..])
+        };
 }
 
 /// Get the current value of the specified log option. The single parameter must be of the
@@ -724,12 +750,20 @@ macro_rules! do_log {
 #[macro_export]
 macro_rules! get_log_option {
 	($option:expr) => {{
-		let static_log = bmw_log::lockr!(bmw_log::STATIC_LOG)?;
-		match (*static_log).as_ref() {
-			Some(log) => Ok(log.get_config_option($option)?.clone()),
-			None => Err(bmw_err::errkind!(
-				bmw_err::ErrKind::Log,
-				"log not initialized"
+		match bmw_log::lockr!(bmw_log::STATIC_LOG) {
+			Ok(static_log) => match (*static_log).as_ref() {
+				Some(log) => match log.get_config_option($option) {
+					Ok(x) => Ok(x.clone()),
+					Err(e) => Err(bmw_err::err!(
+						bmw_err::ErrKind::Log,
+						format!("log get_config_option returned error: {}", e)
+					)),
+				},
+				None => Err(bmw_err::err!(bmw_err::ErrKind::Log, "log not initialized")),
+			},
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Poison,
+				format!("could not obtain static_log lock: {}", e)
 			)),
 		}
 	}};
@@ -742,12 +776,14 @@ macro_rules! get_log_option {
 #[macro_export]
 macro_rules! set_log_option {
 	($option:expr) => {{
-		let mut static_log = bmw_log::lockw!(bmw_log::STATIC_LOG)?;
-		match (*static_log).as_mut() {
-			Some(log) => log.set_config_option($option),
-			None => Err(bmw_err::errkind!(
-				bmw_err::ErrKind::Log,
-				"log not initialized"
+		match bmw_log::lockw!(bmw_log::STATIC_LOG) {
+			Ok(mut static_log) => match (*static_log).as_mut() {
+				Some(log) => log.set_config_option($option),
+				None => Err(bmw_err::err!(bmw_err::ErrKind::Log, "log not initialized")),
+			},
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Poison,
+				format!("could not obtain static_log lock: {}", e)
 			)),
 		}
 	}};
@@ -809,19 +845,31 @@ macro_rules! log_init {
 		let config = bmw_log::LogConfig::default();
 		log_init!(config)
 	}};
-	($config:expr) => {{
-		let mut static_log = bmw_log::lockw!(bmw_log::STATIC_LOG)?;
-		if (*static_log).is_some() {
-			return Err(bmw_err::errkind!(
-				bmw_err::ErrKind::Log,
-				"already initialized"
-			));
+	($config:expr) => {
+		match bmw_log::lockw!(bmw_log::STATIC_LOG) {
+			Ok(mut static_log) => {
+				if (*static_log).is_some() {
+					Err(bmw_err::err!(bmw_err::ErrKind::Log, "already initialized"))
+				} else {
+					match bmw_log::LogBuilder::build($config) {
+						Ok(mut log) => {
+							log.init().unwrap();
+							*static_log = Some(log);
+							Ok(())
+						}
+						Err(e) => Err(bmw_err::err!(
+							bmw_err::ErrKind::Log,
+							format!("error building log: {}", e)
+						)),
+					}
+				}
+			}
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Poison,
+				format!("could not obtain static logger lock: {}", e)
+			)),
 		}
-
-		let mut log = bmw_log::LogBuilder::build($config)?;
-		log.init()?;
-		*static_log = Some(log);
-	}};
+	};
 }
 
 /// Rotate the global log. See [`crate::Log::rotate`] for full details on
@@ -829,12 +877,14 @@ macro_rules! log_init {
 #[macro_export]
 macro_rules! log_rotate {
 	() => {{
-		let mut static_log = bmw_log::lockw!(bmw_log::STATIC_LOG)?;
-		match (*static_log).as_mut() {
-			Some(log) => log.rotate(),
-			None => Err(bmw_err::errkind!(
-				bmw_err::ErrKind::Log,
-				"log not initialized"
+		match bmw_log::lockw!(bmw_log::STATIC_LOG) {
+			Ok(mut static_log) => match (*static_log).as_mut() {
+				Some(log) => log.rotate(),
+				None => Err(bmw_err::err!(bmw_err::ErrKind::Log, "log not initialized")),
+			},
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Poison,
+				format!("couldn't obtain lock for global log: {}", e)
 			)),
 		}
 	}};
@@ -845,12 +895,14 @@ macro_rules! log_rotate {
 #[macro_export]
 macro_rules! need_rotate {
 	() => {{
-		let static_log = bmw_log::lockr!(bmw_log::STATIC_LOG)?;
-		match (*static_log).as_ref() {
-			Some(log) => log.need_rotate(None),
-			None => Err(bmw_err::errkind!(
-				bmw_err::ErrKind::Log,
-				"log not initialized"
+		match bmw_log::lockr!(bmw_log::STATIC_LOG) {
+			Ok(static_log) => match (*static_log).as_ref() {
+				Some(log) => log.need_rotate(None),
+				None => Err(bmw_err::err!(bmw_err::ErrKind::Log, "log not initialized")),
+			},
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Poison,
+				format!("couldn't obtain lock for global log: {}", e)
 			)),
 		}
 	}};
@@ -923,7 +975,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_log_macros() -> Result<(), Error> {
+	fn test_log_macros_werror() -> Result<(), Error> {
 		let test_dir = ".test_macros.bmw";
 		setup_test_dir(test_dir)?;
 
@@ -934,7 +986,7 @@ mod test {
 			auto_rotate: LogConfigOption::AutoRotate(false),
 			show_bt: LogConfigOption::ShowBt(false),
 			..Default::default()
-		});
+		})?;
 
 		trace!("1")?;
 		debug!("2")?;
@@ -978,7 +1030,49 @@ mod test {
 		let need_rotate = need_rotate!()?;
 		assert_eq!(need_rotate, false);
 
+		test_log_macros_expect();
+
 		tear_down_test_dir(test_dir)?;
 		Ok(())
+	}
+
+	fn test_log_macros_expect() {
+		/*
+		let test_dir = ".test_macros_expect.bmw";
+		setup_test_dir(test_dir).expect("ok");
+
+		let log_file = format!("{}/test.log", test_dir);
+		log_init!(LogConfig {
+			file_path: LogConfigOption::FilePath(Some(PathBuf::from(log_file.clone()))),
+			max_size_bytes: LogConfigOption::MaxSizeBytes(100),
+			auto_rotate: LogConfigOption::AutoRotate(false),
+			show_bt: LogConfigOption::ShowBt(false),
+			..Default::default()
+		})
+		.expect("init");
+			*/
+
+		trace!("1").expect("");
+		debug!("2").expect("");
+		info!("3").expect("");
+		warn!("4").expect("");
+		error!("5").expect("");
+		fatal!("6").expect("");
+
+		set_log_option!(LogConfigOption::ShowMillis(false)).expect("");
+		let show_millis = get_log_option!(LogConfigOptionName::ShowMillis).expect("");
+		assert_eq!(show_millis, LogConfigOption::ShowMillis(false));
+
+		trace!("1").expect("");
+		debug!("2").expect("");
+		info!("3").expect("");
+		warn!("4").expect("");
+		error!("5").expect("");
+		fatal!("6").expect("");
+
+		let need_rotate = need_rotate!().expect("");
+		info!("need_rotate={}", need_rotate).expect("");
+		log_rotate!().expect("");
+		need_rotate!().expect("");
 	}
 }

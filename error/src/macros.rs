@@ -18,10 +18,10 @@
 /// Example:
 ///
 ///```
-/// use bmw_err::{Error, ErrorKind, ErrKind, errkind};
+/// use bmw_err::{Error, ErrorKind, ErrKind, err};
 ///
 /// fn show_err_kind(do_error: bool) -> Result<(), Error> {
-///     let e = errkind!(ErrKind::Configuration, "invalid parameter name");
+///     let e = err!(ErrKind::Configuration, "invalid parameter name");
 ///
 ///     if do_error {
 ///         return Err(e);
@@ -31,7 +31,7 @@
 /// }
 ///```
 #[macro_export]
-macro_rules! errkind {
+macro_rules! err {
 	($kind:expr, $msg:expr) => {{
 		match $kind {
 			bmw_err::ErrKind::Configuration => {
@@ -165,7 +165,7 @@ mod test {
 
 	#[test]
 	fn test_ekinds() -> Result<(), crate::Error> {
-		let err: bmw_err::Error = errkind!(bmw_err::ErrKind::Configuration, "anything");
+		let err: bmw_err::Error = err!(bmw_err::ErrKind::Configuration, "anything");
 		let _err_kind = err.kind();
 		let raw: bmw_err::Error =
 			bmw_err::ErrorKind::Configuration("configuration error".to_string()).into();

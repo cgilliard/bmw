@@ -16,21 +16,21 @@
 //! in bmw for building and mapping errors. This crate offers
 //! wrappers around the rust failure crate. The [`crate::map_err`]
 //! macro can be used to conveniently map errors from 3rd party crates
-//! into [`crate::ErrorKind`] in this crate. The [`crate::errkind`] macro
+//! into [`crate::ErrorKind`] in this crate. The [`crate::err`] macro
 //! can be used to generate errors. In most cases errors should be created
 //! using one of these two macros.
 //!
 //! # Examples
 //!```
-//! // Example of the errkind macro
-//! use bmw_err::{Error, ErrorKind, ErrKind, errkind, map_err};
+//! // Example of the err macro
+//! use bmw_err::{Error, ErrorKind, ErrKind, err, map_err};
 //! use std::path::PathBuf;
 //! use std::fs::File;
 //! use std::io::Write;
 //!
 //! fn process_file(path: &str) -> Result<(), Error> {
 //!     if ! PathBuf::from(path).exists() {
-//!         return Err(errkind!(ErrKind::IllegalArgument, "path does not exist"));
+//!         return Err(err!(ErrKind::IllegalArgument, "path does not exist"));
 //!     }
 //!
 //!     // .. process file

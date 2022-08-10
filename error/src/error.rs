@@ -65,7 +65,7 @@ pub enum ErrorKind {
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
-/// names using the [`crate::errkind`] and [`crate::map_err`] macros.
+/// names using the [`crate::err`] and [`crate::map_err`] macros.
 pub enum ErrKind {
 	/// IO Error.
 	IO,

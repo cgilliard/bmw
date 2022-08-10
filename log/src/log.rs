@@ -22,7 +22,7 @@ use bmw_deps::backtrace::Backtrace;
 use bmw_deps::chrono::{DateTime, Local};
 use bmw_deps::colored::Colorize;
 use bmw_deps::rand::random;
-use bmw_err::{errkind, ErrKind, Error};
+use bmw_err::{err, ErrKind, Error};
 use std::convert::TryInto;
 use std::fs::{canonicalize, remove_file, rename, File, OpenOptions};
 use std::io::Write;
@@ -65,7 +65,7 @@ impl Log for LogImpl {
 
 	fn rotate(&mut self) -> Result<(), Error> {
 		if !self.init {
-			return Err(errkind!(ErrKind::Log, "log not initialized"));
+			return Err(err!(ErrKind::Log, "log not initialized"));
 		}
 
 		if self.file.is_none() {
@@ -80,14 +80,14 @@ impl Log for LogImpl {
 			FilePath(file_path) => match file_path {
 				Some(file_path) => file_path,
 				None => {
-					return Err(errkind!(
+					return Err(err!(
 						ErrKind::IllegalArgument,
 						"file_path must be of the for FilePath(Option<PathBuf>)"
 					))
 				}
 			},
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"file_path must be of the for FilePath(Option<PathBuf>)"
 				));
@@ -98,7 +98,7 @@ impl Log for LogImpl {
 		let parent = match original_file_path.parent() {
 			Some(parent) => parent,
 			None => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"file_path has an unexpected illegal value of None for parent"
 				));
@@ -108,7 +108,7 @@ impl Log for LogImpl {
 		let file_name = match original_file_path.file_name() {
 			Some(file_name) => file_name,
 			None => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"file_path has an unexpected illegal value of None for file_name"
 				))
@@ -117,7 +117,7 @@ impl Log for LogImpl {
 
 		let file_name = file_name.to_str();
 		if file_name.is_none() || self.config.debug_invalid_os_str {
-			return Err(errkind!(
+			return Err(err!(
 				ErrKind::IllegalArgument,
 				"file_path has an unexpected illegal value of None for file_name"
 			));
@@ -142,7 +142,7 @@ impl Log for LogImpl {
 				}
 			}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"delete_rotation has an unexpected illegal value"
 				))
@@ -160,7 +160,7 @@ impl Log for LogImpl {
 
 	fn need_rotate(&self, now: Option<Instant>) -> Result<bool, Error> {
 		if !self.init {
-			return Err(errkind!(ErrKind::Log, "log not initialized"));
+			return Err(err!(ErrKind::Log, "log not initialized"));
 		}
 
 		let now = now.unwrap_or(Instant::now());
@@ -169,7 +169,7 @@ impl Log for LogImpl {
 			MaxAgeMillis(m) => m,
 			_ => {
 				// should not get here, but return an error if we do
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"max_age_millis must be of form MaxAgeMillis(u128)"
 				));
@@ -179,7 +179,7 @@ impl Log for LogImpl {
 			MaxSizeBytes(m) => m,
 			_ => {
 				// should not get here, but return an error if we do
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"max_size_bytes must be of form MaxSizeBytes(u64)"
 				));
@@ -197,7 +197,7 @@ impl Log for LogImpl {
 
 	fn init(&mut self) -> Result<(), Error> {
 		if self.init {
-			return Err(errkind!(ErrKind::Log, "log already initialized"));
+			return Err(err!(ErrKind::Log, "log already initialized"));
 		}
 
 		match self.config.file_path.clone() {
@@ -218,7 +218,7 @@ impl Log for LogImpl {
 			},
 			_ => {
 				// should not be able to get here
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Log,
 					"file_path must be of the form FilePath(Option<PathBuf>)"
 				));
@@ -259,7 +259,7 @@ impl Log for LogImpl {
 				self.config.auto_rotate = value;
 			}
 			FilePath(_) => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Log,
 					"filepath cannot be set after log is initialized"
 				));
@@ -332,14 +332,14 @@ impl LogImpl {
 		log_type: LogType,
 	) -> Result<(), Error> {
 		if !self.init {
-			return Err(errkind!(ErrKind::Log, "log not initialized"));
+			return Err(err!(ErrKind::Log, "log not initialized"));
 		}
 
 		self.rotate_if_needed(now)?;
 		let show_stdout = match self.config.stdout {
 			Stdout(s) => s || log_type == LogType::All,
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"stdout must be of the form Stdout(bool)"
 				));
@@ -348,7 +348,7 @@ impl LogImpl {
 		let show_timestamp = match self.config.timestamp {
 			Timestamp(t) => t && log_type != LogType::Plain,
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"timestamp must be of the form Timestamp(bool)"
 				));
@@ -357,7 +357,7 @@ impl LogImpl {
 		let show_colors = match self.config.colors {
 			Colors(c) => c,
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"colors must be of the form Colors(bool)"
 				));
@@ -366,7 +366,7 @@ impl LogImpl {
 		let show_log_level = match self.config.level {
 			Level(l) => l && log_type != LogType::Plain,
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"log_level must be of the form LogLevel(bool)"
 				));
@@ -375,7 +375,7 @@ impl LogImpl {
 		let show_line_num = match self.config.line_num {
 			LineNum(l) => l && log_type != LogType::Plain,
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"line_num must be of the form LineNUm(bool)"
 				));
@@ -385,7 +385,7 @@ impl LogImpl {
 		let show_millis = match self.config.show_millis {
 			ShowMillis(m) => m && log_type != LogType::Plain,
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"show_millis must be of the form ShowMillis(bool)"
 				));
@@ -395,7 +395,7 @@ impl LogImpl {
 		let show_bt = match self.config.show_bt {
 			ShowBt(b) => b && (level == LogLevel::Error || level == LogLevel::Fatal),
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"show_bt must be of the form ShowBt(bool)"
 				));
@@ -515,7 +515,7 @@ impl LogImpl {
 			let max_len = match self.config.line_num_data_max_len {
 				LineNumDataMaxLen(max_len) => max_len,
 				_ => {
-					return Err(errkind!(
+					return Err(err!(
 						ErrKind::IllegalArgument,
 						"unexpected illegal value for LineNumDataMaxLen"
 					));
@@ -585,7 +585,7 @@ impl LogImpl {
 			}
 			_ => {
 				// should not get here, but return an error if we do
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"autorotate must be of form AutoRotate(bool)"
 				));
@@ -600,7 +600,7 @@ impl LogImpl {
 			MaxAgeMillis(m) => m,
 			_ => {
 				// should not get here, but return an error if we do
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"max_age_millis must be of form MaxAgeMillis(u128)"
 				));
@@ -610,7 +610,7 @@ impl LogImpl {
 			MaxSizeBytes(m) => m,
 			_ => {
 				// should not get here, but return an error if we do
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::IllegalArgument,
 					"max_size_bytes must be of form MaxSizeBytes(u64)"
 				));
@@ -633,7 +633,7 @@ impl LogImpl {
 					match canonicalize(file_path) {
 						Ok(file_path) => {
 							if file_path.is_dir() {
-								return Err(errkind!(
+								return Err(err!(
 									ErrKind::Configuration,
 									"file_path must not be a directory"
 								));
@@ -643,7 +643,7 @@ impl LogImpl {
 					}
 
 					if file_path.parent().is_none() {
-						return Err(errkind!(
+						return Err(err!(
 							ErrKind::Configuration,
 							"if file_path specifies a PathBuf, the PathBuf must\
 not terminate in a root or a prefix"
@@ -653,7 +653,7 @@ not terminate in a root or a prefix"
 				None => {}
 			},
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"file_path must be of the form FilePath(Option<PathBuf>)"
 				));
@@ -662,7 +662,7 @@ not terminate in a root or a prefix"
 		match config.colors {
 			Colors(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"colors must be of the form Colors(bool)"
 				));
@@ -671,7 +671,7 @@ not terminate in a root or a prefix"
 		match config.stdout {
 			Stdout(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"stdout must be of the form Stdout(bool)"
 				));
@@ -680,7 +680,7 @@ not terminate in a root or a prefix"
 		match config.max_size_bytes {
 			MaxSizeBytes(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"max_size_bytes must be of the form MaxSizeBytes(u64)"
 				));
@@ -689,7 +689,7 @@ not terminate in a root or a prefix"
 		match config.max_age_millis {
 			MaxAgeMillis(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"max_age_millis must be of the form MaxAgeMillis(u64)"
 				));
@@ -699,7 +699,7 @@ not terminate in a root or a prefix"
 		match config.timestamp {
 			Timestamp(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"timestamp must be of the form Timestamp(bool)"
 				));
@@ -708,7 +708,7 @@ not terminate in a root or a prefix"
 		match config.level {
 			Level(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"level must be of the form Level(bool)"
 				));
@@ -717,7 +717,7 @@ not terminate in a root or a prefix"
 		match config.line_num {
 			LineNum(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"line_num must be of the form LineNum(bool)"
 				));
@@ -726,7 +726,7 @@ not terminate in a root or a prefix"
 		match config.show_millis {
 			ShowMillis(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"show_millis must be of the form ShowMillis(bool)"
 				));
@@ -735,7 +735,7 @@ not terminate in a root or a prefix"
 		match config.auto_rotate {
 			AutoRotate(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"auto_rotate must be of the form AutoRotate(bool)"
 				));
@@ -744,7 +744,7 @@ not terminate in a root or a prefix"
 		match config.show_bt {
 			ShowBt(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"show_bt must be of the form ShowBt(bool)"
 				));
@@ -753,7 +753,7 @@ not terminate in a root or a prefix"
 		match config.line_num_data_max_len {
 			LineNumDataMaxLen(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"line_num_data_max_len must be of the form LineNumDataMaxLen(u64)"
 				));
@@ -762,7 +762,7 @@ not terminate in a root or a prefix"
 		match config.delete_rotation {
 			DeleteRotation(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"delete_rotation must be of the form DeleteRotation(bool)"
 				));
@@ -772,7 +772,7 @@ not terminate in a root or a prefix"
 		match config.file_header {
 			FileHeader(_) => {}
 			_ => {
-				return Err(errkind!(
+				return Err(err!(
 					ErrKind::Configuration,
 					"file_header must be of the form FileHeader(String)"
 				));
@@ -785,7 +785,7 @@ not terminate in a root or a prefix"
 	fn check_open(&mut self, file: &mut File, path: &PathBuf) -> Result<(), Error> {
 		let metadata = file.metadata();
 		if metadata.is_err() || self.config.debug_invalid_metadata {
-			return Err(errkind!(
+			return Err(err!(
 				ErrKind::Log,
 				format!("failed to retreive metadata for file: {}", path.display())
 			));
@@ -808,7 +808,7 @@ not terminate in a root or a prefix"
 					}
 				}
 				_ => {
-					return Err(errkind!(
+					return Err(err!(
 						ErrKind::Configuration,
 						"file_header must be of the form FileHeader(String)"
 					));

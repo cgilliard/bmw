@@ -1,8 +1,8 @@
 [package]
-name = "bmw_deps"
+name = "bmw_util"
 version = "0.0.2-beta1"
 authors = ["BMW Develoeprs"]
-description = "Dependencies of this library"
+description = "Utility library"
 license = "Apache-2.0"
 repository = "https://github.com/37miners/bmw"
 keywords = [ "crypto", "bitcoinmw"]
@@ -11,12 +11,10 @@ exclude = ["**/*.bmw", "**/*.bmw"]
 edition = "2018"
 
 [dependencies]
-failure = "0.1.0"
-failure_derive = "0.1.0"
-substring = "1.4.5"
-colored = "2.0.0"
-rand = "0.8.4"
-lazy_static = "1.4.0"
-backtrace = "0.3.63"
-chrono = "0.4"
-byteorder = "1.4.3"
+
+bmw_deps = { path = "../deps"  }
+bmw_err  = { path = "../error" }
+bmw_log  = { path = "../log"   }
+
+[dev-dependencies]
+bmw_test = { path = "../test" }
