@@ -936,6 +936,26 @@ macro_rules! lockr {
 	}};
 }
 
+/// a usize conversion macro
+#[macro_export]
+macro_rules! usize {
+	($v:expr) => {{
+		use std::convert::TryInto;
+		let v: usize = $v.try_into()?;
+		v
+	}};
+}
+
+/// a u64 conversion macro
+#[macro_export]
+macro_rules! u64 {
+	($v:expr) => {{
+		use std::convert::TryInto;
+		let v: u64 = $v.try_into()?;
+		v
+	}};
+}
+
 #[cfg(test)]
 mod test {
 	use crate as bmw_log;

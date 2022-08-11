@@ -41,6 +41,15 @@ impl_int!(i16, write_i16, read_i16);
 impl_int!(u128, write_u128, read_u128);
 impl_int!(i128, write_i128, read_i128);
 
+impl Serializable for () {
+	fn write<W: Writer>(&self, _writer: &mut W) -> Result<(), Error> {
+		Ok(())
+	}
+	fn read<R: Reader>(_reader: &mut R) -> Result<(), Error> {
+		Ok(())
+	}
+}
+
 impl<A: Serializable, B: Serializable> Serializable for (A, B) {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 		Serializable::write(&self.0, writer)?;

@@ -23,7 +23,7 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 
-info!();
+debug!();
 
 const SLAB_OVERHEAD: u64 = 8;
 const SLOT_EMPTY: u64 = u64::MAX;
@@ -142,16 +142,25 @@ where
 	V: Serializable,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error> {
-		self.insert_impl::<K, V>(key, Some(value))
+		self.insert_impl::<K, V>(Some(key), 0, None, Some(value), None)
 	}
 	fn get(&self, key: &K) -> Result<Option<V>, Error> {
-		self.get_impl(key)
+		self.get_impl(Some(key), None, 0)
 	}
 	fn remove(&mut self, key: &K) -> Result<(), Error> {
 		self.remove_impl(key)
 	}
 	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, (K, V)>>, Error> {
 		self.iter_impl()
+	}
+	fn get_raw(&self, key: &[u8], hash: u64) -> Result<Option<Vec<u8>>, Error> {
+		self.get_raw_impl::<K>(key, hash)
+	}
+	//fn get_raw_mut<'b>(&'b mut self, key: &[u8], hash: u64) -> Result<Option<&'b mut [u8]>, Error> {
+	//	todo!()
+	//}
+	fn insert_raw(&mut self, key: &[u8], hash: u64, value: &[u8]) -> Result<(), Error> {
+		self.insert_impl::<K, V>(None, hash, Some(key), None, Some(value))
 	}
 }
 
@@ -160,17 +169,20 @@ where
 	K: Serializable + Hash,
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error> {
-		self.insert_impl::<K, K>(key, None)
+		self.insert_impl::<K, K>(Some(key), 0, None, None, None)
 	}
 	fn contains(&self, key: &K) -> Result<bool, Error> {
 		debug!("contains:self.config={:?},k={:?}", self.config, key)?;
-		todo!()
+		Ok(self.find_entry(Some(key), None, 0)?.is_some())
 	}
 	fn remove(&mut self, key: &K) -> Result<(), Error> {
 		self.remove_impl(key)
 	}
 	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, K>>, Error> {
 		self.iter_impl()
+	}
+	fn insert_raw(&mut self, _key: &[u8]) -> Result<(), Error> {
+		todo!()
 	}
 }
 
@@ -195,25 +207,51 @@ impl<'a> StaticHashImpl<'a> {
 		}
 	}
 
-	fn get_impl<K, V>(&self, key: &K) -> Result<Option<V>, Error>
+	fn get_raw_impl<K>(&self, key_raw: &[u8], hash: u64) -> Result<Option<Vec<u8>>, Error>
 	where
 		K: Serializable + Hash,
-		V: Serializable,
 	{
-		debug!("get_impl:self.config={:?},k={:?}", self.config, key)?;
-		let entry = self.find_entry(key)?;
+		let entry = self.find_entry::<K>(None, Some(key_raw), hash)?;
 		debug!("entry at {:?}", entry)?;
-
 		match entry {
 			Some(entry) => Ok(Some(self.read_value(entry)?)),
 			None => Ok(None),
 		}
 	}
 
-	fn read_value<V>(&self, entry: usize) -> Result<V, Error>
+	fn get_impl<K, V>(
+		&self,
+		key_ser: Option<&K>,
+		key_raw: Option<&[u8]>,
+		hash: u64,
+	) -> Result<Option<V>, Error>
+	where
+		K: Serializable + Hash,
+		V: Serializable,
+	{
+		debug!("get_impl:self.config={:?},k={:?}", self.config, key_ser)?;
+		let entry = self.find_entry(key_ser, key_raw, hash)?;
+		debug!("entry at {:?}", entry)?;
+
+		match entry {
+			Some(entry) => Ok(Some(self.read_ser(entry)?)),
+			None => Ok(None),
+		}
+	}
+
+	fn read_ser<V>(&self, entry: usize) -> Result<V, Error>
 	where
 		V: Serializable,
 	{
+		let v = self.read_value(entry)?;
+		let mut cursor = Cursor::new(v);
+		cursor.set_position(0);
+		let mut reader = BinReader::new(&mut cursor);
+		let ret = V::read(&mut reader)?;
+		Ok(ret)
+	}
+
+	fn read_value(&self, entry: usize) -> Result<Vec<u8>, Error> {
 		let mut v: Vec<u8> = vec![];
 		let slab_id = self.entry_array[entry];
 		let mut slab = self.slabs_as_ref()?.get(slab_id)?;
@@ -278,34 +316,47 @@ impl<'a> StaticHashImpl<'a> {
 		}
 
 		debug!("break with vlen={}", v.len())?;
-
+		Ok(v)
+		/*
 		let mut cursor = Cursor::new(v);
 		cursor.set_position(0);
 		let mut reader = BinReader::new(&mut cursor);
 		let ret = V::read(&mut reader)?;
 		Ok(ret)
+					*/
 	}
 
-	fn find_entry<K>(&self, key: &K) -> Result<Option<usize>, Error>
+	fn find_entry<K>(
+		&self,
+		key: Option<&K>,
+		key_raw: Option<&[u8]>,
+		hash: u64,
+	) -> Result<Option<usize>, Error>
 	where
 		K: Serializable + Hash,
 	{
-		let mut entry = self.entry_hash(key);
+		let mut entry = match key {
+			Some(key) => self.entry_hash(&key),
+			None => usize!(hash) % self.entry_array.len(),
+		};
 
 		let max_iter = self.entry_array.len();
 		let mut i = 0;
 		loop {
 			if i >= max_iter {
+				debug!("max iter exceeded")?;
 				return Ok(None);
 			}
 			if self.entry_array[entry] == SLOT_EMPTY {
+				debug!("found empty slot at {}", entry)?;
 				// empty slot means this key is not in the table
 				return Ok(None);
 			}
 
 			if self.entry_array[entry] != SLOT_DELETED {
+				debug!("found possible slot at {}", entry)?;
 				// there's a valid entry here. Check if it's ours
-				if self.key_match(self.entry_array[entry], key)? {
+				if self.key_match(self.entry_array[entry], key, key_raw)? {
 					return Ok(Some(entry));
 				}
 			}
@@ -315,15 +366,32 @@ impl<'a> StaticHashImpl<'a> {
 		}
 	}
 
-	fn key_match<K>(&self, id: u64, key: &K) -> Result<bool, Error>
+	fn key_match<K>(
+		&self,
+		id: u64,
+		key_ser: Option<&K>,
+		key_raw: Option<&[u8]>,
+	) -> Result<bool, Error>
 	where
 		K: Serializable,
 	{
 		let slabs = self.slabs_as_ref()?;
 		// serialize key
 		let mut k = vec![];
-		serialize(&mut k, key)?;
-
+		match key_ser {
+			Some(key_ser) => serialize(&mut k, key_ser)?,
+			None => match key_raw {
+				Some(key_raw) => {
+					k.extend(key_raw);
+				}
+				None => {
+					return Err(err!(
+						ErrKind::IllegalArgument,
+						"a serializable key or a raw key must be specified"
+					))
+				}
+			},
+		}
 		let klen = k.len();
 		debug!("key_len={}", klen)?;
 
@@ -364,15 +432,25 @@ impl<'a> StaticHashImpl<'a> {
 		Ok(true)
 	}
 
-	fn insert_impl<K, V>(&mut self, key: &K, value: Option<&V>) -> Result<(), Error>
+	fn insert_impl<K, V>(
+		&mut self,
+		key_ser: Option<&K>,
+		hash: u64,
+		key_raw: Option<&[u8]>,
+		value_ser: Option<&V>,
+		value_raw: Option<&[u8]>,
+	) -> Result<(), Error>
 	where
 		K: Serializable + Hash,
 		V: Serializable,
 	{
-		debug!("insert:self.config={:?},k={:?}", self.config, key)?;
+		debug!("insert:self.config={:?},k={:?}", self.config, key_ser)?;
 
 		let max_iter = self.entry_array.len();
-		let mut entry = self.entry_hash(key);
+		let mut entry = match key_ser {
+			Some(key_ser) => self.entry_hash(key_ser),
+			None => hash as usize % max_iter,
+		};
 		let mut i = 0;
 		loop {
 			if i >= max_iter {
@@ -394,25 +472,24 @@ impl<'a> StaticHashImpl<'a> {
 		let bytes_per_slab = slab_size.saturating_sub(SLAB_OVERHEAD);
 
 		let mut k = vec![];
-		serialize(&mut k, key)?;
-		let key_len: u64 = k.len().try_into()?;
-		let mut v = vec![];
-		match value {
-			Some(value) => {
-				serialize(&mut v, value)?;
+		match key_ser {
+			Some(key) => {
+				debug!("serializing with key")?;
+				serialize(&mut k, key)?
 			}
-			None => {}
+			None => match key_raw {
+				Some(key_raw) => {
+					k.extend(key_raw);
+				}
+				None => {
+					return Err(err!(
+						ErrKind::IllegalArgument,
+						"both key_raw and key_ser cannot be None"
+					));
+				}
+			},
 		}
-
-		debug!(
-			"klen={},k.len={}, bytes_per_slab={},varA={},varB={}",
-			key_len,
-			k.len(),
-			bytes_per_slab,
-			(key_len + 15) % bytes_per_slab,
-			bytes_per_slab.saturating_sub((key_len + 16) % bytes_per_slab)
-		)?;
-
+		let key_len: u64 = k.len().try_into()?;
 		if (key_len + 15) % bytes_per_slab < 8 {
 			for _ in (key_len + 15) % bytes_per_slab..7 {
 				debug!("push0==========")?;
@@ -420,7 +497,18 @@ impl<'a> StaticHashImpl<'a> {
 			}
 		}
 
-		//if (k.len() + 16) % bytes_per_slab
+		let mut v = vec![];
+		match value_ser {
+			Some(value) => {
+				serialize(&mut v, value)?;
+			}
+			None => match value_raw {
+				Some(value) => {
+					v.extend(value);
+				}
+				None => {}
+			},
+		}
 
 		k.extend(v.len().to_be_bytes());
 		k.extend(v);
@@ -462,6 +550,7 @@ impl<'a> StaticHashImpl<'a> {
 
 		debug!("slab_list={:?}", slab_list)?;
 		self.entry_array[entry] = slab_list[0];
+		debug!("setting entry[{}] = {}", entry, slab_list[0])?;
 		let slab_list_len = slab_list.len();
 		for i in 0..slab_list_len.saturating_sub(1) {
 			trace!("processing slab i={}", i)?;
@@ -556,9 +645,13 @@ mod test {
 	use crate::types::{Reader, Writer};
 	use crate::SlabAllocatorConfig;
 	use crate::{
-		Serializable, SlabAllocatorBuilder, StaticHashtableBuilder, StaticHashtableConfig,
+		Serializable, SlabAllocatorBuilder, StaticHashsetBuilder, StaticHashsetConfig,
+		StaticHashtableBuilder, StaticHashtableConfig,
 	};
 	use bmw_err::Error;
+	use std::collections::hash_map::DefaultHasher;
+	use std::convert::TryInto;
+	use std::hash::{Hash, Hasher};
 
 	#[derive(Debug, Hash, PartialEq)]
 	struct BigThing {
@@ -630,6 +723,40 @@ mod test {
 		sh3.insert(&10, &20)?;
 		assert_eq!(sh3.get(&10)?, Some(20));
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_static_hashset() -> Result<(), Error> {
+		let slabs1 = SlabAllocatorBuilder::build_unsafe(SlabAllocatorConfig::default())?;
+		let mut sh = StaticHashsetBuilder::build_unsafe(StaticHashsetConfig::default(), &slabs1)?;
+		sh.insert(&1)?;
+		sh.insert(&9)?;
+		sh.insert(&18)?;
+
+		for i in 0..20 {
+			if i == 1 || i == 9 || i == 18 {
+				assert!(sh.contains(&i)?);
+			} else {
+				assert!(!sh.contains(&i)?);
+			}
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashtable_raw() -> Result<(), Error> {
+		let slabs1 = SlabAllocatorBuilder::build_unsafe(SlabAllocatorConfig::default())?;
+		let mut sh = StaticHashtableBuilder::build_unsafe::<(), ()>(
+			StaticHashtableConfig::default(),
+			&slabs1,
+		)?;
+
+		let mut hasher = DefaultHasher::new();
+		(b"hi").hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		sh.insert_raw(b"hi", hash.try_into()?, b"ok")?;
+		assert_eq!(sh.get_raw(b"hi", hash.try_into()?)?.unwrap(), b"ok");
 		Ok(())
 	}
 }

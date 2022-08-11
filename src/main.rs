@@ -12,22 +12,43 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmw_err::Error;
+use bmw_err::{err, ErrKind, Error};
+use bmw_log::*;
+use std::mem::size_of;
+
+info!();
 
 fn main() -> Result<(), Error> {
-	println!("not implemented yet");
+	real_main(false)?;
+	Ok(())
+}
+
+fn real_main(debug_startup_32: bool) -> Result<(), Error> {
+	// ensure we only support 64 bit
+	match size_of::<&char>() == 8 && debug_startup_32 == false {
+		true => {}
+		false => return Err(err!(ErrKind::IllegalState, "Only 64 bit arch supported")),
+	}
+
+	info!("not implemented yet")?;
 
 	Ok(())
 }
 
 #[cfg(test)]
 mod test {
-	use crate::main;
+	use crate::{main, real_main};
 	use bmw_err::Error;
 
 	#[test]
 	fn test_main() -> Result<(), Error> {
 		assert!(main().is_ok());
+		Ok(())
+	}
+
+	#[test]
+	fn test_debug_startup_32() -> Result<(), Error> {
+		assert!(real_main(true).is_err());
 		Ok(())
 	}
 }
