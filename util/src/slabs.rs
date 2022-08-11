@@ -14,9 +14,10 @@
 use crate::{Slab, SlabAllocator, SlabMut};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
+use std::cell::UnsafeCell;
 use std::convert::TryInto;
 
-debug!();
+info!();
 
 #[derive(Debug)]
 pub struct SlabAllocatorConfig {
@@ -184,6 +185,12 @@ impl SlabAllocatorImpl {
 }
 
 impl SlabAllocatorBuilder {
+	pub fn build_unsafe(
+		config: SlabAllocatorConfig,
+	) -> Result<UnsafeCell<Box<dyn SlabAllocator>>, Error> {
+		Ok(UnsafeCell::new(Box::new(SlabAllocatorImpl::new(config)?)))
+	}
+
 	pub fn build(config: SlabAllocatorConfig) -> Result<Box<dyn SlabAllocator>, Error> {
 		Ok(Box::new(SlabAllocatorImpl::new(config)?))
 	}

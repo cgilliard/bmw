@@ -88,6 +88,11 @@ macro_rules! err {
 				let error: bmw_err::Error = bmw_err::ErrorKind::Misc($msg.to_string()).into();
 				error
 			}
+			bmw_err::ErrKind::IllegalState => {
+				let error: bmw_err::Error =
+					bmw_err::ErrorKind::IllegalState($msg.to_string()).into();
+				error
+			}
 		}
 	}};
 }
@@ -151,6 +156,9 @@ macro_rules! map_err {
 				}
 				bmw_err::ErrKind::CorruptedData => {
 					bmw_err::ErrorKind::CorruptedData(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::IllegalState => {
+					bmw_err::ErrorKind::IllegalState(format!("{}: {}", $msg, e)).into()
 				}
 			};
 			error

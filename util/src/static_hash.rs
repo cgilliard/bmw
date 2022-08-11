@@ -16,13 +16,14 @@ use crate::types::StaticHashset;
 use crate::{Serializable, SlabAllocator, StaticHashtable, StaticIterator};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
+use std::cell::UnsafeCell;
 use std::collections::hash_map::DefaultHasher;
 use std::convert::TryInto;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 
-debug!();
+info!();
 
 const SLAB_OVERHEAD: u64 = 8;
 const SLOT_EMPTY: u64 = u64::MAX;
@@ -86,12 +87,39 @@ impl Default for StaticHashsetConfig {
 
 struct StaticHashImpl<'a> {
 	config: StaticHashConfig,
-	slabs: &'a mut dyn SlabAllocator,
+	slabs_unsafe: Option<&'a UnsafeCell<Box<dyn SlabAllocator>>>,
+	slabs: Option<&'a mut Box<dyn SlabAllocator>>,
 	entry_array: Vec<u64>,
 }
 
 impl<'a> StaticHashImpl<'a> {
-	fn new(config: StaticHashConfig, slabs: &'a mut dyn SlabAllocator) -> Result<Self, Error> {
+	fn new(config: StaticHashConfig, slabs: &'a mut Box<dyn SlabAllocator>) -> Result<Self, Error> {
+		let mut entry_array = vec![];
+		Self::init(&config, &mut entry_array)?;
+		Ok(StaticHashImpl {
+			config,
+			slabs_unsafe: None,
+			slabs: Some(slabs),
+			entry_array,
+		})
+	}
+
+	fn new_unsafe(
+		config: StaticHashConfig,
+		slabs: &'a UnsafeCell<Box<dyn SlabAllocator>>,
+	) -> Result<Self, Error> {
+		let mut entry_array = vec![];
+		Self::init(&config, &mut entry_array)?;
+
+		Ok(StaticHashImpl {
+			config,
+			slabs_unsafe: Some(slabs),
+			slabs: None,
+			entry_array,
+		})
+	}
+
+	fn init(config: &StaticHashConfig, entry_array: &mut Vec<u64>) -> Result<(), Error> {
 		if config.max_load_factor <= 0.0 || config.max_load_factor > 1.0 {
 			return Err(err!(
 				ErrKind::IllegalArgument,
@@ -102,15 +130,9 @@ impl<'a> StaticHashImpl<'a> {
 		// max_load_factor
 		let size: i32 = (config.max_entries as f64 / config.max_load_factor).floor() as i32;
 		let size: usize = size.try_into()?;
-		let mut entry_array = vec![];
 		debug!("entry array init to size = {}", size)?;
 		entry_array.resize(size, SLOT_EMPTY);
-
-		Ok(StaticHashImpl {
-			config,
-			slabs,
-			entry_array,
-		})
+		Ok(())
 	}
 }
 
@@ -153,6 +175,26 @@ where
 }
 
 impl<'a> StaticHashImpl<'a> {
+	fn slabs_as_ref(&self) -> Result<&dyn SlabAllocator, Error> {
+		match self.slabs_unsafe {
+			Some(slabs) => match unsafe { slabs.get().as_ref() } {
+				Some(slabs) => Ok(&**slabs),
+				None => Err(err!(ErrKind::IllegalState, "slab allocator not accessible")),
+			},
+			None => Ok(&***self.slabs.as_ref().unwrap()),
+		}
+	}
+
+	fn slabs_as_mut(&mut self) -> Result<&mut dyn SlabAllocator, Error> {
+		match self.slabs_unsafe {
+			Some(slabs) => match unsafe { slabs.get().as_mut() } {
+				Some(slabs) => Ok(&mut **slabs),
+				None => Err(err!(ErrKind::IllegalState, "slab allocator not accessible")),
+			},
+			None => Ok(&mut ***self.slabs.as_mut().unwrap()),
+		}
+	}
+
 	fn get_impl<K, V>(&self, key: &K) -> Result<Option<V>, Error>
 	where
 		K: Serializable + Hash,
@@ -163,31 +205,84 @@ impl<'a> StaticHashImpl<'a> {
 		debug!("entry at {:?}", entry)?;
 
 		match entry {
-			Some(entry) => self.read_value(entry),
+			Some(entry) => Ok(Some(self.read_value(entry)?)),
 			None => Ok(None),
 		}
 	}
 
-	fn read_value<V>(&self, entry: usize) -> Result<Option<V>, Error>
+	fn read_value<V>(&self, entry: usize) -> Result<V, Error>
 	where
 		V: Serializable,
 	{
-		let slab_id = self.entry_array[entry];
-		let slab = self.slabs.get(slab_id)?;
-		let slab_bytes = slab.get();
-
-		// TODO: multislab
-		let klen = u64::from_be_bytes(slab_bytes[0..8].try_into()?);
-		let mut offset: usize = klen.try_into()?;
-		offset += 8;
-		let valuelen = u64::from_be_bytes(slab_bytes[offset..offset + 8].try_into()?);
-		let valuelen: usize = valuelen.try_into()?;
 		let mut v: Vec<u8> = vec![];
-		v.extend(&slab_bytes[offset + 8..offset + 8 + valuelen]);
+		let slab_id = self.entry_array[entry];
+		let mut slab = self.slabs_as_ref()?.get(slab_id)?;
+		let bytes_per_slab: usize = self
+			.slabs_as_ref()?
+			.slab_size()?
+			.saturating_sub(SLAB_OVERHEAD)
+			.try_into()?;
+		let mut krem: usize = u64::from_be_bytes(slab.get()[0..8].try_into()?).try_into()?;
+		let klen = krem;
+		krem += 8;
+		let mut slab_offset = 8;
+		let mut value_len: usize = 0;
+		let mut voffset = usize::MAX;
+		let mut vrem = usize::MAX;
+		loop {
+			let slab_bytes = slab.get();
+			debug!("slab_id={}, krem+8={}", slab.id(), krem + 8)?;
+			if krem < slab_offset + bytes_per_slab
+				&& voffset == usize::MAX
+				&& krem + 8 <= bytes_per_slab
+			{
+				value_len =
+					u64::from_be_bytes(slab_bytes[krem..krem + 8].try_into()?).try_into()?;
+
+				if value_len > 1_000_000 {
+					debug!("krem={},value_len={}", krem, value_len)?;
+					for i in krem..krem + 32 {
+						debug!("=====[{}]={}", i, slab_bytes[i])?;
+					}
+					break;
+				}
+
+				voffset = krem + 8;
+				vrem = value_len;
+				debug!(
+					"krem={},value_len={},voffset={},klen={}",
+					krem, value_len, voffset, klen
+				)?;
+			}
+
+			if voffset != usize::MAX {
+				let mut end = (value_len - v.len()) + voffset;
+				if end > bytes_per_slab {
+					end = bytes_per_slab;
+				}
+				v.extend(&slab_bytes[voffset..end]);
+				debug!("vlen={}, vrem={}, end={}", v.len(), vrem, end)?;
+				voffset = 0;
+				vrem = vrem.saturating_sub(end - voffset);
+			}
+
+			if v.len() >= value_len && voffset != usize::MAX {
+				break;
+			}
+
+			krem = krem.saturating_sub(bytes_per_slab);
+			let next =
+				u64::from_be_bytes(slab_bytes[bytes_per_slab..bytes_per_slab + 8].try_into()?);
+			slab = self.slabs_as_ref()?.get(next)?;
+			slab_offset = 0;
+		}
+
+		debug!("break with vlen={}", v.len())?;
+
 		let mut cursor = Cursor::new(v);
 		cursor.set_position(0);
 		let mut reader = BinReader::new(&mut cursor);
-		let ret = Some(V::read(&mut reader)?);
+		let ret = V::read(&mut reader)?;
 		Ok(ret)
 	}
 
@@ -224,6 +319,7 @@ impl<'a> StaticHashImpl<'a> {
 	where
 		K: Serializable,
 	{
+		let slabs = self.slabs_as_ref()?;
 		// serialize key
 		let mut k = vec![];
 		serialize(&mut k, key)?;
@@ -232,7 +328,7 @@ impl<'a> StaticHashImpl<'a> {
 		debug!("key_len={}", klen)?;
 
 		// read first slab
-		let slab = self.slabs.get(id)?;
+		let slab = slabs.get(id)?;
 		let len = u64::from_be_bytes(slab.get()[0..8].try_into()?);
 		debug!("len={}", len)?;
 
@@ -241,8 +337,7 @@ impl<'a> StaticHashImpl<'a> {
 		}
 
 		let mut offset = 0;
-		let bytes_per_slab: usize = self
-			.slabs
+		let bytes_per_slab: usize = slabs
 			.slab_size()?
 			.saturating_sub(SLAB_OVERHEAD)
 			.try_into()?;
@@ -295,6 +390,9 @@ impl<'a> StaticHashImpl<'a> {
 		}
 		debug!("inserting at entry={}", entry)?;
 
+		let slab_size = self.slabs_as_ref()?.slab_size()?;
+		let bytes_per_slab = slab_size.saturating_sub(SLAB_OVERHEAD);
+
 		let mut k = vec![];
 		serialize(&mut k, key)?;
 		let key_len: u64 = k.len().try_into()?;
@@ -305,22 +403,43 @@ impl<'a> StaticHashImpl<'a> {
 			}
 			None => {}
 		}
+
+		debug!(
+			"klen={},k.len={}, bytes_per_slab={},varA={},varB={}",
+			key_len,
+			k.len(),
+			bytes_per_slab,
+			(key_len + 15) % bytes_per_slab,
+			bytes_per_slab.saturating_sub((key_len + 16) % bytes_per_slab)
+		)?;
+
+		if (key_len + 15) % bytes_per_slab < 8 {
+			for _ in (key_len + 15) % bytes_per_slab..7 {
+				debug!("push0==========")?;
+				k.push(0);
+			}
+		}
+
+		//if (k.len() + 16) % bytes_per_slab
+
 		k.extend(v.len().to_be_bytes());
 		k.extend(v);
 		let mut v = vec![];
 		v.extend(key_len.to_be_bytes());
 		v.extend(k);
-		let needed_len = v.len();
-		let slabs_needed =
-			needed_len as u64 / self.slabs.slab_size()?.saturating_sub(SLAB_OVERHEAD);
 
-		if self.slabs.free_count()? < slabs_needed {
+		let needed_len = v.len();
+		let slabs_needed = needed_len as u64 / bytes_per_slab;
+
+		debug!("slabs needed = {}", slabs_needed)?;
+
+		if self.slabs_as_ref()?.free_count()? < slabs_needed {
 			return Err(err!(ErrKind::CapacityExceeded, "no more slabs"));
 		}
 
 		let mut v_offset: usize = 0;
 		let bytes_per_slab: usize = self
-			.slabs
+			.slabs_as_ref()?
 			.slab_size()?
 			.saturating_sub(SLAB_OVERHEAD)
 			.try_into()?;
@@ -328,7 +447,7 @@ impl<'a> StaticHashImpl<'a> {
 
 		debug!("vlen={}", v.len())?;
 		loop {
-			let mut slab = self.slabs.allocate()?;
+			let mut slab = self.slabs_as_mut()?.allocate()?;
 			slab_list.push(slab.id());
 			let mut len = v.len() - v_offset;
 			if len > bytes_per_slab {
@@ -346,7 +465,7 @@ impl<'a> StaticHashImpl<'a> {
 		let slab_list_len = slab_list.len();
 		for i in 0..slab_list_len.saturating_sub(1) {
 			trace!("processing slab i={}", i)?;
-			let mut slab = self.slabs.get_mut(slab_list[i])?;
+			let mut slab = self.slabs_as_mut()?.get_mut(slab_list[i])?;
 			slab.get_mut()[bytes_per_slab..bytes_per_slab + 8]
 				.clone_from_slice(&slab_list[i + 1].to_be_bytes());
 		}
@@ -384,9 +503,20 @@ impl<'a> StaticHashImpl<'a> {
 pub struct StaticHashtableBuilder {}
 
 impl StaticHashtableBuilder {
+	pub fn build_unsafe<'a, K, V>(
+		config: StaticHashtableConfig,
+		slabs: &'a UnsafeCell<Box<dyn SlabAllocator>>,
+	) -> Result<Box<dyn StaticHashtable<K, V> + 'a>, Error>
+	where
+		K: Serializable + Hash,
+		V: Serializable,
+	{
+		Ok(Box::new(StaticHashImpl::new_unsafe(config.into(), slabs)?))
+	}
+
 	pub fn build<'a, K, V>(
 		config: StaticHashtableConfig,
-		slabs: &'a mut dyn SlabAllocator,
+		slabs: &'a mut Box<dyn SlabAllocator>,
 	) -> Result<Box<dyn StaticHashtable<K, V> + 'a>, Error>
 	where
 		K: Serializable + Hash,
@@ -399,12 +529,23 @@ impl StaticHashtableBuilder {
 pub struct StaticHashsetBuilder {}
 
 impl StaticHashsetBuilder {
-	pub fn build<'a, K>(
+	pub fn build_unsafe<'a, K>(
 		config: StaticHashsetConfig,
-		slabs: &'a mut dyn SlabAllocator,
+		slabs: &'a UnsafeCell<Box<dyn SlabAllocator>>,
 	) -> Result<Box<dyn StaticHashset<K> + 'a>, Error>
 	where
 		K: Serializable + Hash,
+	{
+		Ok(Box::new(StaticHashImpl::new_unsafe(config.into(), slabs)?))
+	}
+
+	pub fn build<'a, K, V>(
+		config: StaticHashsetConfig,
+		slabs: &'a mut Box<dyn SlabAllocator>,
+	) -> Result<Box<dyn StaticHashtable<K, V> + 'a>, Error>
+	where
+		K: Serializable + Hash,
+		V: Serializable,
 	{
 		Ok(Box::new(StaticHashImpl::new(config.into(), slabs)?))
 	}
@@ -421,38 +562,74 @@ mod test {
 
 	#[derive(Debug, Hash, PartialEq)]
 	struct BigThing {
-		val: u32,
+		val1: u32,
+		val2: u32,
+		middle: Vec<u8>,
 	}
 
 	impl BigThing {
-		fn new(val: u32) -> Self {
-			Self { val }
+		fn new(val1: u32, val2: u32) -> Self {
+			let mut middle = vec![];
+			for i in 0..val1 {
+				middle.push((i % 256) as u8);
+			}
+			Self { val1, val2, middle }
 		}
 	}
 
 	impl Serializable for BigThing {
 		fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
-			let val = reader.read_u32()?;
-			Ok(Self { val })
+			let val1 = reader.read_u32()?;
+			let mut middle = vec![];
+			for _ in 0..val1 {
+				middle.push(reader.read_u8()?);
+			}
+			let val2 = reader.read_u32()?;
+			Ok(Self { val1, val2, middle })
 		}
 		fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-			writer.write_u32(self.val)?;
+			writer.write_u32(self.val1)?;
+			for i in 0..self.val1 {
+				writer.write_u8(self.middle[i as usize])?;
+			}
+			writer.write_u32(self.val2)?;
 			Ok(())
 		}
 	}
 
 	#[test]
 	fn test_static_hashtable() -> Result<(), Error> {
-		let mut slabs1 = SlabAllocatorBuilder::build(SlabAllocatorConfig::default())?;
+		let slabs1 = SlabAllocatorBuilder::build_unsafe(SlabAllocatorConfig::default())?;
 		let mut slabs2 = SlabAllocatorBuilder::build(SlabAllocatorConfig::default())?;
-		let mut sh = StaticHashtableBuilder::build(StaticHashtableConfig::default(), &mut *slabs1)?;
+		let mut sh =
+			StaticHashtableBuilder::build_unsafe(StaticHashtableConfig::default(), &slabs1)?;
 		sh.insert(&1, &2)?;
 		assert_eq!(sh.get(&1)?, Some(2));
 
+		/*let mut sh2 =
+		StaticHashtableBuilder::build_unsafe(StaticHashtableConfig::default(), &slabs1)?; */
+
+		/*
+		for i in 0..993 {
+			sh2.insert(&BigThing::new(i + 1, 5), &BigThing::new(1, i))?;
+			assert_eq!(
+				sh2.get(&BigThing::new(i + 1, 5))?,
+				Some(BigThing::new(1, i))
+			);
+		}
+				*/
+
 		let mut sh2 =
-			StaticHashtableBuilder::build(StaticHashtableConfig::default(), &mut *slabs2)?;
-		sh2.insert(&BigThing::new(1), &BigThing::new(10))?;
-		assert_eq!(sh2.get(&BigThing::new(1))?, Some(BigThing::new(10)));
+			StaticHashtableBuilder::build_unsafe(StaticHashtableConfig::default(), &slabs1)?;
+		for i in 0..2000 {
+			sh2.insert(&BigThing::new(i, i), &BigThing::new(i, i))?;
+			assert_eq!(sh2.get(&BigThing::new(i, i))?, Some(BigThing::new(i, i)));
+		}
+
+		let mut sh3 = StaticHashtableBuilder::build(StaticHashtableConfig::default(), &mut slabs2)?;
+		sh3.insert(&10, &20)?;
+		assert_eq!(sh3.get(&10)?, Some(20));
+
 		Ok(())
 	}
 }

@@ -64,6 +64,9 @@ pub enum ErrorKind {
 	/// Miscellaneous Error
 	#[fail(display = "Miscellaneous Error: {}", _0)]
 	Misc(String),
+	/// Illegal State
+	#[fail(display = "Illegal State Error: {}", _0)]
+	IllegalState(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
@@ -94,6 +97,8 @@ pub enum ErrKind {
 	IllegalArgument,
 	/// A Miscellaneous Error occurred.
 	Misc,
+	/// Application is in an illegal state.
+	IllegalState,
 }
 
 impl Display for Error {
