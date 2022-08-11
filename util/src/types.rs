@@ -29,9 +29,8 @@ where
 	V: Serializable,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
-	fn get(&self, key: &K) -> Result<&V, Error>;
-	fn get_mut(&mut self, key: &K) -> Result<&mut V, Error>;
-	fn remove(&mut self, key: &K) -> Result<&V, Error>;
+	fn get(&self, key: &K) -> Result<Option<V>, Error>;
+	fn remove(&mut self, key: &K) -> Result<(), Error>;
 	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, (K, V)>>, Error>;
 }
 pub trait StaticHashset<K>
@@ -80,10 +79,12 @@ pub trait SlabMut {
 }
 
 pub trait SlabAllocator {
-	fn allocate(&mut self) -> Result<Box<dyn SlabMut>, Error>;
+	fn allocate<'a>(&'a mut self) -> Result<Box<dyn SlabMut + 'a>, Error>;
 	fn free(&mut self, id: u64) -> Result<(), Error>;
-	fn get(&self, id: u64) -> Result<Box<dyn Slab>, Error>;
-	fn get_mut(&mut self, id: u64) -> Result<Box<dyn SlabMut>, Error>;
+	fn get<'a>(&'a self, id: u64) -> Result<Box<dyn Slab + 'a>, Error>;
+	fn get_mut<'a>(&'a mut self, id: u64) -> Result<Box<dyn SlabMut + 'a>, Error>;
+	fn free_count(&self) -> Result<u64, Error>;
+	fn slab_size(&self) -> Result<u64, Error>;
 }
 
 pub trait Match {

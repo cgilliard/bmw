@@ -11,8 +11,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod ser;
+mod slabs;
 mod static_hash;
 mod types;
 
-pub use crate::static_hash::{StaticHashsetBuilder, StaticHashtableBuilder};
-pub use crate::types::{Serializable, StaticHashtable, StaticIterator, StaticQueue, ThreadPool};
+pub use crate::slabs::{SlabAllocatorBuilder, SlabAllocatorConfig};
+pub use crate::static_hash::{
+	StaticHashsetBuilder, StaticHashsetConfig, StaticHashtableBuilder, StaticHashtableConfig,
+};
+pub use crate::types::{
+	Serializable, Slab, SlabAllocator, SlabMut, StaticHashtable, StaticIterator, StaticQueue,
+	ThreadPool,
+};
