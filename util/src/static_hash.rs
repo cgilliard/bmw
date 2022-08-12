@@ -396,7 +396,7 @@ impl<'a> StaticHashImpl<'a> {
 		debug!("key_len={}", klen)?;
 
 		// read first slab
-		let slab = slabs.get(id)?;
+		let mut slab = slabs.get(id)?;
 		let len = u64::from_be_bytes(slab.get()[0..8].try_into()?);
 		debug!("len={}", len)?;
 
@@ -404,7 +404,6 @@ impl<'a> StaticHashImpl<'a> {
 			return Ok(false);
 		}
 
-		let mut offset = 0;
 		let bytes_per_slab: usize = slabs
 			.slab_size()?
 			.saturating_sub(SLAB_OVERHEAD)
@@ -422,7 +421,20 @@ impl<'a> StaticHashImpl<'a> {
 			return Ok(true);
 		}
 
+		let mut offset = end - 8;
 		loop {
+			let next =
+				u64::from_be_bytes(slab.get()[bytes_per_slab..bytes_per_slab + 8].try_into()?);
+			slab = slabs.get(next)?;
+			let mut rem = klen.saturating_sub(offset);
+			if rem > bytes_per_slab {
+				rem = bytes_per_slab;
+			}
+
+			if k[offset..offset + rem] != slab.get()[0..rem] {
+				return Ok(false);
+			}
+
 			offset += bytes_per_slab;
 			if offset >= klen {
 				break;
@@ -798,7 +810,10 @@ mod test {
 
 	#[test]
 	fn test_static_hashtable() -> Result<(), Error> {
-		let slabs1 = SlabAllocatorBuilder::build_unsafe(SlabAllocatorConfig::default())?;
+		let slabs1 = SlabAllocatorBuilder::build_unsafe(SlabAllocatorConfig {
+			slab_count: 30_000,
+			..Default::default()
+		})?;
 		let mut slabs2 = SlabAllocatorBuilder::build(SlabAllocatorConfig::default())?;
 		let mut sh =
 			StaticHashtableBuilder::build_unsafe(StaticHashtableConfig::default(), &slabs1)?;
@@ -807,7 +822,7 @@ mod test {
 
 		let mut sh2 =
 			StaticHashtableBuilder::build_unsafe(StaticHashtableConfig::default(), &slabs1)?;
-		for i in 0..2000 {
+		for i in 0..4000 {
 			sh2.insert(&BigThing::new(i, i), &BigThing::new(i, i))?;
 			assert_eq!(sh2.get(&BigThing::new(i, i))?, Some(BigThing::new(i, i)));
 		}
