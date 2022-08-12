@@ -13,7 +13,7 @@ edition = "2018"
 
 [workspace]
 members = [
-	"error", "deps", "log", "test"
+	"error", "deps", "log", "test", "util"
 ]
 exclude = ["etc"]
 

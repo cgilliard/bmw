@@ -17,7 +17,7 @@ use core::array::TryFromSliceError;
 use std::convert::Infallible;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
-use std::num::TryFromIntError;
+use std::num::{ParseIntError, TryFromIntError};
 
 /// Base Error struct which is used throughout bmw.
 #[derive(Debug, Fail)]
@@ -174,6 +174,14 @@ impl From<Infallible> for Error {
 	fn from(e: Infallible) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::Misc(format!("Infallible: {}", e))),
+		}
+	}
+}
+
+impl From<ParseIntError> for Error {
+	fn from(e: ParseIntError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("ParseIntError: {}", e))),
 		}
 	}
 }

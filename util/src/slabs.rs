@@ -21,8 +21,8 @@ info!();
 
 #[derive(Debug)]
 pub struct SlabAllocatorConfig {
-	slab_size: u64,
-	slab_count: u64,
+	pub slab_size: u64,
+	pub slab_count: u64,
 }
 
 pub struct SlabAllocatorBuilder {}
