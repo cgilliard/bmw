@@ -15,7 +15,6 @@ use crate::{Slab, SlabAllocator, SlabMut};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::cell::UnsafeCell;
-use std::convert::TryInto;
 
 info!();
 
@@ -82,11 +81,12 @@ impl SlabAllocator for SlabAllocatorImpl {
 		}
 
 		let id = self.first_free;
-		let offset = ((8 + self.config.slab_size) * id).try_into()?;
-		self.first_free =
-			u64::from_be_bytes(self.data[offset..offset + 8].try_into()?).try_into()?;
+		let offset = usize!((8 + self.config.slab_size) * id);
+		self.first_free = u64!(u64::from_be_bytes(
+			self.data[offset..offset + 8].try_into()?
+		));
 
-		let offset = (offset + 8).try_into()?;
+		let offset = usize!(offset + 8);
 		let data = &mut self.data[offset..offset + self.config.slab_size as usize];
 		self.free_count = self.free_count.saturating_sub(1);
 
@@ -103,7 +103,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			));
 		}
 		debug!("free:self.config={:?},id={}", self.config, id)?;
-		let offset = ((8 + self.config.slab_size) * id).try_into()?;
+		let offset = usize!((8 + self.config.slab_size) * id);
 		self.data[offset..offset + 8].clone_from_slice(&self.first_free.to_be_bytes());
 		self.first_free = id;
 		self.free_count += 1;
@@ -120,8 +120,8 @@ impl SlabAllocator for SlabAllocatorImpl {
 			));
 		}
 		debug!("get:self.config={:?},id={}", self.config, id)?;
-		let offset = (8 + ((8 + self.config.slab_size) * id)).try_into()?;
-		let data = &self.data[offset..offset + self.config.slab_size as usize];
+		let offset = usize!(8 + ((8 + self.config.slab_size) * id));
+		let data = &self.data[offset..offset + usize!(self.config.slab_size)];
 		Ok(Box::new(SlabImpl { data, id }))
 	}
 	fn get_mut<'a>(&'a mut self, id: u64) -> Result<Box<dyn SlabMut + 'a>, Error> {
@@ -135,7 +135,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			));
 		}
 		debug!("get_mut:self.config={:?},id={}", self.config, id)?;
-		let offset = (8 + ((8 + self.config.slab_size) * id)).try_into()?;
+		let offset = usize!(8 + ((8 + self.config.slab_size) * id));
 		let data = &mut self.data[offset..offset + self.config.slab_size as usize];
 		Ok(Box::new(SlabMutImpl { data, id }))
 	}
@@ -154,10 +154,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 impl SlabAllocatorImpl {
 	fn new(config: SlabAllocatorConfig) -> Result<Self, Error> {
 		let mut data = vec![];
-		data.resize(
-			(config.slab_count * (config.slab_size + 8)).try_into()?,
-			0u8,
-		);
+		data.resize(usize!(config.slab_count * (config.slab_size + 8)), 0u8);
 		let first_free = 0;
 		let free_count = config.slab_count;
 		Self::build_free_list(&mut data, config.slab_count, config.slab_size)?;
@@ -177,7 +174,7 @@ impl SlabAllocatorImpl {
 				u64::MAX.to_be_bytes()
 			};
 
-			let offset_next: usize = (i * (8 + slab_size)).try_into().unwrap();
+			let offset_next = usize!(i * (8 + slab_size));
 			data[offset_next..offset_next + 8].clone_from_slice(&next_bytes);
 		}
 		Ok(())

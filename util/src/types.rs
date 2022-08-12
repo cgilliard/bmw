@@ -33,7 +33,11 @@ where
 	fn remove(&mut self, key: &K) -> Result<(), Error>;
 	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, (K, V)>>, Error>;
 	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error>;
-	//fn get_raw_mut<'a>(&'a mut self, key: &[u8], hash: u64) -> Result<Option<&'a mut [u8]>, Error>;
+	fn get_raw_mut<'b>(
+		&'b mut self,
+		key: &[u8],
+		hash: u64,
+	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: u64, value: &[u8]) -> Result<(), Error>;
 }
 pub trait StaticHashset<K>

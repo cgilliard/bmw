@@ -13,7 +13,7 @@
 
 use crate::ser::{serialize, BinReader};
 use crate::types::StaticHashset;
-use crate::{Serializable, Slab, SlabAllocator, StaticHashtable, StaticIterator};
+use crate::{Serializable, Slab, SlabAllocator, SlabMut, StaticHashtable, StaticIterator};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::cell::UnsafeCell;
@@ -129,9 +129,8 @@ impl<'a> StaticHashImpl<'a> {
 		// calculate size of entry_array. Must be possible to have max_entries, with the
 		// max_load_factor
 		let size: i32 = (config.max_entries as f64 / config.max_load_factor).floor() as i32;
-		let size: usize = size.try_into()?;
 		debug!("entry array init to size = {}", size)?;
-		entry_array.resize(size, SLOT_EMPTY);
+		entry_array.resize(usize!(size), SLOT_EMPTY);
 		Ok(())
 	}
 }
@@ -156,9 +155,13 @@ where
 	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
 		self.get_raw_impl::<K>(key, hash)
 	}
-	//fn get_raw_mut<'b>(&'b mut self, key: &[u8], hash: u64) -> Result<Option<&'b mut [u8]>, Error> {
-	//	todo!()
-	//}
+	fn get_raw_mut<'b>(
+		&'b mut self,
+		key: &[u8],
+		hash: u64,
+	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error> {
+		self.get_raw_mut_impl::<K>(key, hash)
+	}
 	fn insert_raw(&mut self, key: &[u8], hash: u64, value: &[u8]) -> Result<(), Error> {
 		self.insert_impl::<K, V>(None, hash, Some(key), None, Some(value))
 	}
@@ -204,6 +207,26 @@ impl<'a> StaticHashImpl<'a> {
 				None => Err(err!(ErrKind::IllegalState, "slab allocator not accessible")),
 			},
 			None => Ok(&mut ***self.slabs.as_mut().unwrap()),
+		}
+	}
+
+	fn get_raw_mut_impl<'b, K>(
+		&'b mut self,
+		key_raw: &[u8],
+		hash: u64,
+	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>
+	where
+		K: Serializable + Hash,
+	{
+		let entry = self.find_entry::<K>(None, Some(key_raw), hash)?;
+		debug!("entry at {:?}", entry)?;
+		match entry {
+			Some(entry) => {
+				let id = self.entry_array[entry];
+				let ret = self.slabs_as_mut()?.get_mut(id)?;
+				Ok(Some(ret))
+			}
+			None => Ok(None),
 		}
 	}
 
@@ -262,12 +285,11 @@ impl<'a> StaticHashImpl<'a> {
 		let mut v: Vec<u8> = vec![];
 		let slab_id = self.entry_array[entry];
 		let mut slab = self.slabs_as_ref()?.get(slab_id)?;
-		let bytes_per_slab: usize = self
+		let bytes_per_slab: usize = usize!(self
 			.slabs_as_ref()?
 			.slab_size()?
-			.saturating_sub(SLAB_OVERHEAD)
-			.try_into()?;
-		let mut krem: usize = u64::from_be_bytes(slab.get()[0..8].try_into()?).try_into()?;
+			.saturating_sub(SLAB_OVERHEAD));
+		let mut krem = usize!(u64::from_be_bytes(slab.get()[0..8].try_into()?));
 		let klen = krem;
 		krem += 8;
 		let mut slab_offset = 8;
@@ -281,8 +303,7 @@ impl<'a> StaticHashImpl<'a> {
 				&& voffset == usize::MAX
 				&& krem + 8 <= bytes_per_slab
 			{
-				value_len =
-					u64::from_be_bytes(slab_bytes[krem..krem + 8].try_into()?).try_into()?;
+				value_len = usize!(u64::from_be_bytes(slab_bytes[krem..krem + 8].try_into()?));
 
 				if value_len > 1_000_000 {
 					debug!("krem={},value_len={}", krem, value_len)?;
@@ -400,14 +421,11 @@ impl<'a> StaticHashImpl<'a> {
 		let len = u64::from_be_bytes(slab.get()[0..8].try_into()?);
 		debug!("len={}", len)?;
 
-		if len != klen.try_into()? {
+		if len != u64!(klen) {
 			return Ok(false);
 		}
 
-		let bytes_per_slab: usize = slabs
-			.slab_size()?
-			.saturating_sub(SLAB_OVERHEAD)
-			.try_into()?;
+		let bytes_per_slab: usize = usize!(slabs.slab_size()?.saturating_sub(SLAB_OVERHEAD));
 
 		// compare the first slab
 		let mut end = 8 + klen;
@@ -743,7 +761,6 @@ mod test {
 	use bmw_err::Error;
 	use bmw_log::*;
 	use std::collections::hash_map::DefaultHasher;
-	use std::convert::TryInto;
 	use std::hash::{Hash, Hasher};
 
 	debug!();
@@ -862,9 +879,9 @@ mod test {
 
 		let mut hasher = DefaultHasher::new();
 		(b"hi").hash(&mut hasher);
-		let hash = hasher.finish() as usize;
-		sh.insert_raw(b"hi", hash.try_into()?, b"ok")?;
-		let slab = sh.get_raw(b"hi", hash.try_into()?)?.unwrap();
+		let hash = hasher.finish();
+		sh.insert_raw(b"hi", hash, b"ok")?;
+		let slab = sh.get_raw(b"hi", hash)?.unwrap();
 		// key = 104/105 (hi), value = 111/107 (ok)
 		assert_eq!(
 			slab.get()[0..20],

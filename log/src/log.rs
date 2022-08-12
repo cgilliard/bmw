@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::types::{Log, LogConfig, LogConfigOption, LogConfigOptionName, LogLevel};
+use crate::u64;
 use crate::LogConfigOption::{
 	AutoRotate, Colors, DeleteRotation, FileHeader, FilePath, Level, LineNum, LineNumDataMaxLen,
 	MaxAgeMillis, MaxSizeBytes, ShowBt, ShowMillis, Stdout, Timestamp,
@@ -23,7 +24,6 @@ use bmw_deps::chrono::{DateTime, Local};
 use bmw_deps::colored::Colorize;
 use bmw_deps::rand::random;
 use bmw_err::{err, ErrKind, Error};
-use std::convert::TryInto;
 use std::fs::{canonicalize, remove_file, rename, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -417,7 +417,7 @@ impl LogImpl {
 				let formatted_timestamp = format!("[{}]: ", formatted_timestamp);
 				let formatted_timestamp = formatted_timestamp.as_bytes();
 				self.file.as_ref().unwrap().write(formatted_timestamp)?;
-				let formatted_len: u64 = formatted_timestamp.len().try_into()?;
+				let formatted_len: u64 = u64!(formatted_timestamp.len());
 				self.cur_size += formatted_len;
 			}
 
@@ -434,7 +434,7 @@ impl LogImpl {
 				let formatted_level = format!("({}) ", level);
 				let formatted_level = formatted_level.as_bytes();
 				self.file.as_ref().unwrap().write(formatted_level)?;
-				let formatted_len: u64 = formatted_level.len().try_into()?;
+				let formatted_len: u64 = u64!(formatted_level.len());
 				self.cur_size += formatted_len;
 			}
 
@@ -532,7 +532,7 @@ impl LogImpl {
 				let logged_from_file = format!("[{}]: ", logged_from_file);
 				let logged_from_file = logged_from_file.as_bytes();
 				file.write(logged_from_file)?;
-				let logged_from_file_len: u64 = logged_from_file.len().try_into()?;
+				let logged_from_file_len: u64 = u64!(logged_from_file.len());
 				self.cur_size += logged_from_file_len;
 			}
 
@@ -550,7 +550,7 @@ impl LogImpl {
 			let mut file = self.file.as_ref().unwrap();
 			file.write(line_bytes)?;
 			file.write(NEWLINE)?;
-			let mut line_bytes_len: u64 = line_bytes.len().try_into()?;
+			let mut line_bytes_len: u64 = u64!(line_bytes.len());
 			line_bytes_len += 1;
 			self.cur_size += line_bytes_len;
 
@@ -559,8 +559,7 @@ impl LogImpl {
 				let bt_text = format!("{:?}", bt);
 				let bt_bytes: &[u8] = bt_text.as_bytes();
 				file.write(bt_bytes)?;
-				let bt_bytes_len: u64 = bt_bytes.len().try_into()?;
-				self.cur_size += bt_bytes_len;
+				self.cur_size += u64!(bt_bytes.len());
 			}
 		}
 
@@ -801,8 +800,7 @@ not terminate in a root or a prefix"
 						// there's a header. We need to append it.
 						file.write(header.as_bytes())?;
 						file.write(NEWLINE)?;
-						let header_len: u64 = header.len().try_into()?;
-						self.cur_size = header_len + 1;
+						self.cur_size = u64!(header.len()) + 1;
 					} else {
 						self.cur_size = 0;
 					}
