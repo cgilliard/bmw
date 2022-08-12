@@ -16,6 +16,12 @@ use bmw_err::{err, ErrKind, Error};
 use std::fmt::Debug;
 use std::future::Future;
 
+#[derive(Debug)]
+pub struct SlabAllocatorConfig {
+	pub slab_size: u64,
+	pub slab_count: u64,
+}
+
 pub trait StaticIterator<'a, K>
 where
 	K: Serializable,
@@ -93,6 +99,7 @@ pub trait SlabAllocator {
 	fn get_mut<'a>(&'a mut self, id: u64) -> Result<Box<dyn SlabMut + 'a>, Error>;
 	fn free_count(&self) -> Result<u64, Error>;
 	fn slab_size(&self) -> Result<u64, Error>;
+	fn init(&mut self, config: SlabAllocatorConfig) -> Result<(), Error>;
 }
 
 pub trait Match {

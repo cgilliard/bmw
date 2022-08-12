@@ -16,11 +16,11 @@ mod slabs;
 mod static_hash;
 mod types;
 
-pub use crate::slabs::{SlabAllocatorBuilder, SlabAllocatorConfig};
+pub use crate::slabs::{SlabAllocatorBuilder, GLOBAL_SLAB_ALLOCATOR};
 pub use crate::static_hash::{
 	StaticHashsetBuilder, StaticHashsetConfig, StaticHashtableBuilder, StaticHashtableConfig,
 };
 pub use crate::types::{
-	Serializable, Slab, SlabAllocator, SlabMut, StaticHashtable, StaticIterator, StaticQueue,
-	ThreadPool,
+	Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, StaticHashtable,
+	StaticIterator, StaticQueue, ThreadPool,
 };
