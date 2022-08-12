@@ -32,7 +32,7 @@ where
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
 	fn remove(&mut self, key: &K) -> Result<(), Error>;
 	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, (K, V)>>, Error>;
-	fn get_raw(&self, key: &[u8], hash: u64) -> Result<Option<Vec<u8>>, Error>;
+	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error>;
 	//fn get_raw_mut<'a>(&'a mut self, key: &[u8], hash: u64) -> Result<Option<&'a mut [u8]>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: u64, value: &[u8]) -> Result<(), Error>;
 }

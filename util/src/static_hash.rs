@@ -13,7 +13,7 @@
 
 use crate::ser::{serialize, BinReader};
 use crate::types::StaticHashset;
-use crate::{Serializable, SlabAllocator, StaticHashtable, StaticIterator};
+use crate::{Serializable, Slab, SlabAllocator, StaticHashtable, StaticIterator};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::cell::UnsafeCell;
@@ -153,7 +153,7 @@ where
 	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, (K, V)>>, Error> {
 		self.iter_impl()
 	}
-	fn get_raw(&self, key: &[u8], hash: u64) -> Result<Option<Vec<u8>>, Error> {
+	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
 		self.get_raw_impl::<K>(key, hash)
 	}
 	//fn get_raw_mut<'b>(&'b mut self, key: &[u8], hash: u64) -> Result<Option<&'b mut [u8]>, Error> {
@@ -207,14 +207,21 @@ impl<'a> StaticHashImpl<'a> {
 		}
 	}
 
-	fn get_raw_impl<K>(&self, key_raw: &[u8], hash: u64) -> Result<Option<Vec<u8>>, Error>
+	fn get_raw_impl<'b, K>(
+		&'b self,
+		key_raw: &[u8],
+		hash: u64,
+	) -> Result<Option<Box<dyn Slab + 'b>>, Error>
 	where
 		K: Serializable + Hash,
 	{
 		let entry = self.find_entry::<K>(None, Some(key_raw), hash)?;
 		debug!("entry at {:?}", entry)?;
 		match entry {
-			Some(entry) => Ok(Some(self.read_value(entry)?)),
+			Some(entry) => {
+				let ret = self.slabs_as_ref()?.get(self.entry_array[entry])?;
+				Ok(Some(ret))
+			}
 			None => Ok(None),
 		}
 	}
@@ -842,7 +849,12 @@ mod test {
 		(b"hi").hash(&mut hasher);
 		let hash = hasher.finish() as usize;
 		sh.insert_raw(b"hi", hash.try_into()?, b"ok")?;
-		assert_eq!(sh.get_raw(b"hi", hash.try_into()?)?.unwrap(), b"ok");
+		let slab = sh.get_raw(b"hi", hash.try_into()?)?.unwrap();
+		// key = 104/105 (hi), value = 111/107 (ok)
+		assert_eq!(
+			slab.get()[0..20],
+			[0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107]
+		);
 		Ok(())
 	}
 }
