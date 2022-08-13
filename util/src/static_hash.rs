@@ -286,6 +286,9 @@ where
 	fn size(&self) -> usize {
 		self.size
 	}
+	fn clear(&mut self) -> Result<(), Error> {
+		self.clear_impl()
+	}
 	fn first_entry(&self) -> usize {
 		self.first_entry
 	}
@@ -329,6 +332,9 @@ where
 	}
 	fn size(&self) -> usize {
 		self.size
+	}
+	fn clear(&mut self) -> Result<(), Error> {
+		self.clear_impl()
 	}
 	fn first_entry(&self) -> usize {
 		self.first_entry
@@ -404,36 +410,7 @@ impl StaticHashImpl {
 
 	fn do_drop(self: &mut StaticHashImpl) -> Result<(), Error> {
 		debug!("Dropping StaticHashImpl with config: {:?}", self.config)?;
-		let mut cur = self.first_entry;
-		loop {
-			if cur == usize::MAX {
-				break;
-			}
-
-			let to_drop = self.entry_array[cur];
-			{
-				debug!("cur={}, cur entry = {}", cur, self.entry_array[cur])?;
-				match self.get_slab(self.entry_array[cur]) {
-					Ok(slab) => {
-						let k = self.read_k(slab.id())?;
-						let slab = slab.get();
-						debug!("slab={:?},k={:?}", slab, k)?;
-
-						cur = usize::from_be_bytes(try_into!(slab[0..8])?);
-						let prev = usize::from_be_bytes(try_into!(slab[8..16])?);
-						debug!("cur is now {}, prev={}", cur, prev)?;
-					}
-					Err(e) => {
-						error!(
-							"Error iterating through slab hash. It is in an invalid state: {}",
-							e
-						)?;
-					}
-				}
-			}
-
-			self.free(to_drop)?;
-		}
+		Self::clear_impl(self)?;
 		Ok(())
 	}
 	fn get_slab<'a>(&'a self, id: usize) -> Result<Box<dyn Slab + 'a>, Error> {
@@ -480,6 +457,38 @@ impl StaticHashImpl {
 				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 			}),
 		}
+	}
+
+	fn clear_impl(&mut self) -> Result<(), Error> {
+		self.size = 0;
+		let mut entry = self.first_entry;
+		loop {
+			if entry == SLOT_EMPTY {
+				break;
+			}
+			let cur = self.entry_array[entry];
+			self.entry_array[entry] = SLOT_DELETED;
+
+			{
+				debug!("cur={}", cur)?;
+				match self.get_slab(cur) {
+					Ok(slab) => {
+						let slab = slab.get();
+						entry = usize::from_be_bytes(try_into!(slab[0..8])?);
+						debug!("entry is now {}", entry)?;
+					}
+					Err(e) => {
+						error!(
+							"Error iterating through slab hash. It is in an invalid state: {}",
+							e
+						)?;
+					}
+				}
+			}
+
+			self.free_tail(cur)?;
+		}
+		Ok(())
 	}
 
 	fn get_raw_mut_impl<'b, K>(
@@ -811,14 +820,20 @@ impl StaticHashImpl {
 			}
 		}
 
-		if prev != usize::MAX {
+		if prev != usize::MAX
+			&& self.entry_array[prev] != SLOT_EMPTY
+			&& self.entry_array[prev] != SLOT_DELETED
+		{
 			let mut slab = self.get_mut(self.entry_array[prev])?;
 			slab.get_mut()[0..8].clone_from_slice(&next.to_be_bytes());
 		} else {
 			self.first_entry = next;
 		}
 
-		if next != usize::MAX {
+		if next != usize::MAX
+			&& self.entry_array[next] != SLOT_EMPTY
+			&& self.entry_array[next] != SLOT_DELETED
+		{
 			let mut slab = self.get_mut(self.entry_array[next])?;
 			slab.get_mut()[8..16].clone_from_slice(&prev.to_be_bytes());
 		}
@@ -1254,30 +1269,37 @@ mod test {
 
 	#[test]
 	fn test_static_hashtable() -> Result<(), Error> {
-		initialize()?;
-		let mut slabs1 = SlabAllocatorBuilder::build();
-		slabs1.init(SlabAllocatorConfig {
-			slab_count: 30_000,
-			..Default::default()
-		})?;
-		let mut slabs2 = SlabAllocatorBuilder::build();
-		slabs2.init(SlabAllocatorConfig::default())?;
-		let mut sh = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
-		sh.insert(&1, &2)?;
-		assert_eq!(sh.get(&1)?, Some(2));
+		{
+			initialize()?;
+			let mut slabs1 = SlabAllocatorBuilder::build();
+			slabs1.init(SlabAllocatorConfig {
+				slab_count: 30_000,
+				..Default::default()
+			})?;
+			let mut slabs2 = SlabAllocatorBuilder::build();
+			slabs2.init(SlabAllocatorConfig::default())?;
+			let mut sh = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
+			sh.insert(&1, &2)?;
+			assert_eq!(sh.get(&1)?, Some(2));
 
-		let mut sh2 = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
+			let mut sh2 = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
 
-		for i in 0..4000 {
-			info!("i={}", i)?;
-			sh2.insert(&BigThing::new(i, i), &BigThing::new(i, i))?;
-			assert_eq!(sh2.get(&BigThing::new(i, i))?, Some(BigThing::new(i, i)));
-			//info!("bigthing={:?}", BigThing::new(i, i));
+			for i in 0..4000 {
+				info!("i={}", i)?;
+				sh2.insert(&BigThing::new(i, i), &BigThing::new(i, i))?;
+				assert_eq!(sh2.get(&BigThing::new(i, i))?, Some(BigThing::new(i, i)));
+				//info!("bigthing={:?}", BigThing::new(i, i));
+			}
+
+			let mut sh3 = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
+			sh3.insert(&10, &20)?;
+			assert_eq!(sh3.get(&10)?, Some(20));
 		}
 
-		let mut sh3 = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
-		sh3.insert(&10, &20)?;
-		assert_eq!(sh3.get(&10)?, Some(20));
+		let free_count = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+		})?;
+		assert_eq!(free_count, 30_000);
 
 		Ok(())
 	}
@@ -1435,6 +1457,33 @@ mod test {
 		})?;
 		info!("free_count={}", free_count3)?;
 		assert_eq!(free_count3, free_count1);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_clear() -> Result<(), Error> {
+		let mut slabs = SlabAllocatorBuilder::build();
+		slabs.init(SlabAllocatorConfig {
+			slab_count: 10,
+			..Default::default()
+		})?;
+		let mut sh = StaticHashtableBuilder::build(StaticHashtableConfig::default(), Some(slabs))?;
+
+		for i in 0..10 {
+			sh.insert(&i, &i)?;
+		}
+		assert_eq!(sh.size(), 10);
+		sh.clear()?;
+		assert_eq!(sh.size(), 0);
+		for i in 0..10 {
+			sh.insert(&i, &i)?;
+		}
+		assert_eq!(sh.size(), 10);
+		assert!(sh.insert(&100, &100).is_err());
+		sh.clear()?;
+		assert!(sh.insert(&100, &100).is_ok());
+		assert_eq!(sh.get(&100).unwrap().unwrap(), 100);
 
 		Ok(())
 	}
