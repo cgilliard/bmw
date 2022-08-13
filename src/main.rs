@@ -32,6 +32,8 @@ fn real_main(debug_startup_32: bool) -> Result<(), Error> {
 
 	info!("not implemented yet")?;
 
+	bmw_crypt::test()?;
+
 	Ok(())
 }
 

@@ -13,8 +13,11 @@
 
 use bmw_deps::byteorder::{BigEndian, ByteOrder};
 use bmw_err::{err, ErrKind, Error};
+use bmw_log::*;
 use std::fmt::Debug;
 use std::future::Future;
+
+info!();
 
 #[derive(Debug)]
 pub struct SlabAllocatorConfig {
@@ -37,6 +40,8 @@ where
 		hash: usize,
 	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error>;
+	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
+	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
 	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error>;
@@ -50,6 +55,8 @@ where
 	fn contains_raw(&self, key: &[u8], hash: usize) -> Result<bool, Error>;
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize) -> Result<(), Error>;
+	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
+	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
 	fn read_k(&self, slab_id: usize) -> Result<K, Error>;
@@ -180,6 +187,12 @@ pub trait Writer {
 		self.write_fixed_bytes(&bytes)
 	}
 
+	fn write_usize(&mut self, n: usize) -> Result<(), Error> {
+		let mut bytes = [0; 8];
+		BigEndian::write_u64(&mut bytes, u64!(n));
+		self.write_fixed_bytes(&bytes)
+	}
+
 	fn write_bytes<T: AsRef<[u8]>>(&mut self, bytes: T) -> Result<(), Error> {
 		self.write_u64(bytes.as_ref().len() as u64)?;
 		self.write_fixed_bytes(bytes)
@@ -203,6 +216,7 @@ pub trait Reader {
 	fn read_i128(&mut self) -> Result<i128, Error>;
 	fn read_i32(&mut self) -> Result<i32, Error>;
 	fn read_i64(&mut self) -> Result<i64, Error>;
+	fn read_usize(&mut self) -> Result<usize, Error>;
 	fn read_bytes_len_prefix(&mut self) -> Result<Vec<u8>, Error>;
 	fn read_fixed_bytes(&mut self, length: usize) -> Result<Vec<u8>, Error>;
 	fn expect_u8(&mut self, val: u8) -> Result<u8, Error>;

@@ -11,3 +11,18 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+use bmw_util::*;
+
+info!();
+
+pub fn test() -> Result<(), Error> {
+	info!("test")?;
+	let mut hash = hashtable!()?;
+	hash.insert(&1, &"ok".to_string())?;
+	hash.insert(&3, &"hithere".to_string())?;
+	for (k, v) in &hash {
+		info!("k={},v={}", k, v)?;
+	}
+	Ok(())
+}

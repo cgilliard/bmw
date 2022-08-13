@@ -93,6 +93,7 @@ struct StaticHashImpl {
 	entry_array: Vec<usize>,
 	slab_size: usize,
 	first_entry: usize,
+	size: usize,
 }
 
 impl Drop for StaticHashImpl {
@@ -262,7 +263,7 @@ where
 		self.get_impl(Some(key), None, 0)
 	}
 	fn remove(&mut self, key: &K) -> Result<bool, Error> {
-		self.remove_impl(key)
+		self.remove_impl(Some(key), None, 0)
 	}
 	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
 		self.get_raw_impl::<K>(key, hash)
@@ -277,7 +278,12 @@ where
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error> {
 		self.insert_impl::<K, V>(None, hash, Some(key), None, Some(value))
 	}
-
+	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error> {
+		self.remove_impl::<K>(None, Some(key), hash)
+	}
+	fn size(&self) -> usize {
+		self.size
+	}
 	fn first_entry(&self) -> usize {
 		self.first_entry
 	}
@@ -308,12 +314,17 @@ where
 	}
 
 	fn remove(&mut self, key: &K) -> Result<bool, Error> {
-		self.remove_impl(key)
+		self.remove_impl(Some(key), None, 0)
 	}
 	fn insert_raw(&mut self, key: &[u8], hash: usize) -> Result<(), Error> {
 		self.insert_impl::<K, K>(None, hash, Some(key), None, None)
 	}
-
+	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error> {
+		self.remove_impl::<K>(None, Some(key), hash)
+	}
+	fn size(&self) -> usize {
+		self.size
+	}
 	fn first_entry(&self) -> usize {
 		self.first_entry
 	}
@@ -364,6 +375,7 @@ impl StaticHashImpl {
 			slabs,
 			entry_array,
 			first_entry: usize::MAX,
+			size: 0,
 		})
 	}
 
@@ -818,35 +830,6 @@ impl StaticHashImpl {
 		V: Serializable,
 	{
 		debug!("insert:self.config={:?},k={:?}", self.config, key_ser)?;
-
-		let entry_array_len = self.entry_array.len();
-		let mut entry = match key_ser {
-			Some(key_ser) => self.entry_hash(key_ser),
-			None => hash as usize % entry_array_len,
-		};
-		let mut i = 0;
-		loop {
-			if i >= entry_array_len {
-				return Err(err!(
-					ErrKind::CapacityExceeded,
-					"StaticHashImpl: Capacity exceeded"
-				));
-			}
-			if self.entry_array[entry] == SLOT_EMPTY || self.entry_array[entry] == SLOT_DELETED {
-				break;
-			}
-
-			// does the current key match ours?
-			if self.key_match(self.entry_array[entry], key_ser, key_raw)? {
-				self.free_tail(self.entry_array[entry])?;
-				break;
-			}
-
-			entry = (entry + 1) % entry_array_len;
-			i += 1;
-		}
-		debug!("inserting at entry={}", entry)?;
-
 		let bytes_per_slab = self.slab_size.saturating_sub(SLAB_OVERHEAD);
 		let free_count = self.get_free_count()?;
 
@@ -922,6 +905,36 @@ impl StaticHashImpl {
 		if free_count < slabs_needed {
 			return Err(err!(ErrKind::CapacityExceeded, "no more slabs"));
 		}
+
+		let entry_array_len = self.entry_array.len();
+		let mut entry = match key_ser {
+			Some(key_ser) => self.entry_hash(key_ser),
+			None => hash as usize % entry_array_len,
+		};
+		let mut i = 0;
+		loop {
+			if i >= entry_array_len {
+				return Err(err!(
+					ErrKind::CapacityExceeded,
+					"StaticHashImpl: Capacity exceeded"
+				));
+			}
+			if self.entry_array[entry] == SLOT_EMPTY || self.entry_array[entry] == SLOT_DELETED {
+				break;
+			}
+
+			// does the current key match ours?
+			if self.key_match(self.entry_array[entry], key_ser, key_raw)? {
+				// subtract because we add it back later
+				self.size = self.size.saturating_sub(1);
+				self.free_tail(self.entry_array[entry])?;
+				break;
+			}
+
+			entry = (entry + 1) % entry_array_len;
+			i += 1;
+		}
+		debug!("inserting at entry={}", entry)?;
 
 		let mut itt = 0;
 		let mut last_id = 0;
@@ -1036,20 +1049,30 @@ impl StaticHashImpl {
 			slab.get_mut()[8..16].clone_from_slice(&first_id.to_be_bytes());
 		}
 		self.first_entry = first_id;
+		self.size += 1;
 		Ok(())
 	}
 
-	fn remove_impl<K>(&mut self, key: &K) -> Result<bool, Error>
+	fn remove_impl<K>(
+		&mut self,
+		key_ser: Option<&K>,
+		key_raw: Option<&[u8]>,
+		hash: usize,
+	) -> Result<bool, Error>
 	where
 		K: Serializable + Hash,
 	{
-		debug!("remove:self.config={:?},k={:?}", self.config, key)?;
+		debug!(
+			"remove:self.config={:?},k_ser={:?},k_raw={:?}",
+			self.config, key_ser, key_raw
+		)?;
 
-		Ok(match self.find_entry(Some(key), None, 0)? {
+		Ok(match self.find_entry(key_ser, key_raw, hash)? {
 			Some(entry) => {
 				debug!("found entry at {}", entry)?;
 				self.free_tail(self.entry_array[entry])?;
 				self.entry_array[entry] = SLOT_DELETED;
+				self.size = self.size.saturating_sub(1);
 				true
 			}
 			None => false,
@@ -1178,6 +1201,7 @@ mod test {
 		let mut sh3 = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
 		sh3.insert(&10, &20)?;
 		assert_eq!(sh3.get(&10)?, Some(20));
+		assert_eq!(sh3.size(), 1);
 
 		let mut count = 0;
 		let mut ks = vec![];
@@ -1281,15 +1305,35 @@ mod test {
 		(b"hi").hash(&mut hasher);
 		let hash = hasher.finish();
 		sh.insert_raw(b"hi", usize!(hash), b"ok")?;
-		let slab = sh.get_raw(b"hi", usize!(hash))?.unwrap();
-		// key = 104/105 (hi), value = 111/107 (ok)
-		assert_eq!(
-			slab.get()[0..36],
-			[
-				255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0,
-				0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
-			]
-		);
+		{
+			let slab = sh.get_raw(b"hi", usize!(hash))?.unwrap();
+			// key = 104/105 (hi), value = 111/107 (ok)
+			assert_eq!(
+				slab.get()[0..36],
+				[
+					255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+					0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
+				]
+			);
+		}
+
+		let mut count = 0;
+		for _ in &sh {
+			count += 1;
+		}
+
+		assert_eq!(count, 1);
+
+		sh.remove_raw(b"hi", usize!(hash))?;
+		assert!(sh.get_raw(b"hi", usize!(hash))?.is_none());
+
+		let mut count = 0;
+		for _ in &sh {
+			count += 1;
+		}
+
+		assert_eq!(count, 0);
+
 		Ok(())
 	}
 
@@ -1316,6 +1360,20 @@ mod test {
 		assert!(sh.contains_raw(&[1], 1)?);
 		assert!(sh.contains_raw(&[2], 2)?);
 		assert!(!sh.contains_raw(&[3], 3)?);
+
+		sh.remove_raw(&[2], 2)?;
+
+		assert!(sh.contains_raw(&[1], 1)?);
+		assert!(!sh.contains_raw(&[2], 2)?);
+		assert!(!sh.contains_raw(&[3], 3)?);
+
+		let mut count = 0;
+
+		for _ in &sh {
+			count += 1;
+		}
+
+		assert_eq!(count, 1);
 
 		Ok(())
 	}
@@ -1349,6 +1407,7 @@ mod test {
 			}
 
 			assert_eq!(count, 5);
+			assert_eq!(sh.size(), 5);
 			assert!(sh.contains(&1)?);
 			assert!(sh.contains(&2)?);
 			assert!(sh.contains(&3)?);

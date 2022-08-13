@@ -15,7 +15,11 @@ use crate::types::Serializable;
 use crate::types::{Reader, Writer};
 use bmw_deps::byteorder::{BigEndian, ReadBytesExt};
 use bmw_err::{err, map_err, ErrKind, Error};
+use bmw_log::*;
 use std::io::{Read, Write};
+use std::str::from_utf8;
+
+info!();
 
 macro_rules! impl_int {
 	($int:ty, $w_fn:ident, $r_fn:ident) => {
@@ -40,6 +44,7 @@ impl_int!(i8, write_i8, read_i8);
 impl_int!(i16, write_i16, read_i16);
 impl_int!(u128, write_u128, read_u128);
 impl_int!(i128, write_i128, read_i128);
+impl_int!(usize, write_usize, read_usize);
 
 impl Serializable for () {
 	fn write<W: Writer>(&self, _writer: &mut W) -> Result<(), Error> {
@@ -57,6 +62,18 @@ impl<A: Serializable, B: Serializable> Serializable for (A, B) {
 	}
 	fn read<R: Reader>(reader: &mut R) -> Result<(A, B), Error> {
 		Ok((Serializable::read(reader)?, Serializable::read(reader)?))
+	}
+}
+
+impl Serializable for String {
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		writer.write_usize(self.len())?;
+		writer.write_fixed_bytes(self.as_bytes())?;
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<String, Error> {
+		let len = reader.read_usize()?;
+		Ok(from_utf8(&reader.read_fixed_bytes(len)?)?.to_string())
 	}
 }
 
@@ -118,6 +135,12 @@ impl<'a, R: Read> Reader for BinReader<'a, R> {
 	}
 	fn read_i128(&mut self) -> Result<i128, Error> {
 		map_err!(self.source.read_i128::<BigEndian>(), ErrKind::IO)
+	}
+	fn read_usize(&mut self) -> Result<usize, Error> {
+		Ok(usize!(map_err!(
+			self.source.read_u64::<BigEndian>(),
+			ErrKind::IO
+		)?))
 	}
 
 	fn read_u128(&mut self) -> Result<u128, Error> {
