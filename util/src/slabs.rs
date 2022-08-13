@@ -13,7 +13,7 @@
 
 use crate::types::SlabAllocatorConfig;
 use crate::{Slab, SlabAllocator, SlabMut};
-use bmw_err::{err, ErrKind, Error};
+use bmw_err::{err, try_into, ErrKind, Error};
 use bmw_log::*;
 use std::cell::UnsafeCell;
 
@@ -84,9 +84,9 @@ impl SlabAllocator for SlabAllocatorImpl {
 
 				let id = self.first_free;
 				let offset = usize!((8 + config.slab_size) * id);
-				self.first_free = u64!(u64::from_be_bytes(
-					self.data[offset..offset + 8].try_into()?
-				));
+				self.first_free = u64!(u64::from_be_bytes(try_into!(
+					self.data[offset..offset + 8]
+				)?));
 
 				let offset = usize!(offset + 8);
 				let data = &mut self.data[offset..offset + config.slab_size as usize];

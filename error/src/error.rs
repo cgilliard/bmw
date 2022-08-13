@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use bmw_deps::failure::{Backtrace, Context, Fail};
-use core::array::TryFromSliceError;
 use std::convert::Infallible;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
@@ -162,14 +161,6 @@ impl From<TryFromIntError> for Error {
 	}
 }
 
-impl From<TryFromSliceError> for Error {
-	fn from(e: TryFromSliceError) -> Error {
-		Error {
-			inner: Context::new(ErrorKind::Misc(format!("TryFromSliceError: {}", e))),
-		}
-	}
-}
-
 impl From<Infallible> for Error {
 	fn from(e: Infallible) -> Error {
 		Error {
@@ -237,6 +228,9 @@ mod test {
 
 		let x: Result<u32, _> = u64::MAX.try_into();
 		check_error(x, ErrorKind::Misc(format!("TryFromIntError..")).into())?;
+
+		let x: Result<u32, _> = "abc".parse();
+		check_error(x, ErrorKind::Misc(format!("ParseIntError..")).into())?;
 
 		Ok(())
 	}

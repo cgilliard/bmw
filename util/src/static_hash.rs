@@ -17,7 +17,7 @@ use crate::{
 	Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, StaticHashtable,
 	GLOBAL_SLAB_ALLOCATOR,
 };
-use bmw_err::{err, ErrKind, Error};
+use bmw_err::{err, try_into, ErrKind, Error};
 use bmw_log::*;
 use std::collections::hash_map::DefaultHasher;
 use std::convert::TryInto;
@@ -143,12 +143,12 @@ where
 			debug!("cur={}", self.cur)?;
 			match self.h.slab(self.cur) {
 				Ok(slab) => {
-					let k = self.h.read_k(slab.id().try_into()?)?;
+					let k = self.h.read_k(usize!(slab.id()))?;
 					let slab = slab.get();
 					debug!("slab={:?},k={:?}", slab, k)?;
 
-					self.cur = usize::from_be_bytes(slab[0..8].try_into()?);
-					let prev = usize::from_be_bytes(slab[8..16].try_into()?);
+					self.cur = usize::from_be_bytes(try_into!(slab[0..8])?);
+					let prev = usize::from_be_bytes(try_into!(slab[8..16])?);
 					debug!("self.cur is now {}, prev={}", self.cur, prev)?;
 					Some(k)
 				}
@@ -199,12 +199,12 @@ where
 			debug!("cur={}", self.cur)?;
 			match self.h.slab(self.cur) {
 				Ok(slab) => {
-					let (k, v) = self.h.read_kv(slab.id().try_into()?)?;
+					let (k, v) = self.h.read_kv(usize!(slab.id()))?;
 					let slab = slab.get();
 					debug!("slab={:?},k={:?},v={:?}", slab, k, v)?;
 
-					self.cur = usize::from_be_bytes(slab[0..8].try_into()?);
-					let prev = usize::from_be_bytes(slab[8..16].try_into()?);
+					self.cur = usize::from_be_bytes(try_into!(slab[0..8])?);
+					let prev = usize::from_be_bytes(try_into!(slab[8..16])?);
 					debug!("self.cur is now {}, prev={}", self.cur, prev)?;
 					Some((k, v))
 				}
@@ -395,12 +395,12 @@ impl StaticHashImpl {
 			{
 				match self.get_slab(u64!(cur)) {
 					Ok(slab) => {
-						let k = self.read_k(slab.id().try_into()?)?;
+						let k = self.read_k(usize!(slab.id()))?;
 						let slab = slab.get();
 						debug!("slab={:?},k={:?}", slab, k)?;
 
-						cur = usize::from_be_bytes(slab[0..8].try_into()?);
-						let prev = usize::from_be_bytes(slab[8..16].try_into()?);
+						cur = usize::from_be_bytes(try_into!(slab[0..8])?);
+						let prev = usize::from_be_bytes(try_into!(slab[8..16])?);
 						debug!("cur is now {}, prev={}", cur, prev)?;
 					}
 					Err(e) => {
@@ -561,7 +561,7 @@ impl StaticHashImpl {
 
 		let mut slab = self.get_slab(u64!(slab_id))?;
 		let bytes_per_slab = self.slab_size.saturating_sub(usize!(SLAB_OVERHEAD));
-		let mut krem = usize!(u64::from_be_bytes(slab.get()[16..24].try_into()?));
+		let mut krem = usize!(u64::from_be_bytes(try_into!(slab.get()[16..24])?));
 		debug!("krem read = {},slab={:?}", krem, slab.get())?;
 		let klen = krem;
 		let mut slab_offset = 24;
@@ -588,9 +588,9 @@ impl StaticHashImpl {
 					krem + slab_offset + 8,
 					slab_bytes,
 				)?;
-				value_len = usize!(u64::from_be_bytes(
-					slab_bytes[krem + slab_offset..krem + slab_offset + 8].try_into()?
-				));
+				value_len = usize!(u64::from_be_bytes(try_into!(
+					slab_bytes[krem + slab_offset..krem + slab_offset + 8]
+				)?));
 
 				voffset = krem + 8 + slab_offset;
 				vrem = value_len;
@@ -633,7 +633,7 @@ impl StaticHashImpl {
 			krem = krem.saturating_sub(bytes_per_slab.saturating_sub(slab_offset));
 			debug!("kremout={}", krem)?;
 			let next =
-				u64::from_be_bytes(slab_bytes[bytes_per_slab..bytes_per_slab + 8].try_into()?);
+				u64::from_be_bytes(try_into!(slab_bytes[bytes_per_slab..bytes_per_slab + 8])?);
 			slab = self.get_slab(next)?;
 			slab_offset = 0;
 		}
@@ -713,7 +713,7 @@ impl StaticHashImpl {
 
 		// read first slab
 		let mut slab = self.get_slab(id)?;
-		let len = u64::from_be_bytes(slab.get()[16..24].try_into()?);
+		let len = u64::from_be_bytes(try_into!(slab.get()[16..24])?);
 		debug!("len={}", len)?;
 
 		if len != u64!(klen) {
@@ -737,7 +737,7 @@ impl StaticHashImpl {
 		let mut offset = end - 24;
 		loop {
 			let next =
-				u64::from_be_bytes(slab.get()[bytes_per_slab..bytes_per_slab + 8].try_into()?);
+				u64::from_be_bytes(try_into!(slab.get()[bytes_per_slab..bytes_per_slab + 8])?);
 			slab = self.get_slab(next)?;
 			let mut rem = klen.saturating_sub(offset);
 			if rem > bytes_per_slab {
@@ -772,13 +772,13 @@ impl StaticHashImpl {
 					to_delete = slab_id;
 					let slab_bytes = slab.get();
 					if first {
-						next = usize::from_be_bytes(slab_bytes[0..8].try_into()?);
-						prev = usize::from_be_bytes(slab_bytes[8..16].try_into()?);
+						next = usize::from_be_bytes(try_into!(slab_bytes[0..8])?);
+						prev = usize::from_be_bytes(try_into!(slab_bytes[8..16])?);
 						debug!("prev={},next={}", prev, next)?;
 					}
-					slab_id = usize::from_be_bytes(
-						slab_bytes[bytes_per_slab..bytes_per_slab + 8].try_into()?,
-					);
+					slab_id = usize::from_be_bytes(try_into!(
+						slab_bytes[bytes_per_slab..bytes_per_slab + 8]
+					)?);
 					debug!("next={}", slab_id)?;
 
 					first = false;

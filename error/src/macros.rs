@@ -12,6 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Macro to map the try_from error into an appropriate error.
+#[macro_export]
+macro_rules! try_into {
+	($v:expr) => {{
+		bmw_err::map_err!($v.try_into(), bmw_err::ErrKind::Misc, "TryInto Error")
+	}};
+}
+
 /// Build the specified [`crate::ErrorKind`] and convert it into an [`crate::Error`]. The desired
 /// [`crate::ErrorKind`] is specified using the [`crate::ErrKind`] name enum.
 ///
