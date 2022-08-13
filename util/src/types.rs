@@ -45,6 +45,7 @@ where
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
 	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error>;
+	fn get_array(&self) -> &Vec<usize>;
 }
 pub trait StaticHashset<K>
 where
@@ -60,6 +61,7 @@ where
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
 	fn read_k(&self, slab_id: usize) -> Result<K, Error>;
+	fn get_array(&self) -> &Vec<usize>;
 }
 pub trait StaticQueue<V>
 where

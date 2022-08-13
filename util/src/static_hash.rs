@@ -141,7 +141,8 @@ where
 			None
 		} else {
 			debug!("cur={}", self.cur)?;
-			match self.h.slab(self.cur) {
+			let entry_array = self.h.get_array();
+			match self.h.slab(entry_array[self.cur]) {
 				Ok(slab) => {
 					let k = self.h.read_k(slab.id())?;
 					let slab = slab.get();
@@ -197,7 +198,8 @@ where
 			None
 		} else {
 			debug!("cur={}", self.cur)?;
-			match self.h.slab(self.cur) {
+			let entry_array = self.h.get_array();
+			match self.h.slab(entry_array[self.cur]) {
 				Ok(slab) => {
 					let (k, v) = self.h.read_kv(slab.id())?;
 					let slab = slab.get();
@@ -295,6 +297,9 @@ where
 	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error> {
 		self.read_kv_ser(slab_id)
 	}
+	fn get_array(&self) -> &Vec<usize> {
+		&self.entry_array
+	}
 }
 
 impl<K> StaticHashset<K> for StaticHashImpl
@@ -334,6 +339,9 @@ where
 	fn read_k(&self, slab_id: usize) -> Result<K, Error> {
 		let k = self.read_k_ser::<K>(slab_id)?;
 		Ok(k)
+	}
+	fn get_array(&self) -> &Vec<usize> {
+		&self.entry_array
 	}
 }
 
@@ -402,9 +410,10 @@ impl StaticHashImpl {
 				break;
 			}
 
-			let to_drop = cur;
+			let to_drop = self.entry_array[cur];
 			{
-				match self.get_slab(cur) {
+				debug!("cur={}, cur entry = {}", cur, self.entry_array[cur])?;
+				match self.get_slab(self.entry_array[cur]) {
 					Ok(slab) => {
 						let k = self.read_k(slab.id())?;
 						let slab = slab.get();
@@ -803,14 +812,14 @@ impl StaticHashImpl {
 		}
 
 		if prev != usize::MAX {
-			let mut slab = self.get_mut(prev)?;
+			let mut slab = self.get_mut(self.entry_array[prev])?;
 			slab.get_mut()[0..8].clone_from_slice(&next.to_be_bytes());
 		} else {
 			self.first_entry = next;
 		}
 
 		if next != usize::MAX {
-			let mut slab = self.get_mut(next)?;
+			let mut slab = self.get_mut(self.entry_array[next])?;
 			slab.get_mut()[8..16].clone_from_slice(&prev.to_be_bytes());
 		}
 
@@ -1045,10 +1054,10 @@ impl StaticHashImpl {
 
 		// update reverse list
 		if self.first_entry != usize::MAX {
-			let mut slab = self.get_mut(first_entry)?;
-			slab.get_mut()[8..16].clone_from_slice(&first_id.to_be_bytes());
+			let mut slab = self.get_mut(self.entry_array[first_entry])?;
+			slab.get_mut()[8..16].clone_from_slice(&entry.to_be_bytes());
 		}
-		self.first_entry = first_id;
+		self.first_entry = entry;
 		self.size += 1;
 		Ok(())
 	}
