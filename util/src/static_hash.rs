@@ -236,7 +236,7 @@ where
 	fn get(&self, key: &K) -> Result<Option<V>, Error> {
 		self.get_impl(Some(key), None, 0)
 	}
-	fn remove(&mut self, key: &K) -> Result<(), Error> {
+	fn remove(&mut self, key: &K) -> Result<bool, Error> {
 		self.remove_impl(key)
 	}
 	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
@@ -277,7 +277,7 @@ where
 		debug!("contains:self.config={:?},k={:?}", self.config, key)?;
 		Ok(self.find_entry(Some(key), None, 0)?.is_some())
 	}
-	fn remove(&mut self, key: &K) -> Result<(), Error> {
+	fn remove(&mut self, key: &K) -> Result<bool, Error> {
 		self.remove_impl(key)
 	}
 	fn insert_raw(&mut self, _key: &[u8]) -> Result<(), Error> {
@@ -898,12 +898,21 @@ impl StaticHashImpl {
 		Ok(())
 	}
 
-	fn remove_impl<K>(&mut self, key: &K) -> Result<(), Error>
+	fn remove_impl<K>(&mut self, key: &K) -> Result<bool, Error>
 	where
-		K: Serializable,
+		K: Serializable + Hash,
 	{
 		debug!("remove:self.config={:?},k={:?}", self.config, key)?;
-		todo!();
+
+		Ok(match self.find_entry(Some(key), None, 0)? {
+			Some(entry) => {
+				debug!("found entry at {}", entry)?;
+				self.free_tail(usize!(self.entry_array[entry]))?;
+				self.entry_array[entry] = SLOT_DELETED;
+				true
+			}
+			None => false,
+		})
 	}
 
 	fn entry_hash<K: Hash>(&self, key: &K) -> usize {
@@ -1139,6 +1148,19 @@ mod test {
 				0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
 			]
 		);
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashtable_remove() -> Result<(), Error> {
+		initialize()?;
+		let mut sh = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
+		assert_eq!(sh.get(&1)?, None);
+		sh.insert(&1, &100)?;
+		assert_eq!(sh.get(&1)?, Some(100));
+		sh.remove(&1)?;
+		assert_eq!(sh.get(&1)?, None);
+
 		Ok(())
 	}
 }

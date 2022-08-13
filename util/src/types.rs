@@ -29,7 +29,7 @@ where
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
-	fn remove(&mut self, key: &K) -> Result<(), Error>;
+	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error>;
 	fn get_raw_mut<'b>(
 		&'b mut self,
@@ -47,7 +47,7 @@ where
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
 	fn contains(&self, key: &K) -> Result<bool, Error>;
-	fn remove(&mut self, key: &K) -> Result<(), Error>;
+	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn insert_raw(&mut self, key: &[u8]) -> Result<(), Error>;
 }
 pub trait StaticQueue<V>
