@@ -45,6 +45,9 @@ where
 		hash: u64,
 	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: u64, value: &[u8]) -> Result<(), Error>;
+	fn first_entry(&self) -> usize;
+	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
+	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error>;
 }
 pub trait StaticHashset<K>
 where
