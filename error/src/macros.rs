@@ -16,6 +16,7 @@
 #[macro_export]
 macro_rules! try_into {
 	($v:expr) => {{
+		use std::convert::TryInto;
 		bmw_err::map_err!($v.try_into(), bmw_err::ErrKind::Misc, "TryInto Error")
 	}};
 }
@@ -177,7 +178,10 @@ macro_rules! map_err {
 #[cfg(test)]
 mod test {
 	use crate as bmw_err;
+	use crate::ErrKind;
+	use std::convert::TryInto;
 	use std::fs::File;
+	use std::num::TryFromIntError;
 
 	#[test]
 	fn test_ekinds() -> Result<(), crate::Error> {
@@ -217,6 +221,10 @@ mod test {
 			res.as_ref().unwrap_err().kind(),
 			crate::ErrorKind::IO(_),
 		));
+
+		let x: Result<i32, TryFromIntError> = u64::MAX.try_into();
+		let map = map_err!(x, ErrKind::Misc);
+		assert!(matches!(map.unwrap_err().kind(), crate::ErrorKind::Misc(_)));
 
 		Ok(())
 	}

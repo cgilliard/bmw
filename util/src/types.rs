@@ -18,8 +18,8 @@ use std::future::Future;
 
 #[derive(Debug)]
 pub struct SlabAllocatorConfig {
-	pub slab_size: u64,
-	pub slab_count: u64,
+	pub slab_size: usize,
+	pub slab_count: usize,
 }
 
 pub trait StaticHashtable<K, V>
@@ -30,11 +30,11 @@ where
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
-	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error>;
+	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<Box<dyn Slab + 'b>>, Error>;
 	fn get_raw_mut<'b>(
 		&'b mut self,
 		key: &[u8],
-		hash: u64,
+		hash: usize,
 	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error>;
 	fn first_entry(&self) -> usize;
@@ -79,22 +79,22 @@ pub trait ThreadPool {
 
 pub trait Slab {
 	fn get(&self) -> &[u8];
-	fn id(&self) -> u64;
+	fn id(&self) -> usize;
 }
 
 pub trait SlabMut {
 	fn get(&self) -> &[u8];
 	fn get_mut(&mut self) -> &mut [u8];
-	fn id(&self) -> u64;
+	fn id(&self) -> usize;
 }
 
 pub trait SlabAllocator {
 	fn allocate<'a>(&'a mut self) -> Result<Box<dyn SlabMut + 'a>, Error>;
-	fn free(&mut self, id: u64) -> Result<(), Error>;
-	fn get<'a>(&'a self, id: u64) -> Result<Box<dyn Slab + 'a>, Error>;
-	fn get_mut<'a>(&'a mut self, id: u64) -> Result<Box<dyn SlabMut + 'a>, Error>;
-	fn free_count(&self) -> Result<u64, Error>;
-	fn slab_size(&self) -> Result<u64, Error>;
+	fn free(&mut self, id: usize) -> Result<(), Error>;
+	fn get<'a>(&'a self, id: usize) -> Result<Box<dyn Slab + 'a>, Error>;
+	fn get_mut<'a>(&'a mut self, id: usize) -> Result<Box<dyn SlabMut + 'a>, Error>;
+	fn free_count(&self) -> Result<usize, Error>;
+	fn slab_size(&self) -> Result<usize, Error>;
 	fn init(&mut self, config: SlabAllocatorConfig) -> Result<(), Error>;
 }
 

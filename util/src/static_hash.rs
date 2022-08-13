@@ -20,7 +20,6 @@ use crate::{
 use bmw_err::{err, try_into, ErrKind, Error};
 use bmw_log::*;
 use std::collections::hash_map::DefaultHasher;
-use std::convert::TryInto;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
@@ -28,25 +27,25 @@ use std::thread;
 
 info!();
 
-const SLAB_OVERHEAD: u64 = 8;
-const SLOT_EMPTY: u64 = u64::MAX;
-const SLOT_DELETED: u64 = u64::MAX - 1;
+const SLAB_OVERHEAD: usize = 8;
+const SLOT_EMPTY: usize = usize::MAX;
+const SLOT_DELETED: usize = usize::MAX - 1;
 
 #[derive(Debug)]
 pub struct StaticHashtableConfig {
-	pub max_entries: u64,
+	pub max_entries: usize,
 	pub max_load_factor: f64,
 }
 
 #[derive(Debug)]
 pub struct StaticHashsetConfig {
-	pub max_entries: u64,
+	pub max_entries: usize,
 	pub max_load_factor: f64,
 }
 
 #[derive(Debug)]
 struct StaticHashConfig {
-	max_entries: u64,
+	max_entries: usize,
 	max_load_factor: f64,
 }
 
@@ -91,7 +90,7 @@ impl Default for StaticHashsetConfig {
 struct StaticHashImpl {
 	config: StaticHashConfig,
 	slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
-	entry_array: Vec<u64>,
+	entry_array: Vec<usize>,
 	slab_size: usize,
 	first_entry: usize,
 }
@@ -143,7 +142,7 @@ where
 			debug!("cur={}", self.cur)?;
 			match self.h.slab(self.cur) {
 				Ok(slab) => {
-					let k = self.h.read_k(usize!(slab.id()))?;
+					let k = self.h.read_k(slab.id())?;
 					let slab = slab.get();
 					debug!("slab={:?},k={:?}", slab, k)?;
 
@@ -199,7 +198,7 @@ where
 			debug!("cur={}", self.cur)?;
 			match self.h.slab(self.cur) {
 				Ok(slab) => {
-					let (k, v) = self.h.read_kv(usize!(slab.id()))?;
+					let (k, v) = self.h.read_kv(slab.id())?;
 					let slab = slab.get();
 					debug!("slab={:?},k={:?},v={:?}", slab, k, v)?;
 
@@ -265,13 +264,13 @@ where
 	fn remove(&mut self, key: &K) -> Result<bool, Error> {
 		self.remove_impl(key)
 	}
-	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
+	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
 		self.get_raw_impl::<K>(key, hash)
 	}
 	fn get_raw_mut<'b>(
 		&'b mut self,
 		key: &[u8],
-		hash: u64,
+		hash: usize,
 	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error> {
 		self.get_raw_mut_impl::<K>(key, hash)
 	}
@@ -284,7 +283,7 @@ where
 	}
 
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error> {
-		self.get_slab(u64!(id))
+		self.get_slab(id)
 	}
 
 	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error> {
@@ -305,7 +304,7 @@ where
 	}
 	fn contains_raw(&self, key: &[u8], hash: usize) -> Result<bool, Error> {
 		debug!("contains_raw:self.config={:?},k={:?}", self.config, key)?;
-		Ok(self.find_entry::<K>(None, Some(key), u64!(hash))?.is_some())
+		Ok(self.find_entry::<K>(None, Some(key), hash)?.is_some())
 	}
 
 	fn remove(&mut self, key: &K) -> Result<bool, Error> {
@@ -319,7 +318,7 @@ where
 		self.first_entry
 	}
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error> {
-		self.get_slab(u64!(id))
+		self.get_slab(id)
 	}
 	fn read_k(&self, slab_id: usize) -> Result<K, Error> {
 		let k = self.read_k_ser::<K>(slab_id)?;
@@ -335,12 +334,12 @@ impl StaticHashImpl {
 		let mut entry_array = vec![];
 		Self::init(&config, &mut entry_array)?;
 		let (slab_size, slabs) = match slabs {
-			Some(slabs) => (usize!(slabs.slab_size()?), Some(slabs)),
+			Some(slabs) => (slabs.slab_size()?, Some(slabs)),
 			None => {
 				let slab_size = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 					let slabs = unsafe { f.get().as_mut().unwrap() };
 					let slab_size = match slabs.slab_size() {
-						Ok(slab_size) => usize!(slab_size),
+						Ok(slab_size) => slab_size,
 						Err(_e) => {
 							warn!(
 								"Slab allocator was not initialized for thread '{}'. {}",
@@ -351,7 +350,7 @@ impl StaticHashImpl {
 								"Initializing with default values.",
 							)?;
 							slabs.init(SlabAllocatorConfig::default())?;
-							usize!(slabs.slab_size()?)
+							slabs.slab_size()?
 						}
 					};
 					Ok(slab_size)
@@ -368,7 +367,7 @@ impl StaticHashImpl {
 		})
 	}
 
-	fn init(config: &StaticHashConfig, entry_array: &mut Vec<u64>) -> Result<(), Error> {
+	fn init(config: &StaticHashConfig, entry_array: &mut Vec<usize>) -> Result<(), Error> {
 		if config.max_load_factor <= 0.0 || config.max_load_factor > 1.0 {
 			return Err(err!(
 				ErrKind::IllegalArgument,
@@ -377,9 +376,9 @@ impl StaticHashImpl {
 		}
 		// calculate size of entry_array. Must be possible to have max_entries, with the
 		// max_load_factor
-		let size: i32 = (config.max_entries as f64 / config.max_load_factor).floor() as i32;
+		let size: usize = (config.max_entries as f64 / config.max_load_factor).floor() as usize;
 		debug!("entry array init to size = {}", size)?;
-		entry_array.resize(usize!(size), SLOT_EMPTY);
+		entry_array.resize(size, SLOT_EMPTY);
 		Ok(())
 	}
 
@@ -393,9 +392,9 @@ impl StaticHashImpl {
 
 			let to_drop = cur;
 			{
-				match self.get_slab(u64!(cur)) {
+				match self.get_slab(cur) {
 					Ok(slab) => {
-						let k = self.read_k(usize!(slab.id()))?;
+						let k = self.read_k(slab.id())?;
 						let slab = slab.get();
 						debug!("slab={:?},k={:?}", slab, k)?;
 
@@ -416,7 +415,7 @@ impl StaticHashImpl {
 		}
 		Ok(())
 	}
-	fn get_slab<'a>(&'a self, id: u64) -> Result<Box<dyn Slab + 'a>, Error> {
+	fn get_slab<'a>(&'a self, id: usize) -> Result<Box<dyn Slab + 'a>, Error> {
 		match &self.slabs {
 			Some(slabs) => Ok(slabs.get(id)?),
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Box<dyn Slab>, Error> {
@@ -425,7 +424,7 @@ impl StaticHashImpl {
 		}
 	}
 
-	fn get_mut<'a>(&'a mut self, id: u64) -> Result<Box<dyn SlabMut + 'a>, Error> {
+	fn get_mut<'a>(&'a mut self, id: usize) -> Result<Box<dyn SlabMut + 'a>, Error> {
 		match &mut self.slabs {
 			Some(slabs) => Ok(slabs.get_mut(id)?),
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Box<dyn SlabMut>, Error> {
@@ -445,9 +444,9 @@ impl StaticHashImpl {
 
 	fn free(&mut self, id: usize) -> Result<(), Error> {
 		match &mut self.slabs {
-			Some(slabs) => Ok(slabs.free(u64!(id))?),
+			Some(slabs) => Ok(slabs.free(id)?),
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
-				unsafe { f.get().as_mut().unwrap().free(u64!(id))? };
+				unsafe { f.get().as_mut().unwrap().free(id)? };
 				Ok(())
 			}),
 		}
@@ -455,9 +454,9 @@ impl StaticHashImpl {
 
 	fn get_free_count(&self) -> Result<usize, Error> {
 		match &self.slabs {
-			Some(slabs) => Ok(usize!(slabs.free_count()?)),
+			Some(slabs) => Ok(slabs.free_count()?),
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
-				Ok(usize!(unsafe { f.get().as_ref().unwrap().free_count()? }))
+				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 			}),
 		}
 	}
@@ -465,7 +464,7 @@ impl StaticHashImpl {
 	fn get_raw_mut_impl<'b, K>(
 		&'b mut self,
 		key_raw: &[u8],
-		hash: u64,
+		hash: usize,
 	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>
 	where
 		K: Serializable + Hash,
@@ -485,7 +484,7 @@ impl StaticHashImpl {
 	fn get_raw_impl<'b, K>(
 		&'b self,
 		key_raw: &[u8],
-		hash: u64,
+		hash: usize,
 	) -> Result<Option<Box<dyn Slab + 'b>>, Error>
 	where
 		K: Serializable + Hash,
@@ -506,7 +505,7 @@ impl StaticHashImpl {
 		&self,
 		key_ser: Option<&K>,
 		key_raw: Option<&[u8]>,
-		hash: u64,
+		hash: usize,
 	) -> Result<Option<V>, Error>
 	where
 		K: Serializable + Hash,
@@ -517,9 +516,7 @@ impl StaticHashImpl {
 		debug!("entry at {:?}", entry)?;
 
 		match entry {
-			Some(entry) => Ok(Some(
-				self.read_kv_ser::<K, V>(usize!(self.entry_array[entry]))?.1,
-			)),
+			Some(entry) => Ok(Some(self.read_kv_ser::<K, V>(self.entry_array[entry])?.1)),
 			None => Ok(None),
 		}
 	}
@@ -559,9 +556,9 @@ impl StaticHashImpl {
 		let mut k: Vec<u8> = vec![];
 		let mut v: Vec<u8> = vec![];
 
-		let mut slab = self.get_slab(u64!(slab_id))?;
-		let bytes_per_slab = self.slab_size.saturating_sub(usize!(SLAB_OVERHEAD));
-		let mut krem = usize!(u64::from_be_bytes(try_into!(slab.get()[16..24])?));
+		let mut slab = self.get_slab(slab_id)?;
+		let bytes_per_slab = self.slab_size.saturating_sub(SLAB_OVERHEAD);
+		let mut krem = usize::from_be_bytes(try_into!(slab.get()[16..24])?);
 		debug!("krem read = {},slab={:?}", krem, slab.get())?;
 		let klen = krem;
 		let mut slab_offset = 24;
@@ -588,9 +585,9 @@ impl StaticHashImpl {
 					krem + slab_offset + 8,
 					slab_bytes,
 				)?;
-				value_len = usize!(u64::from_be_bytes(try_into!(
+				value_len = usize::from_be_bytes(try_into!(
 					slab_bytes[krem + slab_offset..krem + slab_offset + 8]
-				)?));
+				)?);
 
 				voffset = krem + 8 + slab_offset;
 				vrem = value_len;
@@ -633,7 +630,7 @@ impl StaticHashImpl {
 			krem = krem.saturating_sub(bytes_per_slab.saturating_sub(slab_offset));
 			debug!("kremout={}", krem)?;
 			let next =
-				u64::from_be_bytes(try_into!(slab_bytes[bytes_per_slab..bytes_per_slab + 8])?);
+				usize::from_be_bytes(try_into!(slab_bytes[bytes_per_slab..bytes_per_slab + 8])?);
 			slab = self.get_slab(next)?;
 			slab_offset = 0;
 		}
@@ -646,14 +643,14 @@ impl StaticHashImpl {
 		&self,
 		key: Option<&K>,
 		key_raw: Option<&[u8]>,
-		hash: u64,
+		hash: usize,
 	) -> Result<Option<usize>, Error>
 	where
 		K: Serializable + Hash,
 	{
 		let mut entry = match key {
 			Some(key) => self.entry_hash(&key),
-			None => usize!(hash) % self.entry_array.len(),
+			None => hash % self.entry_array.len(),
 		};
 		debug!("entry hashed to {}", entry)?;
 		let max_iter = self.entry_array.len();
@@ -685,7 +682,7 @@ impl StaticHashImpl {
 
 	fn key_match<K>(
 		&self,
-		id: u64,
+		id: usize,
 		key_ser: Option<&K>,
 		key_raw: Option<&[u8]>,
 	) -> Result<bool, Error>
@@ -713,14 +710,14 @@ impl StaticHashImpl {
 
 		// read first slab
 		let mut slab = self.get_slab(id)?;
-		let len = u64::from_be_bytes(try_into!(slab.get()[16..24])?);
+		let len = usize::from_be_bytes(try_into!(slab.get()[16..24])?);
 		debug!("len={}", len)?;
 
-		if len != u64!(klen) {
+		if len != klen {
 			return Ok(false);
 		}
 
-		let bytes_per_slab: usize = usize!(self.slab_size.saturating_sub(usize!(SLAB_OVERHEAD)));
+		let bytes_per_slab: usize = self.slab_size.saturating_sub(SLAB_OVERHEAD);
 
 		// compare the first slab
 		let mut end = 24 + klen;
@@ -737,7 +734,7 @@ impl StaticHashImpl {
 		let mut offset = end - 24;
 		loop {
 			let next =
-				u64::from_be_bytes(try_into!(slab.get()[bytes_per_slab..bytes_per_slab + 8])?);
+				usize::from_be_bytes(try_into!(slab.get()[bytes_per_slab..bytes_per_slab + 8])?);
 			slab = self.get_slab(next)?;
 			let mut rem = klen.saturating_sub(offset);
 			if rem > bytes_per_slab {
@@ -758,7 +755,7 @@ impl StaticHashImpl {
 	}
 
 	fn free_tail(&mut self, mut slab_id: usize) -> Result<(), Error> {
-		let bytes_per_slab = self.slab_size.saturating_sub(usize!(SLAB_OVERHEAD));
+		let bytes_per_slab = self.slab_size.saturating_sub(SLAB_OVERHEAD);
 		debug!("free tail id = {}", slab_id)?;
 		let mut prev = usize::MAX;
 		let mut next = usize::MAX;
@@ -768,7 +765,7 @@ impl StaticHashImpl {
 			let mut to_delete;
 			loop {
 				{
-					let slab = self.get_slab(u64!(slab_id))?;
+					let slab = self.get_slab(slab_id)?;
 					to_delete = slab_id;
 					let slab_bytes = slab.get();
 					if first {
@@ -794,14 +791,14 @@ impl StaticHashImpl {
 		}
 
 		if prev != usize::MAX {
-			let mut slab = self.get_mut(u64!(prev))?;
+			let mut slab = self.get_mut(prev)?;
 			slab.get_mut()[0..8].clone_from_slice(&next.to_be_bytes());
 		} else {
 			self.first_entry = next;
 		}
 
 		if next != usize::MAX {
-			let mut slab = self.get_mut(u64!(next))?;
+			let mut slab = self.get_mut(next)?;
 			slab.get_mut()[8..16].clone_from_slice(&prev.to_be_bytes());
 		}
 
@@ -841,7 +838,7 @@ impl StaticHashImpl {
 
 			// does the current key match ours?
 			if self.key_match(self.entry_array[entry], key_ser, key_raw)? {
-				self.free_tail(usize!(self.entry_array[entry]))?;
+				self.free_tail(self.entry_array[entry])?;
 				break;
 			}
 
@@ -850,8 +847,8 @@ impl StaticHashImpl {
 		}
 		debug!("inserting at entry={}", entry)?;
 
-		let bytes_per_slab = self.slab_size.saturating_sub(usize!(SLAB_OVERHEAD));
-		let free_count = u64!(self.get_free_count()?);
+		let bytes_per_slab = self.slab_size.saturating_sub(SLAB_OVERHEAD);
+		let free_count = self.get_free_count()?;
 
 		let k_len_bytes: &[u8];
 		let k_clone;
@@ -918,7 +915,7 @@ impl StaticHashImpl {
 		}
 
 		let needed_len = v_bytes.len() + k_bytes.len() + 24;
-		let slabs_needed = needed_len as u64 / u64!(bytes_per_slab);
+		let slabs_needed = needed_len as usize / bytes_per_slab;
 
 		debug!("slabs needed = {}", slabs_needed)?;
 
@@ -1035,10 +1032,10 @@ impl StaticHashImpl {
 
 		// update reverse list
 		if self.first_entry != usize::MAX {
-			let mut slab = self.get_mut(u64!(first_entry))?;
+			let mut slab = self.get_mut(first_entry)?;
 			slab.get_mut()[8..16].clone_from_slice(&first_id.to_be_bytes());
 		}
-		self.first_entry = usize!(first_id);
+		self.first_entry = first_id;
 		Ok(())
 	}
 
@@ -1051,7 +1048,7 @@ impl StaticHashImpl {
 		Ok(match self.find_entry(Some(key), None, 0)? {
 			Some(entry) => {
 				debug!("found entry at {}", entry)?;
-				self.free_tail(usize!(self.entry_array[entry]))?;
+				self.free_tail(self.entry_array[entry])?;
 				self.entry_array[entry] = SLOT_DELETED;
 				true
 			}
@@ -1284,7 +1281,7 @@ mod test {
 		(b"hi").hash(&mut hasher);
 		let hash = hasher.finish();
 		sh.insert_raw(b"hi", usize!(hash), b"ok")?;
-		let slab = sh.get_raw(b"hi", hash)?.unwrap();
+		let slab = sh.get_raw(b"hi", usize!(hash))?.unwrap();
 		// key = 104/105 (hi), value = 111/107 (ok)
 		assert_eq!(
 			slab.get()[0..36],
@@ -1327,7 +1324,7 @@ mod test {
 	fn test_hashset_iter() -> Result<(), Error> {
 		initialize()?;
 
-		let free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<u64, Error> {
+		let free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 		})?;
 
@@ -1358,14 +1355,14 @@ mod test {
 			assert!(sh.contains(&4)?);
 			assert!(sh.contains(&5)?);
 
-			let free_count2 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<u64, Error> {
+			let free_count2 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 			})?;
 			info!("free_count={}", free_count2)?;
 			assert_eq!(free_count2, free_count1 - 5);
 		}
 
-		let free_count3 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<u64, Error> {
+		let free_count3 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 		})?;
 		info!("free_count={}", free_count3)?;

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use bmw_deps::failure::{Backtrace, Context, Fail};
-use std::convert::Infallible;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
 use std::num::{ParseIntError, TryFromIntError};
@@ -157,14 +156,6 @@ impl From<TryFromIntError> for Error {
 	fn from(e: TryFromIntError) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::Misc(format!("TryFromIntError: {}", e))),
-		}
-	}
-}
-
-impl From<Infallible> for Error {
-	fn from(e: Infallible) -> Error {
-		Error {
-			inner: Context::new(ErrorKind::Misc(format!("Infallible: {}", e))),
 		}
 	}
 }

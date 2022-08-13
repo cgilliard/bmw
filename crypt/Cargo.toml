@@ -12,6 +12,4 @@ edition = "2018"
 
 [dependencies]
 
-bmw_deps = { path = "../deps"  }
-bmw_err  = { path = "../error" }
-
+bmw_util = { path = "../util"  }

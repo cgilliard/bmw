@@ -28,19 +28,19 @@ pub struct SlabAllocatorBuilder {}
 
 struct SlabMutImpl<'a> {
 	pub data: &'a mut [u8],
-	pub id: u64,
+	pub id: usize,
 }
 
 struct SlabImpl<'a> {
 	pub data: &'a [u8],
-	pub id: u64,
+	pub id: usize,
 }
 
 struct SlabAllocatorImpl {
 	config: Option<SlabAllocatorConfig>,
 	data: Vec<u8>,
-	first_free: u64,
-	free_count: u64,
+	first_free: usize,
+	free_count: usize,
 }
 
 impl Default for SlabAllocatorConfig {
@@ -59,7 +59,7 @@ impl<'a> SlabMut for SlabMutImpl<'a> {
 	fn get_mut(&mut self) -> &mut [u8] {
 		&mut self.data
 	}
-	fn id(&self) -> u64 {
+	fn id(&self) -> usize {
 		self.id
 	}
 }
@@ -68,7 +68,7 @@ impl<'a> Slab for SlabImpl<'a> {
 	fn get(&self) -> &[u8] {
 		&self.data
 	}
-	fn id(&self) -> u64 {
+	fn id(&self) -> usize {
 		self.id
 	}
 }
@@ -78,17 +78,15 @@ impl SlabAllocator for SlabAllocatorImpl {
 		match &self.config {
 			Some(config) => {
 				debug!("allocate:self.config={:?}", config)?;
-				if self.first_free == u64::MAX {
+				if self.first_free == usize::MAX {
 					return Err(err!(ErrKind::CapacityExceeded, "no more slabs available"));
 				}
 
 				let id = self.first_free;
-				let offset = usize!((8 + config.slab_size) * id);
-				self.first_free = u64!(u64::from_be_bytes(try_into!(
-					self.data[offset..offset + 8]
-				)?));
+				let offset = (8 + config.slab_size) * id;
+				self.first_free = usize::from_be_bytes(try_into!(self.data[offset..offset + 8])?);
 
-				let offset = usize!(offset + 8);
+				let offset = offset + 8;
 				let data = &mut self.data[offset..offset + config.slab_size as usize];
 				self.free_count = self.free_count.saturating_sub(1);
 
@@ -100,7 +98,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			)),
 		}
 	}
-	fn free(&mut self, id: u64) -> Result<(), Error> {
+	fn free(&mut self, id: usize) -> Result<(), Error> {
 		match &self.config {
 			Some(config) => {
 				if id >= config.slab_count {
@@ -113,7 +111,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 					));
 				}
 				debug!("free:self.config={:?},id={}", config, id)?;
-				let offset = usize!((8 + config.slab_size) * id);
+				let offset = (8 + config.slab_size) * id;
 				self.data[offset..offset + 8].clone_from_slice(&self.first_free.to_be_bytes());
 				self.first_free = id;
 				self.free_count += 1;
@@ -125,7 +123,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			)),
 		}
 	}
-	fn get<'a>(&'a self, id: u64) -> Result<Box<dyn Slab + 'a>, Error> {
+	fn get<'a>(&'a self, id: usize) -> Result<Box<dyn Slab + 'a>, Error> {
 		match &self.config {
 			Some(config) => {
 				if id >= config.slab_count {
@@ -138,8 +136,8 @@ impl SlabAllocator for SlabAllocatorImpl {
 					));
 				}
 				debug!("get:self.config={:?},id={}", config, id)?;
-				let offset = usize!(8 + ((8 + config.slab_size) * id));
-				let data = &self.data[offset..offset + usize!(config.slab_size)];
+				let offset = 8 + ((8 + config.slab_size) * id);
+				let data = &self.data[offset..offset + config.slab_size];
 				Ok(Box::new(SlabImpl { data, id }))
 			}
 			None => Err(err!(
@@ -148,7 +146,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			)),
 		}
 	}
-	fn get_mut<'a>(&'a mut self, id: u64) -> Result<Box<dyn SlabMut + 'a>, Error> {
+	fn get_mut<'a>(&'a mut self, id: usize) -> Result<Box<dyn SlabMut + 'a>, Error> {
 		match &self.config {
 			Some(config) => {
 				if id >= config.slab_count {
@@ -161,7 +159,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 					));
 				}
 				debug!("get_mut:self.config={:?},id={}", config, id)?;
-				let offset = usize!(8 + ((8 + config.slab_size) * id));
+				let offset = 8 + ((8 + config.slab_size) * id);
 				let data = &mut self.data[offset..offset + config.slab_size as usize];
 				Ok(Box::new(SlabMutImpl { data, id }))
 			}
@@ -172,7 +170,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		}
 	}
 
-	fn free_count(&self) -> Result<u64, Error> {
+	fn free_count(&self) -> Result<usize, Error> {
 		debug!("free_count:self.config={:?}", self.config)?;
 		match &self.config {
 			Some(_) => Ok(self.free_count),
@@ -183,7 +181,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		}
 	}
 
-	fn slab_size(&self) -> Result<u64, Error> {
+	fn slab_size(&self) -> Result<usize, Error> {
 		debug!("slab_size:self.config={:?}", self.config)?;
 		match &self.config {
 			Some(config) => Ok(config.slab_size),
@@ -201,7 +199,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			)),
 			None => {
 				let mut data = vec![];
-				data.resize(usize!(config.slab_count * (config.slab_size + 8)), 0u8);
+				data.resize(config.slab_count * (config.slab_size + 8), 0u8);
 				Self::build_free_list(&mut data, config.slab_count, config.slab_size)?;
 				self.data = data;
 				self.free_count = config.slab_count;
@@ -223,15 +221,19 @@ impl SlabAllocatorImpl {
 		}
 	}
 
-	fn build_free_list(data: &mut Vec<u8>, slab_count: u64, slab_size: u64) -> Result<(), Error> {
+	fn build_free_list(
+		data: &mut Vec<u8>,
+		slab_count: usize,
+		slab_size: usize,
+	) -> Result<(), Error> {
 		for i in 0..slab_count {
 			let next_bytes = if i < slab_count - 1 {
 				(i + 1).to_be_bytes()
 			} else {
-				u64::MAX.to_be_bytes()
+				usize::MAX.to_be_bytes()
 			};
 
-			let offset_next = usize!(i * (8 + slab_size));
+			let offset_next = i * (8 + slab_size);
 			data[offset_next..offset_next + 8].clone_from_slice(&next_bytes);
 		}
 		Ok(())
