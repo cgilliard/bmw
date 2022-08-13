@@ -36,7 +36,7 @@ where
 		key: &[u8],
 		hash: u64,
 	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>;
-	fn insert_raw(&mut self, key: &[u8], hash: u64, value: &[u8]) -> Result<(), Error>;
+	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error>;
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
 	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error>;
@@ -47,8 +47,12 @@ where
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
 	fn contains(&self, key: &K) -> Result<bool, Error>;
+	fn contains_raw(&self, key: &[u8], hash: usize) -> Result<bool, Error>;
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
-	fn insert_raw(&mut self, key: &[u8]) -> Result<(), Error>;
+	fn insert_raw(&mut self, key: &[u8], hash: usize) -> Result<(), Error>;
+	fn first_entry(&self) -> usize;
+	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
+	fn read_k(&self, slab_id: usize) -> Result<K, Error>;
 }
 pub trait StaticQueue<V>
 where

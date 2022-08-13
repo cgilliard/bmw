@@ -96,6 +96,237 @@ struct StaticHashImpl {
 	first_entry: usize,
 }
 
+impl Drop for StaticHashImpl {
+	fn drop(self: &mut StaticHashImpl) {
+		match Self::do_drop(self) {
+			Ok(_) => {}
+			Err(e) => {
+				let _ = error!(
+					"Drop of StaticHashImpl resulted in an unexpected error: {}",
+					e
+				);
+			}
+		}
+	}
+}
+
+pub struct StaticHashsetIter<'a, K> {
+	cur: usize,
+	h: &'a Box<dyn StaticHashset<K>>,
+}
+
+impl<'a, K> Iterator for StaticHashsetIter<'a, K>
+where
+	K: Serializable + Hash,
+{
+	type Item = K;
+	fn next(self: &mut StaticHashsetIter<'a, K>) -> Option<K> {
+		match Self::do_next(self) {
+			Ok(x) => x,
+			Err(e) => {
+				let _ = error!("StaticHashsetIter generated unexpected error: {}", e);
+				None
+			}
+		}
+	}
+}
+
+impl<'a, K> StaticHashsetIter<'a, K>
+where
+	K: Serializable,
+{
+	fn do_next(self: &mut StaticHashsetIter<'a, K>) -> Result<Option<K>, Error> {
+		Ok(if self.cur == usize::MAX {
+			debug!("NONE")?;
+			None
+		} else {
+			debug!("cur={}", self.cur)?;
+			match self.h.slab(self.cur) {
+				Ok(slab) => {
+					let k = self.h.read_k(slab.id().try_into()?)?;
+					let slab = slab.get();
+					debug!("slab={:?},k={:?}", slab, k)?;
+
+					self.cur = usize::from_be_bytes(slab[0..8].try_into()?);
+					let prev = usize::from_be_bytes(slab[8..16].try_into()?);
+					debug!("self.cur is now {}, prev={}", self.cur, prev)?;
+					Some(k)
+				}
+				Err(e) => {
+					error!(
+						"Error iterating through slab hash. It is in an invalid state: {}",
+						e
+					)?;
+					None
+				}
+			}
+		})
+	}
+}
+
+pub struct StaticHashtableIter<'a, K, V> {
+	cur: usize,
+	h: &'a Box<dyn StaticHashtable<K, V>>,
+}
+
+impl<'a, K, V> Iterator for StaticHashtableIter<'a, K, V>
+where
+	K: Serializable + Hash,
+	V: Serializable,
+{
+	type Item = (K, V);
+	fn next(self: &mut StaticHashtableIter<'a, K, V>) -> Option<(K, V)> {
+		match Self::do_next(self) {
+			Ok(x) => x,
+			Err(e) => {
+				let _ = error!("StaticHashtableIter generated unexpected error: {}", e);
+				None
+			}
+		}
+	}
+}
+
+impl<'a, K, V> StaticHashtableIter<'a, K, V>
+where
+	K: Serializable,
+	V: Serializable,
+{
+	fn do_next(self: &mut StaticHashtableIter<'a, K, V>) -> Result<Option<(K, V)>, Error> {
+		Ok(if self.cur == usize::MAX {
+			debug!("NONE")?;
+			None
+		} else {
+			debug!("cur={}", self.cur)?;
+			match self.h.slab(self.cur) {
+				Ok(slab) => {
+					let (k, v) = self.h.read_kv(slab.id().try_into()?)?;
+					let slab = slab.get();
+					debug!("slab={:?},k={:?},v={:?}", slab, k, v)?;
+
+					self.cur = usize::from_be_bytes(slab[0..8].try_into()?);
+					let prev = usize::from_be_bytes(slab[8..16].try_into()?);
+					debug!("self.cur is now {}, prev={}", self.cur, prev)?;
+					Some((k, v))
+				}
+				Err(e) => {
+					error!(
+						"Error iterating through slab hash. It is in an invalid state: {}",
+						e
+					)?;
+					None
+				}
+			}
+		})
+	}
+}
+
+impl<'a, K, V> IntoIterator for &'a Box<dyn StaticHashtable<K, V>>
+where
+	K: Serializable + Hash,
+	V: Serializable,
+{
+	type Item = (K, V);
+	type IntoIter = StaticHashtableIter<'a, K, V>;
+
+	fn into_iter(self) -> Self::IntoIter {
+		Self::IntoIter {
+			cur: self.first_entry(),
+			h: &self,
+		}
+	}
+}
+
+impl<'a, K> IntoIterator for &'a Box<dyn StaticHashset<K>>
+where
+	K: Serializable + Hash,
+{
+	type Item = K;
+	type IntoIter = StaticHashsetIter<'a, K>;
+
+	fn into_iter(self) -> Self::IntoIter {
+		Self::IntoIter {
+			cur: self.first_entry(),
+			h: &self,
+		}
+	}
+}
+
+impl<K, V> StaticHashtable<K, V> for StaticHashImpl
+where
+	K: Serializable + Hash,
+	V: Serializable,
+{
+	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error> {
+		self.insert_impl::<K, V>(Some(key), 0, None, Some(value), None)
+	}
+	fn get(&self, key: &K) -> Result<Option<V>, Error> {
+		self.get_impl(Some(key), None, 0)
+	}
+	fn remove(&mut self, key: &K) -> Result<bool, Error> {
+		self.remove_impl(key)
+	}
+	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
+		self.get_raw_impl::<K>(key, hash)
+	}
+	fn get_raw_mut<'b>(
+		&'b mut self,
+		key: &[u8],
+		hash: u64,
+	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error> {
+		self.get_raw_mut_impl::<K>(key, hash)
+	}
+	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error> {
+		self.insert_impl::<K, V>(None, hash, Some(key), None, Some(value))
+	}
+
+	fn first_entry(&self) -> usize {
+		self.first_entry
+	}
+
+	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error> {
+		self.get_slab(u64!(id))
+	}
+
+	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error> {
+		self.read_kv_ser(slab_id)
+	}
+}
+
+impl<K> StaticHashset<K> for StaticHashImpl
+where
+	K: Serializable + Hash,
+{
+	fn insert(&mut self, key: &K) -> Result<(), Error> {
+		self.insert_impl::<K, K>(Some(key), 0, None, None, None)
+	}
+	fn contains(&self, key: &K) -> Result<bool, Error> {
+		debug!("contains:self.config={:?},k={:?}", self.config, key)?;
+		Ok(self.find_entry(Some(key), None, 0)?.is_some())
+	}
+	fn contains_raw(&self, key: &[u8], hash: usize) -> Result<bool, Error> {
+		debug!("contains_raw:self.config={:?},k={:?}", self.config, key)?;
+		Ok(self.find_entry::<K>(None, Some(key), u64!(hash))?.is_some())
+	}
+
+	fn remove(&mut self, key: &K) -> Result<bool, Error> {
+		self.remove_impl(key)
+	}
+	fn insert_raw(&mut self, key: &[u8], hash: usize) -> Result<(), Error> {
+		self.insert_impl::<K, K>(None, hash, Some(key), None, None)
+	}
+
+	fn first_entry(&self) -> usize {
+		self.first_entry
+	}
+	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error> {
+		self.get_slab(u64!(id))
+	}
+	fn read_k(&self, slab_id: usize) -> Result<K, Error> {
+		let k = self.read_k_ser::<K>(slab_id)?;
+		Ok(k)
+	}
+}
+
 impl StaticHashImpl {
 	fn new(
 		config: StaticHashConfig,
@@ -151,141 +382,40 @@ impl StaticHashImpl {
 		entry_array.resize(usize!(size), SLOT_EMPTY);
 		Ok(())
 	}
-}
 
-pub struct StaticHashtableIter<'a, K, V> {
-	cur: usize,
-	h: &'a Box<dyn StaticHashtable<K, V>>,
-}
-
-impl<'a, K, V> Iterator for StaticHashtableIter<'a, K, V>
-where
-	K: Serializable + Hash,
-	V: Serializable,
-{
-	type Item = (K, V);
-	fn next(self: &mut StaticHashtableIter<'a, K, V>) -> Option<(K, V)> {
-		match Self::do_next(self) {
-			Ok(x) => x,
-			Err(e) => {
-				let _ = error!("StaticHashtableIter generated unexpected error: {}", e);
-				None
+	fn do_drop(self: &mut StaticHashImpl) -> Result<(), Error> {
+		debug!("Dropping StaticHashImpl with config: {:?}", self.config)?;
+		let mut cur = self.first_entry;
+		loop {
+			if cur == usize::MAX {
+				break;
 			}
-		}
-	}
-}
 
-impl<'a, K, V> StaticHashtableIter<'a, K, V>
-where
-	K: Serializable,
-	V: Serializable,
-{
-	fn do_next(self: &mut StaticHashtableIter<'a, K, V>) -> Result<Option<(K, V)>, Error> {
-		Ok(if self.cur == usize::MAX {
-			debug!("NONE")?;
-			None
-		} else {
-			debug!("cur={}", self.cur)?;
-			match self.h.slab(self.cur) {
-				Ok(slab) => {
-					let (k, v) = self.h.read_kv(slab.id().try_into().unwrap()).unwrap();
-					let slab = slab.get();
-					debug!("slab={:?},k={:?},v={:?}", slab, k, v)?;
+			let to_drop = cur;
+			{
+				match self.get_slab(u64!(cur)) {
+					Ok(slab) => {
+						let k = self.read_k(slab.id().try_into()?)?;
+						let slab = slab.get();
+						debug!("slab={:?},k={:?}", slab, k)?;
 
-					self.cur = usize::from_be_bytes(slab[0..8].try_into()?);
-					let prev = usize::from_be_bytes(slab[8..16].try_into()?);
-					debug!("self.cur is now {}, prev={}", self.cur, prev)?;
-					Some((k, v))
-				}
-				Err(e) => {
-					error!(
-						"Error iterating through slab hash. It is in an invalid state: {}",
-						e
-					)?;
-					None
+						cur = usize::from_be_bytes(slab[0..8].try_into()?);
+						let prev = usize::from_be_bytes(slab[8..16].try_into()?);
+						debug!("cur is now {}, prev={}", cur, prev)?;
+					}
+					Err(e) => {
+						error!(
+							"Error iterating through slab hash. It is in an invalid state: {}",
+							e
+						)?;
+					}
 				}
 			}
-		})
-	}
-}
 
-impl<'a, K, V> IntoIterator for &'a Box<dyn StaticHashtable<K, V>>
-where
-	K: Serializable + Hash,
-	V: Serializable,
-{
-	type Item = (K, V);
-	type IntoIter = StaticHashtableIter<'a, K, V>;
-
-	fn into_iter(self) -> Self::IntoIter {
-		Self::IntoIter {
-			cur: self.first_entry(),
-			h: &self,
+			self.free(to_drop)?;
 		}
+		Ok(())
 	}
-}
-
-impl<K, V> StaticHashtable<K, V> for StaticHashImpl
-where
-	K: Serializable + Hash,
-	V: Serializable,
-{
-	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error> {
-		self.insert_impl::<K, V>(Some(key), 0, None, Some(value), None)
-	}
-	fn get(&self, key: &K) -> Result<Option<V>, Error> {
-		self.get_impl(Some(key), None, 0)
-	}
-	fn remove(&mut self, key: &K) -> Result<bool, Error> {
-		self.remove_impl(key)
-	}
-	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
-		self.get_raw_impl::<K>(key, hash)
-	}
-	fn get_raw_mut<'b>(
-		&'b mut self,
-		key: &[u8],
-		hash: u64,
-	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error> {
-		self.get_raw_mut_impl::<K>(key, hash)
-	}
-	fn insert_raw(&mut self, key: &[u8], hash: u64, value: &[u8]) -> Result<(), Error> {
-		self.insert_impl::<K, V>(None, hash, Some(key), None, Some(value))
-	}
-
-	fn first_entry(&self) -> usize {
-		self.first_entry
-	}
-
-	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error> {
-		self.get_slab(u64!(id))
-	}
-
-	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error> {
-		self.read_kv_ser(slab_id)
-	}
-}
-
-impl<K> StaticHashset<K> for StaticHashImpl
-where
-	K: Serializable + Hash,
-{
-	fn insert(&mut self, key: &K) -> Result<(), Error> {
-		self.insert_impl::<K, K>(Some(key), 0, None, None, None)
-	}
-	fn contains(&self, key: &K) -> Result<bool, Error> {
-		debug!("contains:self.config={:?},k={:?}", self.config, key)?;
-		Ok(self.find_entry(Some(key), None, 0)?.is_some())
-	}
-	fn remove(&mut self, key: &K) -> Result<bool, Error> {
-		self.remove_impl(key)
-	}
-	fn insert_raw(&mut self, _key: &[u8]) -> Result<(), Error> {
-		todo!()
-	}
-}
-
-impl StaticHashImpl {
 	fn get_slab<'a>(&'a self, id: u64) -> Result<Box<dyn Slab + 'a>, Error> {
 		match &self.slabs {
 			Some(slabs) => Ok(slabs.get(id)?),
@@ -392,6 +522,19 @@ impl StaticHashImpl {
 			)),
 			None => Ok(None),
 		}
+	}
+
+	fn read_k_ser<K>(&self, slab_id: usize) -> Result<K, Error>
+	where
+		K: Serializable,
+	{
+		let (k, v) = self.read_value(slab_id)?;
+		debug!("value_read = ({:?}, {:?})", k, v)?;
+		let mut cursor = Cursor::new(k);
+		cursor.set_position(0);
+		let mut reader1 = BinReader::new(&mut cursor);
+		let k = K::read(&mut reader1)?;
+		Ok(k)
 	}
 
 	fn read_kv_ser<K, V>(&self, slab_id: usize) -> Result<(K, V), Error>
@@ -639,12 +782,13 @@ impl StaticHashImpl {
 					debug!("next={}", slab_id)?;
 
 					first = false;
-					if slab_id == usize::MAX {
-						break;
-					}
 				}
 				if to_delete != usize::MAX {
 					self.free(to_delete)?;
+				}
+
+				if slab_id == usize::MAX {
+					break;
 				}
 			}
 		}
@@ -667,7 +811,7 @@ impl StaticHashImpl {
 	fn insert_impl<K, V>(
 		&mut self,
 		key_ser: Option<&K>,
-		hash: u64,
+		hash: usize,
 		key_raw: Option<&[u8]>,
 		value_ser: Option<&V>,
 		value_raw: Option<&[u8]>,
@@ -959,6 +1103,7 @@ impl StaticHashsetBuilder {
 mod test {
 	use crate::types::SlabAllocatorConfig;
 	use crate::types::{Reader, Writer};
+	use crate::GLOBAL_SLAB_ALLOCATOR;
 	use crate::{
 		Serializable, SlabAllocatorBuilder, StaticHashsetBuilder, StaticHashsetConfig,
 		StaticHashtableBuilder, StaticHashtableConfig,
@@ -1138,7 +1283,7 @@ mod test {
 		let mut hasher = DefaultHasher::new();
 		(b"hi").hash(&mut hasher);
 		let hash = hasher.finish();
-		sh.insert_raw(b"hi", hash, b"ok")?;
+		sh.insert_raw(b"hi", usize!(hash), b"ok")?;
 		let slab = sh.get_raw(b"hi", hash)?.unwrap();
 		// key = 104/105 (hi), value = 111/107 (ok)
 		assert_eq!(
@@ -1160,6 +1305,71 @@ mod test {
 		assert_eq!(sh.get(&1)?, Some(100));
 		sh.remove(&1)?;
 		assert_eq!(sh.get(&1)?, None);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_insert_raw_hashset() -> Result<(), Error> {
+		initialize()?;
+		let mut sh = StaticHashsetBuilder::build::<()>(StaticHashsetConfig::default(), None)?;
+		sh.insert_raw(&[1], 1)?;
+		sh.insert_raw(&[2], 2)?;
+
+		assert!(sh.contains_raw(&[1], 1)?);
+		assert!(sh.contains_raw(&[2], 2)?);
+		assert!(!sh.contains_raw(&[3], 3)?);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashset_iter() -> Result<(), Error> {
+		initialize()?;
+
+		let free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<u64, Error> {
+			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+		})?;
+
+		info!("free_count={}", free_count1)?;
+		{
+			let mut sh = StaticHashsetBuilder::build(StaticHashsetConfig::default(), None)?;
+
+			sh.insert(&4)?;
+			sh.insert(&1)?;
+			sh.insert(&2)?;
+			sh.insert(&3)?;
+			sh.insert(&3)?;
+			sh.insert(&3)?;
+			sh.insert(&3)?;
+			sh.insert(&4)?;
+			sh.insert(&5)?;
+
+			let mut count = 0;
+			for x in &sh {
+				info!("x={}", x)?;
+				count += 1;
+			}
+
+			assert_eq!(count, 5);
+			assert!(sh.contains(&1)?);
+			assert!(sh.contains(&2)?);
+			assert!(sh.contains(&3)?);
+			assert!(sh.contains(&4)?);
+			assert!(sh.contains(&5)?);
+
+			let free_count2 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<u64, Error> {
+				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+			})?;
+			info!("free_count={}", free_count2)?;
+			assert_eq!(free_count2, free_count1 - 5);
+		}
+
+		let free_count3 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<u64, Error> {
+			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+		})?;
+		info!("free_count={}", free_count3)?;
+		assert_eq!(free_count3, free_count1);
 
 		Ok(())
 	}
