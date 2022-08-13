@@ -28,6 +28,6 @@ pub use crate::static_hash::{
 	StaticHashsetBuilder, StaticHashsetConfig, StaticHashtableBuilder, StaticHashtableConfig,
 };
 pub use crate::types::{
-	Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, StaticHashtable, StaticQueue,
-	ThreadPool,
+	RawHashsetIterator, RawHashtableIterator, Serializable, Slab, SlabAllocator,
+	SlabAllocatorConfig, SlabMut, StaticHashset, StaticHashtable, StaticQueue, ThreadPool,
 };

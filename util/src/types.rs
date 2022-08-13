@@ -19,6 +19,9 @@ use std::future::Future;
 
 info!();
 
+pub trait RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)>: Iterator {}
+pub trait RawHashsetIterator<Item = Vec<u8>>: Iterator {}
+
 #[derive(Debug)]
 pub struct SlabAllocatorConfig {
 	pub slab_size: usize,
@@ -41,6 +44,7 @@ where
 	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error>;
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
+	fn iter_raw<'b>(&'b mut self) -> Box<dyn RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)> + 'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
@@ -58,6 +62,7 @@ where
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize) -> Result<(), Error>;
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
+	fn iter_raw<'b>(&'b mut self) -> Box<dyn RawHashsetIterator<Item = Vec<u8>> + 'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;

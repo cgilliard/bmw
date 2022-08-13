@@ -12,10 +12,9 @@
 // limitations under the License.
 
 use crate::ser::{serialize, BinReader};
-use crate::types::StaticHashset;
 use crate::{
-	Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, StaticHashtable,
-	GLOBAL_SLAB_ALLOCATOR,
+	RawHashsetIterator, RawHashtableIterator, Serializable, Slab, SlabAllocator,
+	SlabAllocatorConfig, SlabMut, StaticHashset, StaticHashtable, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, try_into, ErrKind, Error};
 use bmw_log::*;
@@ -107,6 +106,96 @@ impl Drop for StaticHashImpl {
 				);
 			}
 		}
+	}
+}
+
+struct RawHashsetIteratorImpl<'a> {
+	h: &'a StaticHashImpl,
+	cur: usize,
+}
+
+impl<'a> RawHashsetIterator for RawHashsetIteratorImpl<'a> {}
+
+impl<'a> Iterator for RawHashsetIteratorImpl<'a> {
+	type Item = Vec<u8>;
+	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+		match Self::do_next(self) {
+			Ok(x) => x,
+			Err(e) => {
+				let _ = error!("StaticHashsetRawIter generated unexpected error: {}", e);
+				None
+			}
+		}
+	}
+}
+
+impl<'a> RawHashsetIteratorImpl<'a> {
+	fn do_next(self: &mut RawHashsetIteratorImpl<'a>) -> Result<Option<Vec<u8>>, Error> {
+		Ok(if self.cur == usize::MAX {
+			None
+		} else {
+			match self.h.get_slab(self.h.entry_array[self.cur]) {
+				Ok(slab) => {
+					let (k, _v) = self.h.read_value(slab.id())?;
+
+					self.cur = usize::from_be_bytes(try_into!(slab.get()[0..8])?);
+					Some(k)
+				}
+				Err(e) => {
+					error!(
+						"Error iterating through slab hash. It is in an invalid state: {}",
+						e
+					)?;
+					None
+				}
+			}
+		})
+	}
+}
+
+struct RawHashtableIteratorImpl<'a> {
+	h: &'a StaticHashImpl,
+	cur: usize,
+}
+
+impl<'a> RawHashtableIterator for RawHashtableIteratorImpl<'a> {}
+
+impl<'a> Iterator for RawHashtableIteratorImpl<'a> {
+	type Item = (Vec<u8>, Vec<u8>);
+	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+		match Self::do_next(self) {
+			Ok(x) => x,
+			Err(e) => {
+				let _ = error!("StaticHashtableRawIter generated unexpected error: {}", e);
+				None
+			}
+		}
+	}
+}
+
+impl<'a> RawHashtableIteratorImpl<'a> {
+	fn do_next(
+		self: &mut RawHashtableIteratorImpl<'a>,
+	) -> Result<Option<(Vec<u8>, Vec<u8>)>, Error> {
+		Ok(if self.cur == usize::MAX {
+			None
+		} else {
+			match self.h.get_slab(self.h.entry_array[self.cur]) {
+				Ok(slab) => {
+					let (k, v) = self.h.read_value(slab.id())?;
+
+					self.cur = usize::from_be_bytes(try_into!(slab.get()[0..8])?);
+					Some((k, v))
+				}
+				Err(e) => {
+					error!(
+						"Error iterating through slab hash. It is in an invalid state: {}",
+						e
+					)?;
+					None
+				}
+			}
+		})
 	}
 }
 
@@ -283,6 +372,12 @@ where
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error> {
 		self.remove_impl::<K>(None, Some(key), hash)
 	}
+	fn iter_raw<'b>(&'b mut self) -> Box<dyn RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)> + 'b> {
+		Box::new(RawHashtableIteratorImpl {
+			h: self,
+			cur: self.first_entry,
+		})
+	}
 	fn size(&self) -> usize {
 		self.size
 	}
@@ -329,6 +424,13 @@ where
 	}
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error> {
 		self.remove_impl::<K>(None, Some(key), hash)
+	}
+
+	fn iter_raw<'b>(&'b mut self) -> Box<dyn RawHashsetIterator<Item = Vec<u8>> + 'b> {
+		Box::new(RawHashsetIteratorImpl {
+			h: self,
+			cur: self.first_entry,
+		})
 	}
 	fn size(&self) -> usize {
 		self.size
@@ -1161,14 +1263,15 @@ mod test {
 
 	pub fn initialize() -> Result<(), Error> {
 		let _ = debug!("init");
-		crate::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
+		let _ = crate::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
 			let sa = unsafe { f.get().as_mut().unwrap() };
 			sa.init(SlabAllocatorConfig {
 				slab_count: 30_000,
 				..Default::default()
 			})?;
 			Ok(())
-		})
+		});
+		Ok(())
 	}
 
 	#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -1485,6 +1588,85 @@ mod test {
 		assert!(sh.insert(&100, &100).is_ok());
 		assert_eq!(sh.get(&100).unwrap().unwrap(), 100);
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_raw_hashset_iter() -> Result<(), Error> {
+		initialize()?;
+		let mut sh = StaticHashsetBuilder::build::<()>(StaticHashsetConfig::default(), None)?;
+		let mut hasher = DefaultHasher::new();
+		(b"hi").hash(&mut hasher);
+		let hash = hasher.finish();
+		sh.insert_raw(b"hi", usize!(hash))?;
+		assert!(sh.contains_raw(b"hi", usize!(hash))?);
+
+		let mut count = 0;
+		for x in sh.iter_raw() {
+			info!("x={:?}", x)?;
+			// key = 104/105 (hi), value = 111/107 (ok)
+			assert_eq!(x, vec![104, 105]);
+			count += 1;
+		}
+
+		assert_eq!(count, 1);
+
+		assert!(sh.contains_raw(b"hi", usize!(hash))?);
+		sh.remove_raw(b"hi", usize!(hash))?;
+		assert!(!sh.contains_raw(b"hi", usize!(hash))?);
+		let mut count = 0;
+		for x in sh.iter_raw() {
+			info!("x={:?}", x)?;
+			count += 1;
+		}
+		assert_eq!(count, 0);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_raw_iter() -> Result<(), Error> {
+		initialize()?;
+		let mut slabs1 = SlabAllocatorBuilder::build();
+		slabs1.init(SlabAllocatorConfig::default())?;
+		let mut sh =
+			StaticHashtableBuilder::build::<(), ()>(StaticHashtableConfig::default(), None)?;
+
+		let mut hasher = DefaultHasher::new();
+		(b"hi").hash(&mut hasher);
+		let hash = hasher.finish();
+		sh.insert_raw(b"hi", usize!(hash), b"ok")?;
+		{
+			let slab = sh.get_raw(b"hi", usize!(hash))?.unwrap();
+			// key = 104/105 (hi), value = 111/107 (ok)
+			assert_eq!(
+				slab.get()[0..36],
+				[
+					255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+					0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
+				]
+			);
+		}
+
+		let mut count = 0;
+		for x in sh.iter_raw() {
+			info!("x={:?}", x)?;
+			// key = 104/105 (hi), value = 111/107 (ok)
+			assert_eq!(x, (vec![104, 105], vec![111, 107]));
+			count += 1;
+		}
+
+		assert_eq!(count, 1);
+
+		sh.remove_raw(b"hi", usize!(hash))?;
+		assert!(sh.get_raw(b"hi", usize!(hash))?.is_none());
+
+		let mut count = 0;
+		for _ in sh.iter_raw() {
+			count += 1;
+		}
+
+		assert_eq!(count, 0);
 		Ok(())
 	}
 }

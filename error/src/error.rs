@@ -171,6 +171,7 @@ impl From<ParseIntError> for Error {
 
 impl From<Utf8Error> for Error {
 	fn from(e: Utf8Error) -> Error {
+		println!("x");
 		Error {
 			inner: Context::new(ErrorKind::Utf8(format!("Utf8 error: {}", e))),
 		}
@@ -217,6 +218,11 @@ mod test {
 		Ok(())
 	}
 
+	fn get_utf8() -> Result<String, Error> {
+		let x = std::str::from_utf8(&[0xC0])?.to_string();
+		Ok(x)
+	}
+
 	#[test]
 	fn test_errors() -> Result<(), Error> {
 		check_error(
@@ -231,6 +237,7 @@ mod test {
 
 		let x: Result<u32, _> = "abc".parse();
 		check_error(x, ErrorKind::Misc(format!("ParseIntError..")).into())?;
+		check_error(get_utf8(), ErrorKind::Utf8(format!("Utf8 Error..")).into())?;
 
 		Ok(())
 	}
