@@ -15,7 +15,7 @@ use crate::ser::{serialize, BinReader};
 use crate::types::StaticHashset;
 use crate::{
 	Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, StaticHashtable,
-	StaticIterator, GLOBAL_SLAB_ALLOCATOR,
+	GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -24,14 +24,13 @@ use std::convert::TryInto;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
+use std::thread;
 
 info!();
 
 const SLAB_OVERHEAD: u64 = 8;
 const SLOT_EMPTY: u64 = u64::MAX;
 const SLOT_DELETED: u64 = u64::MAX - 1;
-const GLOBAL_ALLOCATOR_NOT_INITIALIZED: &str =
-	"Thread local slab allocator was not initialized. Initializing with default values.";
 
 #[derive(Debug)]
 pub struct StaticHashtableConfig {
@@ -112,7 +111,14 @@ impl StaticHashImpl {
 					let slab_size = match slabs.slab_size() {
 						Ok(slab_size) => usize!(slab_size),
 						Err(_e) => {
-							warn!(GLOBAL_ALLOCATOR_NOT_INITIALIZED)?;
+							warn!(
+								"Slab allocator was not initialized for thread '{}'. {}",
+								match thread::current().name() {
+									Some(name) => name,
+									None => "unknown",
+								},
+								"Initializing with default values.",
+							)?;
 							slabs.init(SlabAllocatorConfig::default())?;
 							usize!(slabs.slab_size()?)
 						}
@@ -186,9 +192,9 @@ where
 					let slab = slab.get();
 					debug!("slab={:?},k={:?},v={:?}", slab, k, v)?;
 
-					// we are always 64 bit due to check in main. Unwrap is safe.
-					self.cur = usize::from_be_bytes(slab[0..8].try_into().unwrap());
-					debug!("self.cur is now {}", self.cur)?;
+					self.cur = usize::from_be_bytes(slab[0..8].try_into()?);
+					let prev = usize::from_be_bytes(slab[8..16].try_into()?);
+					debug!("self.cur is now {}, prev={}", self.cur, prev)?;
 					Some((k, v))
 				}
 				Err(e) => {
@@ -233,9 +239,6 @@ where
 	fn remove(&mut self, key: &K) -> Result<(), Error> {
 		self.remove_impl(key)
 	}
-	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, (K, V)>>, Error> {
-		self.iter_impl()
-	}
 	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
 		self.get_raw_impl::<K>(key, hash)
 	}
@@ -277,9 +280,6 @@ where
 	fn remove(&mut self, key: &K) -> Result<(), Error> {
 		self.remove_impl(key)
 	}
-	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, K>>, Error> {
-		self.iter_impl()
-	}
 	fn insert_raw(&mut self, _key: &[u8]) -> Result<(), Error> {
 		todo!()
 	}
@@ -309,6 +309,16 @@ impl StaticHashImpl {
 			Some(slabs) => Ok(slabs.allocate()?),
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Box<dyn SlabMut>, Error> {
 				Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
+			}),
+		}
+	}
+
+	fn free(&mut self, id: usize) -> Result<(), Error> {
+		match &mut self.slabs {
+			Some(slabs) => Ok(slabs.free(u64!(id))?),
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
+				unsafe { f.get().as_mut().unwrap().free(u64!(id))? };
+				Ok(())
 			}),
 		}
 	}
@@ -408,10 +418,10 @@ impl StaticHashImpl {
 
 		let mut slab = self.get_slab(u64!(slab_id))?;
 		let bytes_per_slab = self.slab_size.saturating_sub(usize!(SLAB_OVERHEAD));
-		let mut krem = usize!(u64::from_be_bytes(slab.get()[8..16].try_into()?));
+		let mut krem = usize!(u64::from_be_bytes(slab.get()[16..24].try_into()?));
 		debug!("krem read = {},slab={:?}", krem, slab.get())?;
 		let klen = krem;
-		let mut slab_offset = 16;
+		let mut slab_offset = 24;
 		let mut value_len: usize = 0;
 		let mut voffset = usize::MAX;
 		let mut vrem = usize::MAX;
@@ -502,7 +512,7 @@ impl StaticHashImpl {
 			Some(key) => self.entry_hash(&key),
 			None => usize!(hash) % self.entry_array.len(),
 		};
-
+		debug!("entry hashed to {}", entry)?;
 		let max_iter = self.entry_array.len();
 		let mut i = 0;
 		loop {
@@ -522,6 +532,7 @@ impl StaticHashImpl {
 				if self.key_match(self.entry_array[entry], key, key_raw)? {
 					return Ok(Some(entry));
 				}
+				debug!("no match")?;
 			}
 
 			entry = (entry + 1) % max_iter;
@@ -559,7 +570,7 @@ impl StaticHashImpl {
 
 		// read first slab
 		let mut slab = self.get_slab(id)?;
-		let len = u64::from_be_bytes(slab.get()[8..16].try_into()?);
+		let len = u64::from_be_bytes(slab.get()[16..24].try_into()?);
 		debug!("len={}", len)?;
 
 		if len != u64!(klen) {
@@ -569,18 +580,18 @@ impl StaticHashImpl {
 		let bytes_per_slab: usize = usize!(self.slab_size.saturating_sub(usize!(SLAB_OVERHEAD)));
 
 		// compare the first slab
-		let mut end = 16 + klen;
+		let mut end = 24 + klen;
 		if end > bytes_per_slab {
 			end = bytes_per_slab;
 		}
-		if slab.get()[16..end] != k[0..end - 16] {
+		if slab.get()[24..end] != k[0..end - 24] {
 			return Ok(false);
 		}
 		if end < bytes_per_slab {
 			return Ok(true);
 		}
 
-		let mut offset = end - 16;
+		let mut offset = end - 24;
 		loop {
 			let next =
 				u64::from_be_bytes(slab.get()[bytes_per_slab..bytes_per_slab + 8].try_into()?);
@@ -605,19 +616,51 @@ impl StaticHashImpl {
 
 	fn free_tail(&mut self, mut slab_id: usize) -> Result<(), Error> {
 		let bytes_per_slab = self.slab_size.saturating_sub(usize!(SLAB_OVERHEAD));
-		info!("free tail id = {}", slab_id);
-		let mut slab;
-		loop {
-			slab = self.get_slab(u64!(slab_id))?;
-			let slab_bytes = slab.get();
-			slab_id =
-				usize::from_be_bytes(slab_bytes[bytes_per_slab..bytes_per_slab + 8].try_into()?);
-			info!("next={}", slab_id);
+		debug!("free tail id = {}", slab_id)?;
+		let mut prev = usize::MAX;
+		let mut next = usize::MAX;
 
-			if slab_id == usize::MAX {
-				break;
+		{
+			let mut first = true;
+			let mut to_delete;
+			loop {
+				{
+					let slab = self.get_slab(u64!(slab_id))?;
+					to_delete = slab_id;
+					let slab_bytes = slab.get();
+					if first {
+						next = usize::from_be_bytes(slab_bytes[0..8].try_into()?);
+						prev = usize::from_be_bytes(slab_bytes[8..16].try_into()?);
+						debug!("prev={},next={}", prev, next)?;
+					}
+					slab_id = usize::from_be_bytes(
+						slab_bytes[bytes_per_slab..bytes_per_slab + 8].try_into()?,
+					);
+					debug!("next={}", slab_id)?;
+
+					first = false;
+					if slab_id == usize::MAX {
+						break;
+					}
+				}
+				if to_delete != usize::MAX {
+					self.free(to_delete)?;
+				}
 			}
 		}
+
+		if prev != usize::MAX {
+			let mut slab = self.get_mut(u64!(prev))?;
+			slab.get_mut()[0..8].clone_from_slice(&next.to_be_bytes());
+		} else {
+			self.first_entry = next;
+		}
+
+		if next != usize::MAX {
+			let mut slab = self.get_mut(u64!(next))?;
+			slab.get_mut()[8..16].clone_from_slice(&prev.to_be_bytes());
+		}
+
 		Ok(())
 	}
 
@@ -730,7 +773,7 @@ impl StaticHashImpl {
 			},
 		}
 
-		let needed_len = v_bytes.len() + k_bytes.len() + 16;
+		let needed_len = v_bytes.len() + k_bytes.len() + 24;
 		let slabs_needed = needed_len as u64 / u64!(bytes_per_slab);
 
 		debug!("slabs needed = {}", slabs_needed)?;
@@ -762,31 +805,32 @@ impl StaticHashImpl {
 					let first_entry_bytes = first_entry.to_be_bytes();
 					debug!("febytes={:?}", first_entry_bytes)?;
 					slab_mut[0..8].clone_from_slice(&first_entry_bytes);
+					slab_mut[8..16].clone_from_slice(&usize::MAX.to_be_bytes());
 
 					// write klen
-					slab_mut[8..16].clone_from_slice(&k_len_bytes);
+					slab_mut[16..24].clone_from_slice(&k_len_bytes);
 
 					// write k
 					let mut klen = krem;
-					if klen > bytes_per_slab - 16 {
-						klen = bytes_per_slab - 16;
+					if klen > bytes_per_slab - 24 {
+						klen = bytes_per_slab - 24;
 					}
 					krem = krem.saturating_sub(klen);
-					slab_mut[16..16 + klen].clone_from_slice(&k_bytes[0..klen]);
+					slab_mut[24..24 + klen].clone_from_slice(&k_bytes[0..klen]);
 
 					// write v len if there's room
-					if klen + 24 <= bytes_per_slab {
-						slab_mut[16 + klen..24 + klen].clone_from_slice(&v_len_bytes);
+					if klen + 32 <= bytes_per_slab {
+						slab_mut[24 + klen..32 + klen].clone_from_slice(&v_len_bytes);
 						v_len_written = true;
 					}
 
 					// write v if there's room
-					if klen + 24 < bytes_per_slab {
-						let mut vlen = bytes_per_slab - (klen + 24);
+					if klen + 32 < bytes_per_slab {
+						let mut vlen = bytes_per_slab - (klen + 32);
 						if vrem < vlen {
 							vlen = vrem;
 						}
-						slab_mut[klen + 24..klen + 24 + vlen].clone_from_slice(&v_bytes[0..vlen]);
+						slab_mut[klen + 32..klen + 32 + vlen].clone_from_slice(&v_bytes[0..vlen]);
 						vrem -= vlen;
 					}
 				} else {
@@ -844,6 +888,12 @@ impl StaticHashImpl {
 			"first_entry = {}, setting to = {}",
 			self.first_entry, first_id
 		)?;
+
+		// update reverse list
+		if self.first_entry != usize::MAX {
+			let mut slab = self.get_mut(u64!(first_entry))?;
+			slab.get_mut()[8..16].clone_from_slice(&first_id.to_be_bytes());
+		}
 		self.first_entry = usize!(first_id);
 		Ok(())
 	}
@@ -854,14 +904,6 @@ impl StaticHashImpl {
 	{
 		debug!("remove:self.config={:?},k={:?}", self.config, key)?;
 		todo!();
-	}
-
-	fn iter_impl<K>(&self) -> Result<Box<dyn StaticIterator<'_, K>>, Error>
-	where
-		K: Serializable,
-	{
-		debug!("iter:self.config={:?}", self.config)?;
-		todo!()
 	}
 
 	fn entry_hash<K: Hash>(&self, key: &K) -> usize {
@@ -975,7 +1017,6 @@ mod test {
 		let mut sh = StaticHashtableBuilder::build(StaticHashtableConfig::default(), Some(slabs))?;
 		sh.insert(&1, &2)?;
 		assert_eq!(sh.get(&1)?, Some(2));
-
 		let mut sh2 = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
 		for i in 0..20 {
 			sh2.insert(&BigThing::new(i, i), &BigThing::new(i, i))?;
@@ -1006,13 +1047,11 @@ mod test {
 			assert_eq!(vs[i].val2, i as u32);
 		}
 		sh2.insert(&BigThing::new(8, 3), &BigThing::new(1, 3))?;
-
 		Ok(())
 	}
 
 	#[test]
 	fn test_hashtable_replace() -> Result<(), Error> {
-		/*
 		let mut sh = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
 		sh.insert(&1, &2)?;
 		assert_eq!(sh.get(&1)?, Some(2));
@@ -1021,10 +1060,11 @@ mod test {
 		let mut count = 0;
 		for (k, v) in &sh {
 			info!("k={:?},v={:?}", k, v)?;
+			assert_eq!(k, 1);
+			assert_eq!(v, 3);
 			count += 1;
 		}
 		assert_eq!(count, 1);
-			*/
 		Ok(())
 	}
 
@@ -1093,10 +1133,10 @@ mod test {
 		let slab = sh.get_raw(b"hi", hash)?.unwrap();
 		// key = 104/105 (hi), value = 111/107 (ok)
 		assert_eq!(
-			slab.get()[0..28],
+			slab.get()[0..36],
 			[
-				255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0,
-				0, 0, 0, 0, 2, 111, 107
+				255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0,
+				0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
 			]
 		);
 		Ok(())

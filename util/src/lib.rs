@@ -21,6 +21,6 @@ pub use crate::static_hash::{
 	StaticHashsetBuilder, StaticHashsetConfig, StaticHashtableBuilder, StaticHashtableConfig,
 };
 pub use crate::types::{
-	Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, StaticHashtable,
-	StaticIterator, StaticQueue, ThreadPool,
+	Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, StaticHashtable, StaticQueue,
+	ThreadPool,
 };

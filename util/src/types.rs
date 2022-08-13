@@ -22,13 +22,6 @@ pub struct SlabAllocatorConfig {
 	pub slab_count: u64,
 }
 
-pub trait StaticIterator<'a, K>
-where
-	K: Serializable,
-{
-	fn next(&mut self) -> Option<K>;
-}
-
 pub trait StaticHashtable<K, V>
 where
 	K: Serializable,
@@ -37,7 +30,6 @@ where
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
 	fn remove(&mut self, key: &K) -> Result<(), Error>;
-	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, (K, V)>>, Error>;
 	fn get_raw<'b>(&'b self, key: &[u8], hash: u64) -> Result<Option<Box<dyn Slab + 'b>>, Error>;
 	fn get_raw_mut<'b>(
 		&'b mut self,
@@ -56,7 +48,6 @@ where
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
 	fn contains(&self, key: &K) -> Result<bool, Error>;
 	fn remove(&mut self, key: &K) -> Result<(), Error>;
-	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, K>>, Error>;
 	fn insert_raw(&mut self, key: &[u8]) -> Result<(), Error>;
 }
 pub trait StaticQueue<V>
@@ -65,8 +56,6 @@ where
 {
 	fn enqueue(&mut self, value: &V) -> Result<(), Error>;
 	fn dequeue(&mut self) -> Result<Option<&V>, Error>;
-	fn iter(&self) -> Result<Box<dyn StaticIterator<'_, V>>, Error>;
-	fn iter_rev(&self) -> Result<Box<dyn StaticIterator<'_, V>>, Error>;
 }
 
 pub trait StaticStack<V>
