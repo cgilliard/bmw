@@ -23,11 +23,12 @@ pub use bmw_log;
 pub use bmw_err::*;
 pub use bmw_log::*;
 
+pub use crate::ser::{deserialize, serialize, BinReader, BinWriter};
 pub use crate::slabs::{SlabAllocatorBuilder, GLOBAL_SLAB_ALLOCATOR};
 pub use crate::static_hash::{
 	StaticHashsetBuilder, StaticHashsetConfig, StaticHashtableBuilder, StaticHashtableConfig,
 };
 pub use crate::types::{
-	RawHashsetIterator, RawHashtableIterator, Serializable, Slab, SlabAllocator,
-	SlabAllocatorConfig, SlabMut, StaticHashset, StaticHashtable, StaticQueue, ThreadPool,
+	RawHashsetIterator, RawHashtableIterator, Reader, Serializable, Slab, SlabAllocator,
+	SlabAllocatorConfig, SlabMut, StaticHashset, StaticHashtable, StaticQueue, ThreadPool, Writer,
 };

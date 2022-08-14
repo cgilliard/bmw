@@ -11,8 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmw_deps::byteorder::{BigEndian, ByteOrder};
-use bmw_err::{err, ErrKind, Error};
+use bmw_err::*;
 use bmw_log::*;
 use std::fmt::Debug;
 use std::future::Future;
@@ -149,57 +148,39 @@ pub trait Writer {
 	}
 
 	fn write_u16(&mut self, n: u16) -> Result<(), Error> {
-		let mut bytes = [0; 2];
-		BigEndian::write_u16(&mut bytes, n);
-		self.write_fixed_bytes(&bytes)
+		self.write_fixed_bytes(n.to_be_bytes())
 	}
 
 	fn write_i16(&mut self, n: i16) -> Result<(), Error> {
-		let mut bytes = [0; 2];
-		BigEndian::write_i16(&mut bytes, n);
-		self.write_fixed_bytes(&bytes)
+		self.write_fixed_bytes(n.to_be_bytes())
 	}
 
 	fn write_u32(&mut self, n: u32) -> Result<(), Error> {
-		let mut bytes = [0; 4];
-		BigEndian::write_u32(&mut bytes, n);
-		self.write_fixed_bytes(&bytes)
+		self.write_fixed_bytes(n.to_be_bytes())
 	}
 
 	fn write_i32(&mut self, n: i32) -> Result<(), Error> {
-		let mut bytes = [0; 4];
-		BigEndian::write_i32(&mut bytes, n);
-		self.write_fixed_bytes(&bytes)
+		self.write_fixed_bytes(n.to_be_bytes())
 	}
 
 	fn write_u64(&mut self, n: u64) -> Result<(), Error> {
-		let mut bytes = [0; 8];
-		BigEndian::write_u64(&mut bytes, n);
-		self.write_fixed_bytes(&bytes)
+		self.write_fixed_bytes(n.to_be_bytes())
 	}
 
 	fn write_i128(&mut self, n: i128) -> Result<(), Error> {
-		let mut bytes = [0; 16];
-		BigEndian::write_i128(&mut bytes, n);
-		self.write_fixed_bytes(&bytes)
+		self.write_fixed_bytes(n.to_be_bytes())
 	}
 
 	fn write_u128(&mut self, n: u128) -> Result<(), Error> {
-		let mut bytes = [0; 16];
-		BigEndian::write_u128(&mut bytes, n);
-		self.write_fixed_bytes(&bytes)
+		self.write_fixed_bytes(n.to_be_bytes())
 	}
 
 	fn write_i64(&mut self, n: i64) -> Result<(), Error> {
-		let mut bytes = [0; 8];
-		BigEndian::write_i64(&mut bytes, n);
-		self.write_fixed_bytes(&bytes)
+		self.write_fixed_bytes(n.to_be_bytes())
 	}
 
 	fn write_usize(&mut self, n: usize) -> Result<(), Error> {
-		let mut bytes = [0; 8];
-		BigEndian::write_u64(&mut bytes, u64!(n));
-		self.write_fixed_bytes(&bytes)
+		self.write_fixed_bytes(n.to_be_bytes())
 	}
 
 	fn write_bytes<T: AsRef<[u8]>>(&mut self, bytes: T) -> Result<(), Error> {

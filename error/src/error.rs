@@ -219,8 +219,7 @@ mod test {
 	}
 
 	fn get_utf8() -> Result<String, Error> {
-		let x = std::str::from_utf8(&[0xC0])?.to_string();
-		Ok(x)
+		Ok(std::str::from_utf8(&[0xC0])?.to_string())
 	}
 
 	#[test]

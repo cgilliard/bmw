@@ -13,7 +13,6 @@
 // limitations under the License.
 
 pub use backtrace;
-pub use byteorder;
 pub use chrono;
 pub use colored;
 pub use failure;
