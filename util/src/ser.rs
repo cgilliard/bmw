@@ -18,7 +18,7 @@ use bmw_log::*;
 use std::io::{Read, Write};
 use std::str::from_utf8;
 
-info!();
+debug!();
 
 macro_rules! impl_int {
 	($int:ty, $w_fn:ident, $r_fn:ident) => {
