@@ -102,6 +102,10 @@ macro_rules! err {
 					bmw_err::ErrorKind::IllegalState($msg.to_string()).into();
 				error
 			}
+			bmw_err::ErrKind::Test => {
+				let error: bmw_err::Error = bmw_err::ErrorKind::Test($msg.to_string()).into();
+				error
+			}
 		}
 	}};
 }
@@ -168,6 +172,9 @@ macro_rules! map_err {
 				}
 				bmw_err::ErrKind::IllegalState => {
 					bmw_err::ErrorKind::IllegalState(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::Test => {
+					bmw_err::ErrorKind::Test(format!("{}: {}", $msg, e)).into()
 				}
 			};
 			error

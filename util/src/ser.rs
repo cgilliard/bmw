@@ -206,6 +206,10 @@ pub fn deserialize<T: Serializable, R: Read>(source: &mut R) -> Result<T, Error>
 mod test {
 	use crate::*;
 	use bmw_deps::rand;
+	use bmw_err::*;
+	use bmw_log::*;
+
+	info!();
 
 	#[derive(Debug, PartialEq)]
 	struct SerErr {
