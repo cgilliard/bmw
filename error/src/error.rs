@@ -15,7 +15,8 @@
 use bmw_deps::failure::{Backtrace, Context, Fail};
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
-use std::num::TryFromIntError;
+use std::num::{ParseIntError, TryFromIntError};
+use std::str::Utf8Error;
 
 /// Base Error struct which is used throughout bmw.
 #[derive(Debug, Fail)]
@@ -62,10 +63,13 @@ pub enum ErrorKind {
 	/// Miscellaneous Error
 	#[fail(display = "Miscellaneous Error: {}", _0)]
 	Misc(String),
+	/// Illegal State
+	#[fail(display = "Illegal State Error: {}", _0)]
+	IllegalState(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
-/// names using the [`crate::errkind`] and [`crate::map_err`] macros.
+/// names using the [`crate::err`] and [`crate::map_err`] macros.
 pub enum ErrKind {
 	/// IO Error.
 	IO,
@@ -92,6 +96,8 @@ pub enum ErrKind {
 	IllegalArgument,
 	/// A Miscellaneous Error occurred.
 	Misc,
+	/// Application is in an illegal state.
+	IllegalState,
 }
 
 impl Display for Error {
@@ -155,6 +161,23 @@ impl From<TryFromIntError> for Error {
 	}
 }
 
+impl From<ParseIntError> for Error {
+	fn from(e: ParseIntError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("ParseIntError: {}", e))),
+		}
+	}
+}
+
+impl From<Utf8Error> for Error {
+	fn from(e: Utf8Error) -> Error {
+		println!("x");
+		Error {
+			inner: Context::new(ErrorKind::Utf8(format!("Utf8 error: {}", e))),
+		}
+	}
+}
+
 #[cfg(test)]
 mod test {
 	use crate::{Error, ErrorKind};
@@ -195,6 +218,10 @@ mod test {
 		Ok(())
 	}
 
+	fn get_utf8() -> Result<String, Error> {
+		Ok(std::str::from_utf8(&[0xC0])?.to_string())
+	}
+
 	#[test]
 	fn test_errors() -> Result<(), Error> {
 		check_error(
@@ -206,6 +233,10 @@ mod test {
 
 		let x: Result<u32, _> = u64::MAX.try_into();
 		check_error(x, ErrorKind::Misc(format!("TryFromIntError..")).into())?;
+
+		let x: Result<u32, _> = "abc".parse();
+		check_error(x, ErrorKind::Misc(format!("ParseIntError..")).into())?;
+		check_error(get_utf8(), ErrorKind::Utf8(format!("Utf8 Error..")).into())?;
 
 		Ok(())
 	}

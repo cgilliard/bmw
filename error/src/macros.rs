@@ -12,16 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Macro to map the try_from error into an appropriate error.
+#[macro_export]
+macro_rules! try_into {
+	($v:expr) => {{
+		use std::convert::TryInto;
+		bmw_err::map_err!($v.try_into(), bmw_err::ErrKind::Misc, "TryInto Error")
+	}};
+}
+
 /// Build the specified [`crate::ErrorKind`] and convert it into an [`crate::Error`]. The desired
 /// [`crate::ErrorKind`] is specified using the [`crate::ErrKind`] name enum.
 ///
 /// Example:
 ///
 ///```
-/// use bmw_err::{Error, ErrorKind, ErrKind, errkind};
+/// use bmw_err::{Error, ErrorKind, ErrKind, err};
 ///
 /// fn show_err_kind(do_error: bool) -> Result<(), Error> {
-///     let e = errkind!(ErrKind::Configuration, "invalid parameter name");
+///     let e = err!(ErrKind::Configuration, "invalid parameter name");
 ///
 ///     if do_error {
 ///         return Err(e);
@@ -31,7 +40,7 @@
 /// }
 ///```
 #[macro_export]
-macro_rules! errkind {
+macro_rules! err {
 	($kind:expr, $msg:expr) => {{
 		match $kind {
 			bmw_err::ErrKind::Configuration => {
@@ -86,6 +95,11 @@ macro_rules! errkind {
 			}
 			bmw_err::ErrKind::Misc => {
 				let error: bmw_err::Error = bmw_err::ErrorKind::Misc($msg.to_string()).into();
+				error
+			}
+			bmw_err::ErrKind::IllegalState => {
+				let error: bmw_err::Error =
+					bmw_err::ErrorKind::IllegalState($msg.to_string()).into();
 				error
 			}
 		}
@@ -152,6 +166,9 @@ macro_rules! map_err {
 				bmw_err::ErrKind::CorruptedData => {
 					bmw_err::ErrorKind::CorruptedData(format!("{}: {}", $msg, e)).into()
 				}
+				bmw_err::ErrKind::IllegalState => {
+					bmw_err::ErrorKind::IllegalState(format!("{}: {}", $msg, e)).into()
+				}
 			};
 			error
 		})
@@ -161,11 +178,14 @@ macro_rules! map_err {
 #[cfg(test)]
 mod test {
 	use crate as bmw_err;
+	use crate::ErrKind;
+	use std::convert::TryInto;
 	use std::fs::File;
+	use std::num::TryFromIntError;
 
 	#[test]
 	fn test_ekinds() -> Result<(), crate::Error> {
-		let err: bmw_err::Error = errkind!(bmw_err::ErrKind::Configuration, "anything");
+		let err: bmw_err::Error = err!(bmw_err::ErrKind::Configuration, "anything");
 		let _err_kind = err.kind();
 		let raw: bmw_err::Error =
 			bmw_err::ErrorKind::Configuration("configuration error".to_string()).into();
@@ -201,6 +221,10 @@ mod test {
 			res.as_ref().unwrap_err().kind(),
 			crate::ErrorKind::IO(_),
 		));
+
+		let x: Result<i32, TryFromIntError> = u64::MAX.try_into();
+		let map = map_err!(x, ErrKind::Misc);
+		assert!(matches!(map.unwrap_err().kind(), crate::ErrorKind::Misc(_)));
 
 		Ok(())
 	}

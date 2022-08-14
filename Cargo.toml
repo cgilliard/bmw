@@ -13,7 +13,7 @@ edition = "2018"
 
 [workspace]
 members = [
-	"error", "deps", "log", "test"
+	"error", "deps", "log", "test", "util"
 ]
 exclude = ["etc"]
 
@@ -23,6 +23,7 @@ bmw_deps  = { path = "./deps"  }
 bmw_err   = { path = "./error" }
 bmw_log   = { path = "./log"   }
 bmw_crypt = { path = "./crypt" }
+bmw_util  = { path = "./util"  }
 bmw_test  = { path = "./test"  }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
