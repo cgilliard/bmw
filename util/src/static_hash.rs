@@ -988,6 +988,7 @@ impl StaticHashImpl {
 		V: Serializable,
 	{
 		debug!("insert:self.config={:?},k={:?}", self.config, key_ser)?;
+
 		let bytes_per_slab = self.slab_size.saturating_sub(SLAB_OVERHEAD);
 		let free_count = self.get_free_count()?;
 
@@ -1055,12 +1056,10 @@ impl StaticHashImpl {
 			},
 		}
 
-		let needed_len = v_bytes.len() + k_bytes.len() + 24;
+		let needed_len = v_bytes.len() + k_bytes.len() + 32;
 		let slabs_needed = needed_len as usize / bytes_per_slab;
 
-		debug!("slabs needed = {}", slabs_needed)?;
-
-		if free_count < slabs_needed {
+		if free_count < slabs_needed + 1 {
 			return Err(err!(ErrKind::CapacityExceeded, "no more slabs"));
 		}
 
@@ -1072,10 +1071,8 @@ impl StaticHashImpl {
 		let mut i = 0;
 		loop {
 			if i >= entry_array_len {
-				return Err(err!(
-					ErrKind::CapacityExceeded,
-					"StaticHashImpl: Capacity exceeded"
-				));
+				let msg = "StaticHashImpl: Capacity exceeded";
+				return Err(err!(ErrKind::CapacityExceeded, msg));
 			}
 			if self.entry_array[entry] == SLOT_EMPTY || self.entry_array[entry] == SLOT_DELETED {
 				break;
@@ -1092,6 +1089,11 @@ impl StaticHashImpl {
 			entry = (entry + 1) % entry_array_len;
 			i += 1;
 		}
+
+		if (self.size + 1) as f64 / self.entry_array.len() as f64 > self.config.max_load_factor {
+			let fmt = format!("load factor ({}) exceeded", self.config.max_load_factor);
+			return Err(err!(ErrKind::CapacityExceeded, fmt));
+		}
 		debug!("inserting at entry={}", entry)?;
 
 		let mut itt = 0;
@@ -1100,6 +1102,7 @@ impl StaticHashImpl {
 
 		let mut v_len_written = false;
 		let first_entry = self.first_entry;
+
 		loop {
 			let id;
 			{
@@ -1196,10 +1199,7 @@ impl StaticHashImpl {
 				break;
 			}
 		}
-		debug!(
-			"first_entry = {}, setting to = {}",
-			self.first_entry, first_id
-		)?;
+		debug!("fe={},setto={}", self.first_entry, first_id)?;
 
 		// update reverse list
 		if self.first_entry != usize::MAX {
@@ -1220,11 +1220,6 @@ impl StaticHashImpl {
 	where
 		K: Serializable + Hash,
 	{
-		debug!(
-			"remove:self.config={:?},k_ser={:?},k_raw={:?}",
-			self.config, key_ser, key_raw
-		)?;
-
 		Ok(match self.find_entry(key_ser, key_raw, hash)? {
 			Some(entry) => {
 				debug!("found entry at {}", entry)?;
@@ -1502,12 +1497,7 @@ mod test {
 		sh.remove_raw(b"hi", usize!(hash))?;
 		assert!(sh.get_raw(b"hi", usize!(hash))?.is_none());
 
-		let mut count = 0;
-		for _ in &sh {
-			count += 1;
-		}
-
-		assert_eq!(count, 0);
+		assert_eq!(sh.size(), 0);
 
 		Ok(())
 	}
@@ -1748,12 +1738,7 @@ mod test {
 		assert!(sh.contains_raw(b"hi", usize!(hash))?);
 		sh.remove_raw(b"hi", usize!(hash))?;
 		assert!(!sh.contains_raw(b"hi", usize!(hash))?);
-		let mut count = 0;
-		for x in sh.iter_raw() {
-			info!("x={:?}", x)?;
-			count += 1;
-		}
-		assert_eq!(count, 0);
+		assert_eq!(sh.size(), 0);
 
 		Ok(())
 	}
@@ -1792,15 +1777,12 @@ mod test {
 
 		assert_eq!(count, 1);
 
-		sh.remove_raw(b"hi", usize!(hash))?;
+		assert!(sh.remove_raw(b"hi", usize!(hash))?);
 		assert!(sh.get_raw(b"hi", usize!(hash))?.is_none());
 
-		let mut count = 0;
-		for _ in sh.iter_raw() {
-			count += 1;
-		}
+		assert_eq!(sh.size(), 0);
+		assert!(!sh.remove_raw(b"hi", usize!(hash))?);
 
-		assert_eq!(count, 0);
 		Ok(())
 	}
 
@@ -1809,6 +1791,7 @@ mod test {
 		let mut sh = StaticHashtableBuilder::build(
 			StaticHashtableConfig {
 				max_entries: 1,
+				max_load_factor: 1.0,
 				..StaticHashtableConfig::default()
 			},
 			None,
@@ -1934,6 +1917,104 @@ mod test {
 			let mut iter = sh.into_iter();
 			assert!(iter.next().is_none());
 		}
+
+		{
+			let config = StaticHashtableConfig {
+				max_entries: 1,
+				max_load_factor: 1.0,
+				..StaticHashtableConfig::default()
+			};
+			let mut slabs = SlabAllocatorBuilder::build();
+			slabs.init(SlabAllocatorConfig::default())?;
+			let mut sh = StaticHashtableBuilder::build(config, Some(slabs))?;
+			sh.insert(&1, &2)?;
+			assert!(sh.insert(&2, &3).is_err());
+		}
+
+		{
+			let config = StaticHashtableConfig {
+				max_entries: 100,
+
+				..StaticHashtableConfig::default()
+			};
+			let mut slabs = SlabAllocatorBuilder::build();
+			slabs.init(SlabAllocatorConfig {
+				slab_count: 1,
+				..SlabAllocatorConfig::default()
+			})?;
+			let mut sh = StaticHashtableBuilder::build(config, Some(slabs))?;
+			sh.insert(&1, &2)?;
+			assert!(sh.insert(&2, &3).is_err());
+		}
+
+		Ok(())
+	}
+
+	#[derive(Debug, PartialEq)]
+	struct VarSer {
+		len: usize,
+	}
+
+	impl Serializable for VarSer {
+		fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+			let len = reader.read_usize()?;
+			for _ in 0..len {
+				reader.read_u8()?;
+			}
+			Ok(Self { len })
+		}
+
+		fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+			writer.write_usize(self.len)?;
+			for _ in 0..self.len {
+				writer.write_u8(0)?;
+			}
+			Ok(())
+		}
+	}
+
+	#[test]
+	fn test_resources() -> Result<(), Error> {
+		let config = StaticHashtableConfig {
+			max_entries: 100,
+
+			..StaticHashtableConfig::default()
+		};
+		let mut slabs = SlabAllocatorBuilder::build();
+		slabs.init(SlabAllocatorConfig {
+			slab_count: 1,
+			slab_size: 128,
+			..SlabAllocatorConfig::default()
+		})?;
+		let mut sh = StaticHashtableBuilder::build(config, Some(slabs))?;
+		assert!(sh.insert(&80u32, &VarSer { len: 76 }).is_err());
+		assert!(sh.insert(&90u32, &VarSer { len: 75 }).is_ok());
+		sh.remove(&90u32)?;
+		assert!(sh.insert(&80u32, &VarSer { len: 75 }).is_ok());
+		assert_eq!(sh.get(&80u32)?, Some(VarSer { len: 75 }));
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_load_factor() -> Result<(), Error> {
+		let config = StaticHashtableConfig {
+			max_entries: 100,
+			max_load_factor: 0.5,
+			..StaticHashtableConfig::default()
+		};
+		let mut slabs = SlabAllocatorBuilder::build();
+		slabs.init(SlabAllocatorConfig {
+			slab_count: 1000,
+			slab_size: 128,
+			..SlabAllocatorConfig::default()
+		})?;
+		let mut sh = StaticHashtableBuilder::build(config, Some(slabs))?;
+
+		for i in 0..100 {
+			sh.insert(&i, &0)?;
+		}
+		assert!(sh.insert(&100, &0).is_err());
 
 		Ok(())
 	}
