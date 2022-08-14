@@ -34,18 +34,23 @@ const SLOT_DELETED: usize = usize::MAX - 1;
 pub struct StaticHashtableConfig {
 	pub max_entries: usize,
 	pub max_load_factor: f64,
+	pub debug_get_slab_error: bool,
 }
 
 #[derive(Debug)]
 pub struct StaticHashsetConfig {
 	pub max_entries: usize,
 	pub max_load_factor: f64,
+	pub debug_get_slab_error: bool,
 }
 
 #[derive(Debug)]
 struct StaticHashConfig {
 	max_entries: usize,
 	max_load_factor: f64,
+	debug_clear_error: bool,
+	debug_do_next_error: bool,
+	debug_get_slab_error: bool,
 }
 
 impl From<StaticHashtableConfig> for StaticHashConfig {
@@ -54,6 +59,9 @@ impl From<StaticHashtableConfig> for StaticHashConfig {
 		Self {
 			max_entries: config.max_entries,
 			max_load_factor: config.max_load_factor,
+			debug_clear_error: false,
+			debug_do_next_error: false,
+			debug_get_slab_error: config.debug_get_slab_error,
 		}
 	}
 }
@@ -64,6 +72,9 @@ impl From<StaticHashsetConfig> for StaticHashConfig {
 		Self {
 			max_entries: config.max_entries,
 			max_load_factor: config.max_load_factor,
+			debug_clear_error: false,
+			debug_do_next_error: false,
+			debug_get_slab_error: config.debug_get_slab_error,
 		}
 	}
 }
@@ -73,6 +84,7 @@ impl Default for StaticHashtableConfig {
 		Self {
 			max_entries: 1_000_000,
 			max_load_factor: 0.75,
+			debug_get_slab_error: false,
 		}
 	}
 }
@@ -82,6 +94,7 @@ impl Default for StaticHashsetConfig {
 		Self {
 			max_entries: 1_000_000,
 			max_load_factor: 0.75,
+			debug_get_slab_error: false,
 		}
 	}
 }
@@ -131,6 +144,9 @@ impl<'a> Iterator for RawHashsetIteratorImpl<'a> {
 
 impl<'a> RawHashsetIteratorImpl<'a> {
 	fn do_next(self: &mut RawHashsetIteratorImpl<'a>) -> Result<Option<Vec<u8>>, Error> {
+		if self.h.config.debug_do_next_error {
+			return Err(err!(ErrKind::Test, "do_next err"));
+		}
 		Ok(if self.cur == usize::MAX {
 			None
 		} else {
@@ -142,10 +158,7 @@ impl<'a> RawHashsetIteratorImpl<'a> {
 					Some(k)
 				}
 				Err(e) => {
-					error!(
-						"Error iterating through slab hash. It is in an invalid state: {}",
-						e
-					)?;
+					error!("get_slab generated error: {}", e)?;
 					None
 				}
 			}
@@ -177,6 +190,10 @@ impl<'a> RawHashtableIteratorImpl<'a> {
 	fn do_next(
 		self: &mut RawHashtableIteratorImpl<'a>,
 	) -> Result<Option<(Vec<u8>, Vec<u8>)>, Error> {
+		if self.h.config.debug_do_next_error {
+			return Err(err!(ErrKind::Test, "do_next err"));
+		}
+
 		Ok(if self.cur == usize::MAX {
 			None
 		} else {
@@ -188,10 +205,7 @@ impl<'a> RawHashtableIteratorImpl<'a> {
 					Some((k, v))
 				}
 				Err(e) => {
-					error!(
-						"Error iterating through slab hash. It is in an invalid state: {}",
-						e
-					)?;
+					error!("get slab generated error: {}", e)?;
 					None
 				}
 			}
@@ -202,6 +216,7 @@ impl<'a> RawHashtableIteratorImpl<'a> {
 pub struct StaticHashsetIter<'a, K> {
 	cur: usize,
 	h: &'a Box<dyn StaticHashset<K>>,
+	debug_do_next_error: bool,
 }
 
 impl<'a, K> Iterator for StaticHashsetIter<'a, K>
@@ -225,6 +240,9 @@ where
 	K: Serializable,
 {
 	fn do_next(self: &mut StaticHashsetIter<'a, K>) -> Result<Option<K>, Error> {
+		if self.debug_do_next_error {
+			return Err(err!(ErrKind::Test, "do_next err"));
+		}
 		Ok(if self.cur == usize::MAX {
 			debug!("NONE")?;
 			None
@@ -243,10 +261,7 @@ where
 					Some(k)
 				}
 				Err(e) => {
-					error!(
-						"Error iterating through slab hash. It is in an invalid state: {}",
-						e
-					)?;
+					error!("slabhash iter error: {}", e)?;
 					None
 				}
 			}
@@ -257,6 +272,7 @@ where
 pub struct StaticHashtableIter<'a, K, V> {
 	cur: usize,
 	h: &'a Box<dyn StaticHashtable<K, V>>,
+	debug_do_next_error: bool,
 }
 
 impl<'a, K, V> Iterator for StaticHashtableIter<'a, K, V>
@@ -282,6 +298,9 @@ where
 	V: Serializable,
 {
 	fn do_next(self: &mut StaticHashtableIter<'a, K, V>) -> Result<Option<(K, V)>, Error> {
+		if self.debug_do_next_error {
+			return Err(err!(ErrKind::Test, "do_next err"));
+		}
 		Ok(if self.cur == usize::MAX {
 			debug!("NONE")?;
 			None
@@ -300,10 +319,7 @@ where
 					Some((k, v))
 				}
 				Err(e) => {
-					error!(
-						"Error iterating through slab hash. It is in an invalid state: {}",
-						e
-					)?;
+					error!("get_slab generated error: {}", e)?;
 					None
 				}
 			}
@@ -323,6 +339,7 @@ where
 		Self::IntoIter {
 			cur: self.first_entry(),
 			h: &self,
+			debug_do_next_error: false,
 		}
 	}
 }
@@ -338,6 +355,7 @@ where
 		Self::IntoIter {
 			cur: self.first_entry(),
 			h: &self,
+			debug_do_next_error: false,
 		}
 	}
 }
@@ -523,6 +541,9 @@ impl StaticHashImpl {
 		Ok(())
 	}
 	fn get_slab<'a>(&'a self, id: usize) -> Result<Box<dyn Slab + 'a>, Error> {
+		if self.config.debug_get_slab_error {
+			return Err(err!(ErrKind::Test, "simulate get_slab error"));
+		}
 		match &self.slabs {
 			Some(slabs) => Ok(slabs.get(id)?),
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Box<dyn Slab>, Error> {
@@ -569,6 +590,10 @@ impl StaticHashImpl {
 	}
 
 	fn clear_impl(&mut self) -> Result<(), Error> {
+		if self.config.debug_clear_error {
+			return Err(err!(ErrKind::Test, "simulate drop error"));
+		}
+
 		self.size = 0;
 		let mut entry = self.first_entry;
 		loop {
@@ -1254,6 +1279,8 @@ impl StaticHashsetBuilder {
 
 #[cfg(test)]
 mod test {
+	use crate::static_hash::StaticHashImpl;
+	use crate::static_hash::{RawHashsetIteratorImpl, RawHashtableIteratorImpl};
 	use crate::types::SlabAllocatorConfig;
 	use crate::types::{Reader, Writer};
 	use crate::GLOBAL_SLAB_ALLOCATOR;
@@ -1450,13 +1477,17 @@ mod test {
 		let hash = hasher.finish();
 		sh.insert_raw(b"hi", usize!(hash), b"ok")?;
 		{
+			let mut slab = sh.get_raw_mut(b"hi", usize!(hash))?.unwrap();
+			slab.get_mut()[35] = 106;
+		}
+		{
 			let slab = sh.get_raw(b"hi", usize!(hash))?.unwrap();
-			// key = 104/105 (hi), value = 111/107 (ok)
+			// key = 104/105 (hi), value = 111/106 (oj) (updated the k -> j with slab mut
 			assert_eq!(
 				slab.get()[0..36],
 				[
 					255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-					0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
+					0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 106
 				]
 			);
 		}
@@ -1821,6 +1852,88 @@ mod test {
 			None,
 		)
 		.is_err());
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_simulate_errors() -> Result<(), Error> {
+		initialize()?;
+
+		{
+			let config = StaticHashtableConfig::default();
+			let mut sh = StaticHashImpl::new(config.into(), None)?;
+			sh.insert_impl(Some(&1), 0, None, Some(&1), None)?;
+			sh.config.debug_clear_error = true;
+			sh.config.debug_do_next_error = true;
+
+			let mut rhii = RawHashsetIteratorImpl {
+				h: &sh,
+				cur: sh.first_entry,
+			};
+
+			assert!(rhii.next().iter().next().is_none());
+
+			let mut rhii = RawHashtableIteratorImpl {
+				h: &sh,
+				cur: sh.first_entry,
+			};
+			assert!(rhii.next().iter().next().is_none());
+		}
+
+		{
+			let config = StaticHashtableConfig::default();
+			let mut sh = StaticHashImpl::new(config.into(), None)?;
+			sh.insert_impl(Some(&1), 0, None, Some(&1), None)?;
+			sh.config.debug_get_slab_error = true;
+			let mut rhii = RawHashsetIteratorImpl {
+				h: &sh,
+				cur: sh.first_entry,
+			};
+			assert!(rhii.next().iter().next().is_none());
+
+			let mut rhii = RawHashtableIteratorImpl {
+				h: &sh,
+				cur: sh.first_entry,
+			};
+			assert!(rhii.next().iter().next().is_none());
+		}
+
+		{
+			let config = StaticHashsetConfig::default();
+			let mut sh = StaticHashsetBuilder::build(config, None)?;
+			sh.insert(&1)?;
+			let mut iter = sh.into_iter();
+			iter.debug_do_next_error = true;
+			assert!(iter.next().is_none());
+		}
+
+		{
+			let mut config = StaticHashsetConfig::default();
+			config.debug_get_slab_error = true;
+			let mut sh = StaticHashsetBuilder::build(config, None)?;
+			sh.insert(&1)?;
+			let mut iter = sh.into_iter();
+			assert!(iter.next().is_none());
+		}
+
+		{
+			let config = StaticHashtableConfig::default();
+			let mut sh = StaticHashtableBuilder::build(config, None)?;
+			sh.insert(&1, &2)?;
+			let mut iter = sh.into_iter();
+			iter.debug_do_next_error = true;
+			assert!(iter.next().is_none());
+		}
+
+		{
+			let mut config = StaticHashtableConfig::default();
+			config.debug_get_slab_error = true;
+			let mut sh = StaticHashtableBuilder::build(config, None)?;
+			sh.insert(&1, &2)?;
+			let mut iter = sh.into_iter();
+			assert!(iter.next().is_none());
+		}
 
 		Ok(())
 	}
