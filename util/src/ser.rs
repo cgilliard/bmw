@@ -210,15 +210,18 @@ mod test {
 	#[derive(Debug, PartialEq)]
 	struct SerErr {
 		exp: u8,
+		empty: u8,
 	}
 
 	impl Serializable for SerErr {
 		fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
 			reader.expect_u8(99)?;
-			Ok(Self { exp: 99 })
+			reader.read_empty_bytes(1)?;
+			Ok(Self { exp: 99, empty: 0 })
 		}
 		fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 			writer.write_u8(self.exp)?;
+			writer.write_u8(self.empty)?;
 			Ok(())
 		}
 	}
@@ -252,6 +255,13 @@ mod test {
 			let j = reader.read_i128()?;
 			let k = reader.read_usize()?;
 			reader.expect_u8(100)?;
+			assert_eq!(reader.read_u64()?, 4);
+			reader.read_u8()?;
+			reader.read_u8()?;
+			reader.read_u8()?;
+			reader.read_u8()?;
+			reader.read_empty_bytes(10)?;
+
 			let ret = Self {
 				a,
 				b,
@@ -281,6 +291,8 @@ mod test {
 			writer.write_i128(self.j)?;
 			writer.write_usize(self.k)?;
 			writer.write_u8(100)?;
+			writer.write_bytes([1, 2, 3, 4])?;
+			writer.write_empty_bytes(10)?;
 			Ok(())
 		}
 	}
@@ -313,17 +325,23 @@ mod test {
 		ser_helper((rand::random::<u32>(), rand::random::<i128>()))?;
 		ser_helper(("hi there".to_string(), 123))?;
 
-		let ser_out = SerErr { exp: 100 };
+		let ser_out = SerErr { exp: 100, empty: 0 };
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
 		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..]);
 		assert!(ser_in.is_err());
 
-		let ser_out = SerErr { exp: 99 };
+		let ser_out = SerErr { exp: 99, empty: 0 };
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
 		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..]);
 		assert!(ser_in.is_ok());
+
+		let ser_out = SerErr { exp: 99, empty: 1 };
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &ser_out)?;
+		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..]);
+		assert!(ser_in.is_err());
 
 		Ok(())
 	}
