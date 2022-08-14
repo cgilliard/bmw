@@ -256,7 +256,7 @@ mod test {
 	use bmw_err::Error;
 	use bmw_log::*;
 
-	debug!();
+	info!();
 
 	#[test]
 	fn test_simple() -> Result<(), Error> {
