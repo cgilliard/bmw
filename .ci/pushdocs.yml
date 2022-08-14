@@ -9,16 +9,19 @@ steps:
    mkdir -p docs/doc/bmw_err
    mkdir -p docs/doc/bmw_crypt
    mkdir -p docs/doc/bmw_log
+   mkdir -p docs/doc/bmw_util
 
    cp -pr target/doc/bmw_err/* docs/doc/bmw_err
    cp -pr target/doc/bmw_crypt/* docs/doc/bmw_crypt
    cp -pr target/doc/bmw_log/* docs/doc/bmw_log
+   cp -pr target/doc/bmw_util/* docs/doc/bmw_log
 
    changes_error=`git diff HEAD^^ HEAD --name-only | grep "^error" | wc -l`
    changes_crypt=`git diff HEAD^^ HEAD --name-only | grep "^crypt" | wc -l`
    changes_log=`git diff HEAD^^ HEAD --name-only | grep "^log" | wc -l`
+   changes_util=`git diff HEAD^^ HEAD --name-only | grep "^util" | wc -l`
 
-   if [[ $changes_error -eq 0 ]] && [[ $changes_crypt -eq 0 ]] && [[ $changes_log -eq 0 ]]
+   if [[ $changes_error -eq 0 ]] && [[ $changes_crypt -eq 0 ]] && [[ $changes_log -eq 0 ]] && $changes_util -eq 0 ]]
    then
       echo "no changes to relevant directories, not pushing"
    else
