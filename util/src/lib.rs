@@ -17,12 +17,6 @@ mod slabs;
 mod static_hash;
 mod types;
 
-pub use bmw_err;
-pub use bmw_log;
-
-pub use bmw_err::*;
-pub use bmw_log::*;
-
 pub use crate::ser::{deserialize, serialize, BinReader, BinWriter};
 pub use crate::slabs::{SlabAllocatorBuilder, GLOBAL_SLAB_ALLOCATOR};
 pub use crate::static_hash::{
