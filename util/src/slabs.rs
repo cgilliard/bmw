@@ -185,6 +185,18 @@ impl SlabAllocator for SlabAllocatorImpl {
 				"slab allocator has already been initialied"
 			)),
 			None => {
+				if config.slab_size < 48 {
+					return Err(err!(
+						ErrKind::IllegalArgument,
+						"slab_size must be at least 48 bytes"
+					));
+				}
+				if config.slab_count == 0 {
+					return Err(err!(
+						ErrKind::IllegalArgument,
+						"slab_count must be greater than 0"
+					));
+				}
 				let mut data = vec![];
 				data.resize(config.slab_count * (config.slab_size + 8), 0u8);
 				Self::build_free_list(&mut data, config.slab_count, config.slab_size)?;
@@ -345,6 +357,55 @@ mod test {
 		// we know id and id2 are equal because when you free a slab it's added to the
 		// front of the list
 		assert_eq!(id, id2);
+		Ok(())
+	}
+
+	#[test]
+	fn test_other_slabs_configs() -> Result<(), Error> {
+		assert!(SlabAllocatorBuilder::build()
+			.init(SlabAllocatorConfig::default())
+			.is_ok());
+
+		assert!(SlabAllocatorBuilder::build()
+			.init(SlabAllocatorConfig {
+				slab_size: 100,
+				..SlabAllocatorConfig::default()
+			})
+			.is_ok());
+
+		assert!(SlabAllocatorBuilder::build()
+			.init(SlabAllocatorConfig {
+				slab_size: 48,
+				..SlabAllocatorConfig::default()
+			})
+			.is_ok());
+
+		assert!(SlabAllocatorBuilder::build()
+			.init(SlabAllocatorConfig {
+				slab_size: 47,
+				..SlabAllocatorConfig::default()
+			})
+			.is_err());
+		assert!(SlabAllocatorBuilder::build()
+			.init(SlabAllocatorConfig {
+				slab_count: 0,
+				..SlabAllocatorConfig::default()
+			})
+			.is_err());
+
+		let mut sh = SlabAllocatorBuilder::build();
+		sh.init(SlabAllocatorConfig {
+			slab_count: 1,
+			..SlabAllocatorConfig::default()
+		})?;
+
+		let slab = sh.allocate();
+		assert!(slab.is_ok());
+		let id = slab.unwrap().id();
+		assert!(sh.allocate().is_err());
+		sh.free(id)?;
+		assert!(sh.allocate().is_ok());
+
 		Ok(())
 	}
 }

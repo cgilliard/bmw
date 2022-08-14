@@ -502,6 +502,13 @@ impl StaticHashImpl {
 				"StaticHash: max_load_factor must be greater than 0 and equal to or less than 1."
 			));
 		}
+		if config.max_entries == 0 {
+			return Err(err!(
+				ErrKind::IllegalArgument,
+				"StaticHash: max_entries must be greater than 0"
+			));
+		}
+
 		// calculate size of entry_array. Must be possible to have max_entries, with the
 		// max_load_factor
 		let size: usize = (config.max_entries as f64 / config.max_load_factor).floor() as usize;
@@ -1254,10 +1261,13 @@ mod test {
 		Serializable, SlabAllocatorBuilder, StaticHashsetBuilder, StaticHashsetConfig,
 		StaticHashtableBuilder, StaticHashtableConfig,
 	};
+	use bmw_deps::rand;
 	use bmw_err::Error;
 	use bmw_log::*;
 	use std::collections::hash_map::DefaultHasher;
+	use std::collections::HashMap;
 	use std::hash::{Hash, Hasher};
+	use std::str::from_utf8;
 
 	debug!();
 
@@ -1553,13 +1563,106 @@ mod test {
 			})?;
 			info!("free_count={}", free_count2)?;
 			assert_eq!(free_count2, free_count1 - 5);
+
+			sh.remove(&3)?;
+			assert!(sh.contains(&1)?);
+			assert!(sh.contains(&2)?);
+			assert!(!sh.contains(&3)?);
+			assert!(sh.contains(&4)?);
+			assert!(sh.contains(&5)?);
+			let free_count3 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+			})?;
+			assert_eq!(free_count3, free_count1 - 4);
+			assert_eq!(sh.size(), 4);
 		}
 
-		let free_count3 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+		let free_count4 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 		})?;
-		info!("free_count={}", free_count3)?;
-		assert_eq!(free_count3, free_count1);
+		info!("free_count={}", free_count4)?;
+		assert_eq!(free_count4, free_count1);
+
+		Ok(())
+	}
+
+	fn rand_string(min_len: usize, max_len: usize) -> String {
+		let r: usize = rand::random();
+		let r = min_len + (r % (max_len - min_len));
+		let chars = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/+";
+		let mut ret = vec![];
+		for _ in 0..r {
+			let v: usize = rand::random();
+			ret.push(chars[(v % chars.len())] as u8);
+		}
+		from_utf8(&ret[..]).unwrap().to_string()
+	}
+
+	#[test]
+	fn test_rand() -> Result<(), Error> {
+		let _ = crate::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
+			let sa = unsafe { f.get().as_mut().unwrap() };
+			sa.init(SlabAllocatorConfig {
+				slab_count: 300_000,
+				slab_size: 128,
+				..Default::default()
+			})?;
+			Ok(())
+		});
+
+		assert_eq!(
+			GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+			})?,
+			300_000
+		);
+
+		{
+			let mut sh = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
+			let str = rand_string(10, 100);
+			let mut check_table = HashMap::new();
+			info!("str={}", str)?;
+
+			let mut keys = vec![];
+			let mut values = vec![];
+			for _ in 0..1000 {
+				keys.push(rand_string(100, 2000));
+				values.push(rand_string(200, 3000));
+			}
+
+			let mut del_count = 0;
+			for i in 0..keys.len() {
+				check_table.insert(&keys[i], &values[i]);
+				sh.insert(&keys[i], &values[i])?;
+
+				if i > 0 {
+					let r: usize = rand::random();
+					let r = r % (i * 10);
+					if i > r {
+						// do a delete around 10%
+						sh.remove(&keys[del_count])?;
+						check_table.remove(&keys[del_count]);
+						del_count += 1;
+						info!("del here {}", del_count)?;
+					}
+				}
+			}
+
+			assert_eq!(sh.size(), check_table.len());
+			info!("size={}", sh.size())?;
+			for (k, v) in check_table {
+				let v_sh = sh.get(k)?;
+				assert_eq!(&v_sh.unwrap(), v);
+			}
+			assert!(sh.get(&str).unwrap().is_none());
+		}
+
+		assert_eq!(
+			GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+			})?,
+			300_000
+		);
 
 		Ok(())
 	}
@@ -1667,6 +1770,58 @@ mod test {
 		}
 
 		assert_eq!(count, 0);
+		Ok(())
+	}
+
+	#[test]
+	fn test_other_hash_configs() -> Result<(), Error> {
+		let mut sh = StaticHashtableBuilder::build(
+			StaticHashtableConfig {
+				max_entries: 1,
+				..StaticHashtableConfig::default()
+			},
+			None,
+		)?;
+		assert!(sh.insert(&1, &1).is_ok());
+		assert!(sh.insert(&1, &2).is_ok());
+		assert!(sh.insert(&2, &1).is_err());
+
+		assert!(StaticHashtableBuilder::build::<(), ()>(
+			StaticHashtableConfig {
+				max_entries: 0,
+				..StaticHashtableConfig::default()
+			},
+			None,
+		)
+		.is_err());
+
+		assert!(StaticHashtableBuilder::build::<(), ()>(
+			StaticHashtableConfig {
+				max_load_factor: 0.0,
+				..StaticHashtableConfig::default()
+			},
+			None,
+		)
+		.is_err());
+
+		assert!(StaticHashtableBuilder::build::<(), ()>(
+			StaticHashtableConfig {
+				max_load_factor: -0.1,
+				..StaticHashtableConfig::default()
+			},
+			None,
+		)
+		.is_err());
+
+		assert!(StaticHashtableBuilder::build::<(), ()>(
+			StaticHashtableConfig {
+				max_load_factor: 1.1,
+				..StaticHashtableConfig::default()
+			},
+			None,
+		)
+		.is_err());
+
 		Ok(())
 	}
 }
