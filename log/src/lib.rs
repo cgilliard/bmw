@@ -26,6 +26,26 @@
 //! errors so you will have to add error handling which can be as simple as using
 //! the question mark operator or using the [`bmw_err::map_err`] macro.
 //!
+//! # Examples
+//!
+//!```
+//! use bmw_err::*;
+//! use bmw_log::*;
+//!
+//! // set log level for this file. Anthing below this scope will only be
+//! // logged if it is equal to or less than log level 'INFO'.
+//! info!();
+//!
+//! fn main() -> Result<(), Error> {
+//!     let abc = 123;
+//!     info!("v1={},v2={}", abc, "def")?; // will show up
+//!     debug!("test")?; // will not show up
+//!
+//!     Ok(())
+//! }
+//!
+//!```
+//!
 //! The default output will look something like this:
 //!
 //! ```text
