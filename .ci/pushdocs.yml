@@ -14,7 +14,7 @@ steps:
    cp -pr target/doc/bmw_err/* docs/doc/bmw_err
    cp -pr target/doc/bmw_crypt/* docs/doc/bmw_crypt
    cp -pr target/doc/bmw_log/* docs/doc/bmw_log
-   cp -pr target/doc/bmw_util/* docs/doc/bmw_log
+   cp -pr target/doc/bmw_util/* docs/doc/bmw_util
 
    changes_error=`git diff HEAD^^ HEAD --name-only | grep "^error" | wc -l`
    changes_crypt=`git diff HEAD^^ HEAD --name-only | grep "^crypt" | wc -l`
