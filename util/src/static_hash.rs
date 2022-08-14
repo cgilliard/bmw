@@ -648,16 +648,16 @@ impl StaticHashImpl {
 	where
 		K: Serializable + Hash,
 	{
-		let entry = self.find_entry::<K>(None, Some(key_raw), hash)?;
-		debug!("entry at {:?}", entry)?;
-		match entry {
-			Some(entry) => {
-				let id = self.entry_array[entry];
-				let ret = self.get_mut(id)?;
-				Ok(Some(ret))
+		let slab_id = {
+			let entry = self.find_entry::<K>(None, Some(key_raw), hash)?;
+			if entry.is_none() {
+				return Ok(None);
 			}
-			None => Ok(None),
-		}
+			let entry = entry.unwrap();
+			let slab = entry.1;
+			slab.id()
+		};
+		Ok(Some(self.get_mut(slab_id)?))
 	}
 
 	fn get_raw_impl<'b, K>(
@@ -668,14 +668,8 @@ impl StaticHashImpl {
 	where
 		K: Serializable + Hash,
 	{
-		let entry = self.find_entry::<K>(None, Some(key_raw), hash)?;
-		debug!("entry at {:?}", entry)?;
-		match entry {
-			Some(entry) => {
-				let id = self.entry_array[entry];
-				let ret = self.get_slab(id)?;
-				Ok(Some(ret))
-			}
+		match self.find_entry::<K>(None, Some(key_raw), hash)? {
+			Some((_entry, slab)) => Ok(Some(slab)),
 			None => Ok(None),
 		}
 	}
@@ -691,11 +685,10 @@ impl StaticHashImpl {
 		V: Serializable,
 	{
 		debug!("get_impl:self.config={:?}", self.config)?;
-		let entry = self.find_entry(key_ser, key_raw, hash)?;
-		debug!("entry at {:?}", entry)?;
+		let slab = self.find_entry(key_ser, key_raw, hash)?;
 
-		match entry {
-			Some(entry) => Ok(Some(self.read_kv_ser::<K, V>(self.entry_array[entry])?.1)),
+		match slab {
+			Some((_entry, slab)) => Ok(Some(self.read_kv_ser::<K, V>(slab.id())?.1)),
 			None => Ok(None),
 		}
 	}
@@ -806,12 +799,12 @@ impl StaticHashImpl {
 		Ok((k, v))
 	}
 
-	fn find_entry<K>(
-		&self,
+	fn find_entry<'a, K>(
+		&'a self,
 		key: Option<&K>,
 		key_raw: Option<&[u8]>,
 		hash: usize,
-	) -> Result<Option<usize>, Error>
+	) -> Result<Option<(usize, Box<dyn Slab + 'a>)>, Error>
 	where
 		K: Serializable + Hash,
 	{
@@ -836,8 +829,10 @@ impl StaticHashImpl {
 			if self.entry_array[entry] != SLOT_DELETED {
 				debug!("found possible slot at {}", entry)?;
 				// there's a valid entry here. Check if it's ours
-				if self.key_match(self.entry_array[entry], key, key_raw)? {
-					return Ok(Some(entry));
+				let slab = self.key_match(self.entry_array[entry], key, key_raw)?;
+				if slab.is_some() {
+					let slab = slab.unwrap();
+					return Ok(Some((entry, slab)));
 				}
 				debug!("no match")?;
 			}
@@ -850,12 +845,12 @@ impl StaticHashImpl {
 	// This function has full coverage, but tarpaulin is flagging a few lines
 	// Setting to ignore for now.
 	#[cfg(not(tarpaulin_include))]
-	fn key_match<K>(
-		&self,
+	fn key_match<'a, K>(
+		&'a self,
 		id: usize,
 		key_ser: Option<&K>,
 		key_raw: Option<&[u8]>,
-	) -> Result<bool, Error>
+	) -> Result<Option<Box<dyn Slab + 'a>>, Error>
 	where
 		K: Serializable,
 	{
@@ -882,7 +877,7 @@ impl StaticHashImpl {
 		let len = usize::from_be_bytes(try_into!(slab.get()[16..24])?);
 		debug!("len={}", len)?;
 		if len != klen {
-			return Ok(false);
+			return Ok(None);
 		}
 
 		let bytes_per_slab: usize = self.slab_size.saturating_sub(SLAB_OVERHEAD);
@@ -893,10 +888,10 @@ impl StaticHashImpl {
 			end = bytes_per_slab;
 		}
 		if slab.get()[24..end] != k[0..end - 24] {
-			return Ok(false);
+			return Ok(None);
 		}
 		if end < bytes_per_slab {
-			return Ok(true);
+			return Ok(Some(slab));
 		}
 
 		let mut offset = end - 24;
@@ -910,7 +905,7 @@ impl StaticHashImpl {
 			}
 
 			if k[offset..offset + rem] != slab.get()[0..rem] {
-				return Ok(false);
+				return Ok(None);
 			}
 
 			offset += bytes_per_slab;
@@ -919,7 +914,7 @@ impl StaticHashImpl {
 			}
 		}
 
-		Ok(true)
+		Ok(Some(self.get_slab(id)?))
 	}
 
 	fn free_tail(&mut self, mut slab_id: usize) -> Result<(), Error> {
@@ -1085,7 +1080,10 @@ impl StaticHashImpl {
 			}
 
 			// does the current key match ours?
-			if self.key_match(self.entry_array[entry], key_ser, key_raw)? {
+			if self
+				.key_match(self.entry_array[entry], key_ser, key_raw)?
+				.is_some()
+			{
 				// subtract because we add it back later
 				self.size = self.size.saturating_sub(1);
 				self.free_tail(self.entry_array[entry])?;
@@ -1226,16 +1224,15 @@ impl StaticHashImpl {
 	where
 		K: Serializable + Hash,
 	{
-		Ok(match self.find_entry(key_ser, key_raw, hash)? {
-			Some(entry) => {
-				debug!("found entry at {}", entry)?;
-				self.free_tail(self.entry_array[entry])?;
-				self.entry_array[entry] = SLOT_DELETED;
-				self.size = self.size.saturating_sub(1);
-				true
-			}
-			None => false,
-		})
+		let (entry, slab_id) = match self.find_entry(key_ser, key_raw, hash)? {
+			Some((entry, slab)) => (entry, slab.id()),
+			None => return Ok(false),
+		};
+
+		self.free_tail(slab_id)?;
+		self.entry_array[entry] = SLOT_DELETED;
+		self.size = self.size.saturating_sub(1);
+		Ok(true)
 	}
 
 	fn entry_hash<K: Hash>(&self, key: &K) -> usize {

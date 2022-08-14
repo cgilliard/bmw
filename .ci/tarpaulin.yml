@@ -35,6 +35,7 @@ steps:
 
         git config --global user.email "pipelinesbot.noreply@37miners.com"
         git config --global user.name "Pipelines-Bot"
+        git pull
         git add --all
         git commit -m"Pipelines-Bot: Updated site (via tarpaulin.yml) Source Version is $(Build.SourceVersion)";
         git push https://$(github_pat)@github.com/37miners/bmw.git
