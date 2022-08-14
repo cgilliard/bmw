@@ -11,10 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::Serializable;
-use crate::types::{Reader, Writer};
-use bmw_err::{err, map_err, ErrKind, Error};
+use crate::{
+	Reader, Serializable, StaticHashset, StaticHashsetBuilder, StaticHashsetConfig,
+	StaticHashtable, StaticHashtableBuilder, StaticHashtableConfig, Writer,
+};
+use bmw_err::{err, map_err, try_into, ErrKind, Error};
 use bmw_log::*;
+use std::hash::Hash;
 use std::io::{Read, Write};
 use std::str::from_utf8;
 
@@ -45,6 +48,18 @@ impl_int!(u128, write_u128, read_u128);
 impl_int!(i128, write_i128, read_i128);
 impl_int!(usize, write_usize, read_usize);
 
+impl Serializable for f64 {
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		writer.write_fixed_bytes(self.to_be_bytes())?;
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<f64, Error> {
+		let bytes = reader.read_fixed_bytes(8)?;
+		let value: f64 = f64::from_be_bytes(try_into!(&bytes[..])?);
+		Ok(value)
+	}
+}
+
 impl Serializable for () {
 	fn write<W: Writer>(&self, _writer: &mut W) -> Result<(), Error> {
 		Ok(())
@@ -64,6 +79,25 @@ impl<A: Serializable, B: Serializable> Serializable for (A, B) {
 	}
 }
 
+impl<S: Serializable> Serializable for Vec<S> {
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		let len = self.len();
+		writer.write_usize(len)?;
+		for i in 0..len {
+			Serializable::write(&self[i], writer)?;
+		}
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<Vec<S>, Error> {
+		let len = reader.read_usize()?;
+		let mut v = Vec::with_capacity(len);
+		for _ in 0..len {
+			v.push(Serializable::read(reader)?);
+		}
+		Ok(v)
+	}
+}
+
 impl Serializable for String {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 		writer.write_usize(self.len())?;
@@ -72,6 +106,62 @@ impl Serializable for String {
 	}
 	fn read<R: Reader>(reader: &mut R) -> Result<String, Error> {
 		Ok(from_utf8(&reader.read_bytes_len_prefix()?)?.to_string())
+	}
+}
+
+impl<'a, K, V> Serializable for Box<dyn StaticHashtable<K, V>>
+where
+	K: Serializable + Hash + 'a,
+	V: Serializable + 'a,
+{
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		let config = StaticHashtableConfig::read(reader)?;
+		let size = reader.read_usize()?;
+		let mut hashtable = StaticHashtableBuilder::build(config, None)?;
+		for _ in 0..size {
+			let k = K::read(reader)?;
+			let v = V::read(reader)?;
+			hashtable.insert(&k, &v)?;
+		}
+
+		Ok(hashtable)
+	}
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		StaticHashtableConfig::write(&self.config(), writer)?;
+		writer.write_usize(self.size())?;
+		for (k, v) in self.iter_raw() {
+			let k: K = deserialize(&mut &k[..])?;
+			let v: V = deserialize(&mut &v[..])?;
+			K::write(&k, writer)?;
+			V::write(&v, writer)?;
+		}
+		Ok(())
+	}
+}
+
+impl<'a, K> Serializable for Box<dyn StaticHashset<K>>
+where
+	K: Serializable + Hash + 'a,
+{
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		let config = StaticHashsetConfig::read(reader)?;
+		let size = reader.read_usize()?;
+		let mut hashset = StaticHashsetBuilder::build(config, None)?;
+		for _ in 0..size {
+			let k = K::read(reader)?;
+			hashset.insert(&k)?;
+		}
+
+		Ok(hashset)
+	}
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		StaticHashsetConfig::write(&self.config(), writer)?;
+		writer.write_usize(self.size())?;
+		for k in self.iter_raw() {
+			let k: K = deserialize(&mut &k[..])?;
+			K::write(&k, writer)?;
+		}
+		Ok(())
 	}
 }
 
@@ -208,6 +298,7 @@ mod test {
 	use bmw_deps::rand;
 	use bmw_err::*;
 	use bmw_log::*;
+	use std::fmt::Debug;
 
 	info!();
 
@@ -301,7 +392,7 @@ mod test {
 		}
 	}
 
-	fn ser_helper<S: Serializable + PartialEq>(ser_out: S) -> Result<(), Error> {
+	fn ser_helper<S: Serializable + Debug + PartialEq>(ser_out: S) -> Result<(), Error> {
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
 		let ser_in: S = deserialize(&mut &v[..])?;
@@ -346,6 +437,54 @@ mod test {
 		serialize(&mut v, &ser_out)?;
 		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..]);
 		assert!(ser_in.is_err());
+
+		let v = vec!["test1".to_string(), "a".to_string(), "okokok".to_string()];
+		ser_helper(v)?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashtable_ser() -> Result<(), Error> {
+		let mut hashtable = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
+		hashtable.insert(&1u32, &4u64)?;
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &hashtable)?;
+		let ser_in: Result<Box<dyn StaticHashtable<u32, u64>>, Error> = deserialize(&mut &v[..]);
+		let ser_in = ser_in.unwrap();
+		assert_eq!(ser_in.get(&1u32).unwrap().unwrap(), 4u64);
+
+		let config = StaticHashtableConfig {
+			debug_get_slab_error: true,
+			..StaticHashtableConfig::default()
+		};
+		ser_helper(config)?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashset_ser() -> Result<(), Error> {
+		let mut hashset = StaticHashsetBuilder::build(
+			StaticHashsetConfig {
+				..StaticHashsetConfig::default()
+			},
+			None,
+		)?;
+		hashset.insert(&1u32)?;
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &hashset)?;
+		let ser_in: Result<Box<dyn StaticHashset<u32>>, Error> = deserialize(&mut &v[..]);
+		let ser_in = ser_in.unwrap();
+		assert!(ser_in.contains(&1u32).unwrap());
+		assert!(!ser_in.contains(&2u32).unwrap());
+		assert_eq!(ser_in.size(), 1);
+
+		let config = StaticHashsetConfig {
+			debug_get_slab_error: true,
+			..StaticHashsetConfig::default()
+		};
+		ser_helper(config)?;
 
 		Ok(())
 	}
