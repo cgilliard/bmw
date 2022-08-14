@@ -18,6 +18,72 @@ use std::future::Future;
 
 info!();
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StaticHashtableConfig {
+	pub max_entries: usize,
+	pub max_load_factor: f64,
+	pub debug_get_slab_error: bool,
+}
+
+impl Serializable for StaticHashtableConfig {
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		let max_entries = reader.read_usize()?;
+		let max_load_factor = f64::read(reader)?;
+		let debug_get_slab_error = match reader.read_u8()? {
+			0 => false,
+			_ => true,
+		};
+		let ret = Self {
+			max_entries,
+			max_load_factor,
+			debug_get_slab_error,
+		};
+		Ok(ret)
+	}
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		writer.write_usize(self.max_entries)?;
+		f64::write(&self.max_load_factor, writer)?;
+		writer.write_u8(match self.debug_get_slab_error {
+			true => 1,
+			false => 0,
+		})?;
+		Ok(())
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StaticHashsetConfig {
+	pub max_entries: usize,
+	pub max_load_factor: f64,
+	pub debug_get_slab_error: bool,
+}
+
+impl Serializable for StaticHashsetConfig {
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		let max_entries = reader.read_usize()?;
+		let max_load_factor = f64::read(reader)?;
+		let debug_get_slab_error = match reader.read_u8()? {
+			0 => false,
+			_ => true,
+		};
+		let ret = Self {
+			max_entries,
+			max_load_factor,
+			debug_get_slab_error,
+		};
+		Ok(ret)
+	}
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		writer.write_usize(self.max_entries)?;
+		f64::write(&self.max_load_factor, writer)?;
+		writer.write_u8(match self.debug_get_slab_error {
+			true => 1,
+			false => 0,
+		})?;
+		Ok(())
+	}
+}
+
 pub trait RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)>: Iterator {}
 pub trait RawHashsetIterator<Item = Vec<u8>>: Iterator {}
 
@@ -32,6 +98,7 @@ where
 	K: Serializable,
 	V: Serializable,
 {
+	fn config(&self) -> StaticHashtableConfig;
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
@@ -43,7 +110,7 @@ where
 	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error>;
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
-	fn iter_raw<'b>(&'b mut self) -> Box<dyn RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)> + 'b>;
+	fn iter_raw<'b>(&'b self) -> Box<dyn RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)> + 'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
@@ -55,13 +122,14 @@ pub trait StaticHashset<K>
 where
 	K: Serializable,
 {
+	fn config(&self) -> StaticHashsetConfig;
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
 	fn contains(&self, key: &K) -> Result<bool, Error>;
 	fn contains_raw(&self, key: &[u8], hash: usize) -> Result<bool, Error>;
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize) -> Result<(), Error>;
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
-	fn iter_raw<'b>(&'b mut self) -> Box<dyn RawHashsetIterator<Item = Vec<u8>> + 'b>;
+	fn iter_raw<'b>(&'b self) -> Box<dyn RawHashsetIterator<Item = Vec<u8>> + 'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
@@ -223,7 +291,7 @@ pub trait Reader {
 
 pub trait Serializable
 where
-	Self: Sized + Debug,
+	Self: Sized,
 {
 	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error>;
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error>;
