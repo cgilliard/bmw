@@ -544,7 +544,7 @@ impl StaticHashImpl {
 
 		// calculate size of entry_array. Must be possible to have max_entries, with the
 		// max_load_factor
-		let size: usize = (config.max_entries as f64 / config.max_load_factor).floor() as usize;
+		let size: usize = (config.max_entries as f64 / config.max_load_factor).ceil() as usize;
 		debug!("entry array init to size = {}", size)?;
 		entry_array.resize(size, SLOT_EMPTY);
 		Ok(())
@@ -1094,7 +1094,7 @@ impl StaticHashImpl {
 			i += 1;
 		}
 
-		if (self.size + 1) as f64 / self.entry_array.len() as f64 > self.config.max_load_factor {
+		if (self.size + 1) as f64 > self.config.max_load_factor * self.entry_array.len() as f64 {
 			let fmt = format!("load factor ({}) exceeded", self.config.max_load_factor);
 			return Err(err!(ErrKind::CapacityExceeded, fmt));
 		}
@@ -2112,6 +2112,33 @@ mod test {
 		assert!(sh.find_entry(Some(&1), None, 0)?.is_none());
 		sh.config.debug_max_iter = false;
 		assert!(sh.find_entry(Some(&1), None, 0)?.is_some());
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashtable_capacity() -> Result<(), Error> {
+		for i in 1..100 {
+			let max_load_factor = i as f64 / 100 as f64;
+			let config = StaticHashtableConfig {
+				max_entries: 10,
+				max_load_factor,
+				..StaticHashtableConfig::default()
+			};
+			let mut slabs = SlabAllocatorBuilder::build();
+			slabs.init(SlabAllocatorConfig {
+				slab_count: 1000,
+				slab_size: 128,
+				..SlabAllocatorConfig::default()
+			})?;
+			let mut sh = StaticHashtableBuilder::build(config, Some(slabs))?;
+
+			for i in 0..10 {
+				sh.insert(&i, &0)?;
+			}
+
+			assert!(sh.insert(&20, &20).is_err());
+		}
 
 		Ok(())
 	}

@@ -57,6 +57,7 @@ static GLOBAL: MonAllocator = MonAllocator;
 fn main() -> Result<(), Error> {
 	log_init!(LogConfig {
 		show_bt: bmw_log::LogConfigOption::ShowBt(false),
+		line_num: bmw_log::LogConfigOption::LineNum(false),
 		..Default::default()
 	})?;
 

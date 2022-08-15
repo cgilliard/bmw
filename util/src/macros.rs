@@ -120,13 +120,13 @@ mod test {
 		assert_eq!(hash.get(&1)?.unwrap(), 2);
 
 		let mut hash = hashtable!(10)?;
-		for i in 0..9 {
+		for i in 0..10 {
 			hash.insert(&i, &100)?;
 		}
 		assert!(hash.insert(&100, &100).is_err());
 
 		let mut hash = hashtable!(10, 0.85)?;
-		for i in 0..9 {
+		for i in 0..10 {
 			hash.insert(&i, &100)?;
 		}
 		assert!(hash.insert(&100, &100).is_err());
@@ -148,13 +148,13 @@ mod test {
 		assert!(hash.contains(&1)?);
 
 		let mut hash = hashset!(10)?;
-		for i in 0..9 {
+		for i in 0..10 {
 			hash.insert(&i)?;
 		}
 		assert!(hash.insert(&100).is_err());
 
 		let mut hash = hashset!(10, 0.85)?;
-		for i in 0..9 {
+		for i in 0..10 {
 			hash.insert(&i)?;
 		}
 		assert!(hash.insert(&100).is_err());

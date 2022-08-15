@@ -24,8 +24,9 @@ info!();
 // results.
 #[cfg(not(tarpaulin_include))]
 thread_local! {
-		pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> =
-					SlabAllocatorBuilder::build_unsafe();
+	#[doc(hidden)]
+	pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> =
+				SlabAllocatorBuilder::build_unsafe();
 }
 
 pub struct SlabAllocatorBuilder {}
