@@ -203,7 +203,7 @@ pub use crate::ser::{deserialize, serialize, BinReader, BinWriter};
 pub use crate::slabs::{SlabAllocatorBuilder, GLOBAL_SLAB_ALLOCATOR};
 pub use crate::static_hash::{StaticHashsetBuilder, StaticHashtableBuilder};
 pub use crate::types::{
-	RawHashsetIterator, RawHashtableIterator, Reader, Serializable, Slab, SlabAllocator,
-	SlabAllocatorConfig, SlabMut, StaticHashset, StaticHashsetConfig, StaticHashtable,
+	RawHashsetIterator, RawHashtableIterator, Reader, Serializable, SlabAllocator,
+	SlabAllocatorConfig, StaticHashset, StaticHashsetConfig, StaticHashtable,
 	StaticHashtableConfig, StaticList, StaticQueue, ThreadPool, Writer,
 };

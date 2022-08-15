@@ -12,10 +12,12 @@
 // limitations under the License.
 
 use crate::ser::{serialize, BinReader};
+use crate::slabs::SlabImpl;
+use crate::slabs::SlabMutImpl;
 use crate::{
-	RawHashsetIterator, RawHashtableIterator, Serializable, Slab, SlabAllocator,
-	SlabAllocatorConfig, SlabMut, StaticHashset, StaticHashsetConfig, StaticHashtable,
-	StaticHashtableConfig, GLOBAL_SLAB_ALLOCATOR,
+	RawHashsetIterator, RawHashtableIterator, Serializable, SlabAllocator, SlabAllocatorConfig,
+	StaticHashset, StaticHashsetConfig, StaticHashtable, StaticHashtableConfig,
+	GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, try_into, ErrKind, Error};
 use bmw_log::*;
@@ -387,14 +389,14 @@ where
 	fn remove(&mut self, key: &K) -> Result<bool, Error> {
 		self.remove_impl(Some(key), None, 0)
 	}
-	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<Box<dyn Slab + 'b>>, Error> {
+	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<SlabImpl<'b>>, Error> {
 		self.get_raw_impl::<K>(key, hash)
 	}
 	fn get_raw_mut<'b>(
 		&'b mut self,
 		key: &[u8],
 		hash: usize,
-	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error> {
+	) -> Result<Option<SlabMutImpl<'b>>, Error> {
 		self.get_raw_mut_impl::<K>(key, hash)
 	}
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error> {
@@ -419,7 +421,7 @@ where
 		self.first_entry
 	}
 
-	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error> {
+	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error> {
 		self.get_slab(id)
 	}
 
@@ -476,7 +478,7 @@ where
 	fn first_entry(&self) -> usize {
 		self.first_entry
 	}
-	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error> {
+	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error> {
 		self.get_slab(id)
 	}
 	fn read_k(&self, slab_id: usize) -> Result<K, Error> {
@@ -555,31 +557,31 @@ impl StaticHashImpl {
 		Self::clear_impl(self)?;
 		Ok(())
 	}
-	fn get_slab<'a>(&'a self, id: usize) -> Result<Box<dyn Slab + 'a>, Error> {
+	fn get_slab<'a>(&'a self, id: usize) -> Result<SlabImpl<'a>, Error> {
 		if self.config.debug_get_slab_error {
 			return Err(err!(ErrKind::Test, "simulate get_slab error"));
 		}
 		match &self.slabs {
 			Some(slabs) => Ok(slabs.get(id)?),
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Box<dyn Slab>, Error> {
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabImpl<'a>, Error> {
 				Ok(unsafe { f.get().as_ref().unwrap().get(id)? })
 			}),
 		}
 	}
 
-	fn get_mut<'a>(&'a mut self, id: usize) -> Result<Box<dyn SlabMut + 'a>, Error> {
+	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMutImpl<'a>, Error> {
 		match &mut self.slabs {
 			Some(slabs) => Ok(slabs.get_mut(id)?),
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Box<dyn SlabMut>, Error> {
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMutImpl<'a>, Error> {
 				Ok(unsafe { f.get().as_mut().unwrap().get_mut(id)? })
 			}),
 		}
 	}
 
-	fn allocate<'a>(&'a mut self) -> Result<Box<dyn SlabMut + 'a>, Error> {
+	fn allocate<'a>(&'a mut self) -> Result<SlabMutImpl<'a>, Error> {
 		match &mut self.slabs {
 			Some(slabs) => Ok(slabs.allocate()?),
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Box<dyn SlabMut>, Error> {
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMutImpl<'a>, Error> {
 				Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 			}),
 		}
@@ -644,7 +646,7 @@ impl StaticHashImpl {
 		&'b mut self,
 		key_raw: &[u8],
 		hash: usize,
-	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>
+	) -> Result<Option<SlabMutImpl<'b>>, Error>
 	where
 		K: Serializable + Hash,
 	{
@@ -664,7 +666,7 @@ impl StaticHashImpl {
 		&'b self,
 		key_raw: &[u8],
 		hash: usize,
-	) -> Result<Option<Box<dyn Slab + 'b>>, Error>
+	) -> Result<Option<SlabImpl<'b>>, Error>
 	where
 		K: Serializable + Hash,
 	{
@@ -804,7 +806,7 @@ impl StaticHashImpl {
 		key: Option<&K>,
 		key_raw: Option<&[u8]>,
 		hash: usize,
-	) -> Result<Option<(usize, Box<dyn Slab + 'a>)>, Error>
+	) -> Result<Option<(usize, SlabImpl<'a>)>, Error>
 	where
 		K: Serializable + Hash,
 	{
@@ -850,7 +852,7 @@ impl StaticHashImpl {
 		id: usize,
 		key_ser: Option<&K>,
 		key_raw: Option<&[u8]>,
-	) -> Result<Option<Box<dyn Slab + 'a>>, Error>
+	) -> Result<Option<SlabImpl<'a>>, Error>
 	where
 		K: Serializable + Hash,
 	{

@@ -17,6 +17,9 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 
+use crate::slabs::SlabImpl;
+use crate::slabs::SlabMutImpl;
+
 info!();
 
 /// The configuration struct for a [`StaticHashtable`]. This struct is passed
@@ -314,18 +317,18 @@ where
 
 	/// Remove an element from the [`crate::StaticHashtable`].
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
-	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<Box<dyn Slab + 'b>>, Error>;
+	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<SlabImpl<'b>>, Error>;
 	fn get_raw_mut<'b>(
 		&'b mut self,
 		key: &[u8],
 		hash: usize,
-	) -> Result<Option<Box<dyn SlabMut + 'b>>, Error>;
+	) -> Result<Option<SlabMutImpl<'b>>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error>;
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
 	fn iter_raw<'b>(&'b self) -> Box<dyn RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)> + 'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
-	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
+	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error>;
 	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error>;
 	fn get_array(&self) -> &Vec<usize>;
 	fn clear(&mut self) -> Result<(), Error>;
@@ -345,7 +348,7 @@ where
 	fn iter_raw<'b>(&'b self) -> Box<dyn RawHashsetIterator<Item = Vec<u8>> + 'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
-	fn slab<'b>(&'b self, id: usize) -> Result<Box<dyn Slab + 'b>, Error>;
+	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error>;
 	fn read_k(&self, slab_id: usize) -> Result<K, Error>;
 	fn get_array(&self) -> &Vec<usize>;
 	fn clear(&mut self) -> Result<(), Error>;
@@ -372,12 +375,11 @@ pub trait StaticList<'a, V>
 where
 	V: Serializable,
 {
-	type SlabType: Slab;
 	fn push(&mut self, value: &V) -> Result<(), Error>;
 	fn pop(&mut self) -> Result<Option<V>, Error>;
 	fn push_front(&mut self, value: V) -> Result<(), Error>;
 	fn pop_front(&mut self) -> Result<Option<V>, Error>;
-	fn pop_raw(&mut self) -> Result<Self::SlabType, Error>;
+	fn pop_raw(&mut self) -> Result<SlabImpl, Error>;
 }
 
 pub trait Array<V>
@@ -394,6 +396,7 @@ pub trait ThreadPool {
 		F: Future<Output = Result<(), Error>> + Send + Sync + 'static;
 }
 
+/*
 /// The public interface to a Slab stored by the [`crate::SlabAllocator`].
 /// [`crate::Slab`] is an immutable reference and [`crate::SlabMut`] is a mutable
 /// reference.
@@ -417,6 +420,7 @@ pub trait SlabMut {
 	/// the slab later.
 	fn id(&self) -> usize;
 }
+*/
 
 /// This trait defines the public interface to the [`crate::SlabAllocator`]. The slab
 /// allocator is used by the other data structures in this crate to avoid dynamic heap
@@ -464,7 +468,7 @@ pub trait SlabAllocator {
 	///
 	/// * [`bmw_err::ErrorKind::CapacityExceeded`] if the capacity of this
 	/// [`crate::SlabAllocator`] has been exceeded.
-	fn allocate<'a>(&'a mut self) -> Result<Box<dyn SlabMut + 'a>, Error>;
+	fn allocate<'a>(&'a mut self) -> Result<SlabMutImpl<'a>, Error>;
 
 	/// Free a slab that has previously been allocated by this slab allocator.
 	/// `id` is the id of the slab to free. It can be obtained through the
@@ -555,7 +559,7 @@ pub trait SlabAllocator {
 	///     Ok(())
 	/// }
 	///```
-	fn get<'a>(&'a self, id: usize) -> Result<Box<dyn Slab + 'a>, Error>;
+	fn get<'a>(&'a self, id: usize) -> Result<SlabImpl<'a>, Error>;
 
 	/// Get an mutable reference to a slab that has previously been allocated by the
 	/// [`crate::SlabAllocator`]. On success a [`crate::SlabMut`] is returned. On failure,
@@ -601,7 +605,7 @@ pub trait SlabAllocator {
 	///     Ok(())
 	/// }
 	///```
-	fn get_mut<'a>(&'a mut self, id: usize) -> Result<Box<dyn SlabMut + 'a>, Error>;
+	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMutImpl<'a>, Error>;
 
 	/// Returns the number of free slabs this [`crate::SlabAllocator`] has remaining.
 	fn free_count(&self) -> Result<usize, Error>;

@@ -26,7 +26,6 @@ impl<'a, V> StaticList<'a, V> for StaticListImpl<'a>
 where
 	V: Serializable,
 {
-	type SlabType = SlabImpl<'a>;
 	fn push(&mut self, _value: &V) -> Result<(), Error> {
 		Ok(())
 	}
@@ -39,7 +38,7 @@ where
 	fn pop_front(&mut self) -> Result<Option<V>, Error> {
 		todo!()
 	}
-	fn pop_raw(&mut self) -> Result<Self::SlabType, Error> {
+	fn pop_raw(&mut self) -> Result<SlabImpl, Error> {
 		let slab_impl = SlabImpl {
 			id: 0,
 			data: &self.x[0..10],
