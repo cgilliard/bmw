@@ -1,16 +1,163 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `bmw_util` crate."><meta name="keywords" content="rust, rustlang, rust-lang, bmw_util"><title>bmw_util - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../dark.css" disabled><link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../storage.js"></script><script src="../crates.js"></script><script defer src="../main.js"></script>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="This utility crate provides data structures and other utilities used in bmw. Currently, [`crate::hashtable`] and [`crate::hashset`] data structures are supported. Both use a [`crate::SlabAllocator`] to allocate memory. By default, the data structures use a global shared thread local slab allocator, but if multi-threaded applications are needed, a dedicated thread-safe, slab allocator may be specified. It is important to note that if the default slab allocator is used (i.e. if you just call the [`crate::hashtable`] macro without specifying a slab allocator, the values stored in the data structure will be unique to each thread."><meta name="keywords" content="rust, rustlang, rust-lang, bmw_util"><title>bmw_util - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../dark.css" disabled><link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../storage.js"></script><script src="../crates.js"></script><script defer src="../main.js"></script>
     <noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../favicon.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../bmw_util/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
         </a><h2 class="location"></h2>
     </nav>
     <nav class="sidebar"><a class="sidebar-logo" href="../bmw_util/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
-        </a><h2 class="location"><a href="#">Crate bmw_util</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 0.0.2-beta1</li><li><a id="all-types" href="all.html">All Items</a></li></div></ul><section><div class="block"><ul><li><a href="#macros">Macros</a></li><li><a href="#structs">Structs</a></li><li><a href="#constants">Constants</a></li><li><a href="#traits">Traits</a></li><li><a href="#functions">Functions</a></li></ul></div></section><div id="sidebar-vars" data-name="bmw_util" data-ty="mod" data-relpath=""></div><script defer src="sidebar-items.js"></script></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../bmw_util/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="main-heading">
-    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">bmw_util</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/bmw_util/lib.rs.html#14-27">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><h2 id="macros" class="small-section-header"><a href="#macros">Macros</a></h2>
-<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable.html" title="bmw_util::hashtable macro">hashtable</a></div><div class="item-right docblock-short"></div></div></div><h2 id="structs" class="small-section-header"><a href="#structs">Structs</a></h2>
+        </a><h2 class="location"><a href="#">Crate bmw_util</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 0.0.2-beta1</li><li><a id="all-types" href="all.html">All Items</a></li></div></ul><section><div class="block"><ul><li><a href="#macros">Macros</a></li><li><a href="#structs">Structs</a></li><li><a href="#traits">Traits</a></li><li><a href="#functions">Functions</a></li></ul></div></section><div id="sidebar-vars" data-name="bmw_util" data-ty="mod" data-relpath=""></div><script defer src="sidebar-items.js"></script></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../bmw_util/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="main-heading">
+    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">bmw_util</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/bmw_util/lib.rs.html#14-208">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>This utility crate provides data structures and other utilities used in bmw.
+Currently, <a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a> and <a href="macro.hashset.html" title="crate::hashset"><code>crate::hashset</code></a> data structures
+are supported. Both use a <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> to allocate memory.
+By default, the data structures use a global shared thread local slab allocator, but
+if multi-threaded applications are needed, a dedicated thread-safe,
+slab allocator may be specified. It is important to note that if the
+default slab allocator is used (i.e. if you just call the
+<a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a> macro without specifying a slab allocator, the values
+stored in the data structure will be unique to each thread.</p>
+<h2 id="motivation"><a href="#motivation">Motivation</a></h2>
+<p>The advantage of these implementations is that they do not allocate memory on the
+heap after initialization of the data structure. So, we can create a <a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a>
+or a <a href="macro.hashset.html" title="crate::hashset"><code>crate::hashset</code></a> and do millions of inserts, gets, removes and iterations and
+no heap memory will be allocated or deallocated other than some ephemeral data
+structures used to do serialization. If the ‘raw’ versions of these functions are called,
+no heap allocations are done for serialization either. Note: there are some minor exceptions
+since things like the <a href="trait.Slab.html" title="crate::Slab"><code>crate::Slab</code></a> are returned in a Box which is stored on the heap, but
+those data structures are just pointers so they are small and quickly allocated and deallocated
+and don’t pose any concerns. Dynamic heap allocations that are long-lived can cause
+substantial problems and these data structures are intended to alleviate those problems.
+The <a href="https://doc.rust-lang.org/1.62.1/core/ops/drop/trait.Drop.html" title="core::ops::Drop"><code>core::ops::Drop</code></a> trait is also implemented so all slabs used by the data structure
+are freed upon the data structure going out of scope.</p>
+<h2 id="performance"><a href="#performance">Performance</a></h2>
+<p>These data structures will never be as fast as the native Rust data structures because they
+require serialization and deserialization of the entries on each operation. However, the
+peformance is at least in the ballpark of the standard data structures. A performance tool
+is included in the project in the etc directory
+<a href="https://github.com/37miners/bmw/tree/main/etc/hash_perf">hash_perf</a>.</p>
+<p>Below is the output of some runs on a linux machine. All runs use get_raw/insert_raw on small
+pieces of data.</p>
+<p>First, static hashtable 1000 inserts, and no gets. Performance is fairly close.</p>
+<div class="example-wrap"><pre class="language-text"><code> [2022-08-14 16:44:19.387]: (INFO) Starting tests
+ [2022-08-14 16:44:19.458]: (INFO) Memory used (pre_drop) = 43.116107mb
+ [2022-08-14 16:44:19.458]: (INFO) Memory Allocated (pre_drop) = 66.940703mb
+ [2022-08-14 16:44:19.458]: (INFO) Memory De-allocated (pre_drop) = 23.827242mb
+ [2022-08-14 16:44:19.459]: (INFO) Memory used (post_drop) = 43.011571mb
+ [2022-08-14 16:44:19.459]: (INFO) Memory Allocated (post_drop) = 67.020615mb
+ [2022-08-14 16:44:19.459]: (INFO) Memory De-allocated (post_drop) = 24.011692mb
+ [2022-08-14 16:44:19.459]: (INFO) (StaticHash) Elapsed time = 0.51ms</code></pre></div>
+<p>With rust’s standard hashmap for comparison.</p>
+<div class="example-wrap"><pre class="language-text"><code> [2022-08-14 16:45:38.840]: (INFO) Starting tests
+ [2022-08-14 16:45:38.912]: (INFO) Memory used (pre_drop) = 43.062101mb
+ [2022-08-14 16:45:38.912]: (INFO) Memory Allocated (pre_drop) = 66.858088mb
+ [2022-08-14 16:45:38.912]: (INFO) Memory De-allocated (pre_drop) = 23.798633mb
+ [2022-08-14 16:45:38.912]: (INFO) Memory used (post drop) = 43.010885mb
+ [2022-08-14 16:45:38.912]: (INFO) Memory Allocated (post_drop) = 66.866024mb
+ [2022-08-14 16:45:38.912]: (INFO) Memory De-allocated (post_drop) = 23.857787mb
+ [2022-08-14 16:45:38.912]: (INFO) (HashMap) Elapsed time = 0.33ms</code></pre></div>
+<p>With 100 gets per insert on static hashtable.</p>
+<div class="example-wrap"><pre class="language-text"><code> [2022-08-14 16:47:04.933]: (INFO) Starting tests
+ [2022-08-14 16:47:05.014]: (INFO) Memory used (pre_drop) = 43.116075mb
+ [2022-08-14 16:47:05.014]: (INFO) Memory Allocated (pre_drop) = 71.5672mb
+ [2022-08-14 16:47:05.014]: (INFO) Memory De-allocated (pre_drop) = 28.453781mb
+ [2022-08-14 16:47:05.014]: (INFO) Memory used (post_drop) = 43.011539mb
+ [2022-08-14 16:47:05.014]: (INFO) Memory Allocated (post_drop) = 71.647142mb
+ [2022-08-14 16:47:05.014]: (INFO) Memory De-allocated (post_drop) = 28.638261mb
+ [2022-08-14 16:47:05.014]: (INFO) (StaticHash) Elapsed time = 9.49ms</code></pre></div>
+<p>With rust’s standard hashmap for comparison.</p>
+<div class="example-wrap"><pre class="language-text"><code> [2022-08-14 16:47:16.677]: (INFO) Starting tests
+ [2022-08-14 16:47:16.750]: (INFO) Memory used (pre_drop) = 43.062201mb
+ [2022-08-14 16:47:16.750]: (INFO) Memory Allocated (pre_drop) = 66.858245mb
+ [2022-08-14 16:47:16.750]: (INFO) Memory De-allocated (pre_drop) = 23.79869mb
+ [2022-08-14 16:47:16.750]: (INFO) Memory used (post drop) = 43.010985mb
+ [2022-08-14 16:47:16.750]: (INFO) Memory Allocated (post_drop) = 66.866181mb
+ [2022-08-14 16:47:16.750]: (INFO) Memory De-allocated (post_drop) = 23.857844mb
+ [2022-08-14 16:47:16.750]: (INFO) (HashMap) Elapsed time = 2.06ms</code></pre></div>
+<p>So, as seen, the performance is somewhat comparable and keep in mind, that these operations are
+being done in the sub micro second time frame, so it’s very unlikely that this will ultimately
+impact the performance of the application unless it’s an already very optimized application
+that needs to be very scalable. It’s important to note that the “non-raw” versions of these
+operations are substantially slower, but if performance is needed in parts of the application,
+raw access can be used and when performance doesn’t matter as much the regular/convenient
+serialization functions can be used. Mix and match is possible.</p>
+<h2 id="use-cases"><a href="#use-cases">Use cases</a></h2>
+<p>The main use case for these data structures is in server applications to avoid making dynamic
+heap allocations, but they also offer some other interesting properties. For instance, with
+the standard rust collections, the entries in the hashtable are just references so they must
+stay in scope while they are in the hashtable. With this implementation, that is not required.
+The inserted items can be dropped and they will remain in the hashtable/hashset. Also,
+<a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a> and <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a> both implement the
+<a href="trait.Serializable.html" title="crate::Serializable"><code>crate::Serializable</code></a> trait so they can be sent from one part of an app to another or even
+sent over the network.</p>
+<h2 id="examples"><a href="#examples">Examples</a></h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code> <span class="kw">use</span> <span class="ident">bmw_err</span>::<span class="kw-2">*</span>; <span class="comment">// errors</span>
+ <span class="kw">use</span> <span class="ident">bmw_log</span>::<span class="kw-2">*</span>; <span class="comment">// logging</span>
+ <span class="kw">use</span> <span class="ident">bmw_util::hashtable</span>; <span class="comment">// use hashtable macro</span>
+
+ <span class="macro">info!</span>(); <span class="comment">// log at info level in this example</span>
+
+ <span class="kw">fn</span> <span class="ident">test</span>() -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {
+     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">hash</span> <span class="op">=</span> <span class="macro">hashtable!</span>()<span class="question-mark">?</span>; <span class="comment">// hashtable with default settings</span>
+
+     <span class="ident">hash</span>.<span class="ident">insert</span>(<span class="kw-2">&amp;</span><span class="number">1</span>, <span class="kw-2">&amp;</span><span class="number">2</span>)<span class="question-mark">?</span>; <span class="comment">// insert 1 -&gt; 2 (default is i32)</span>
+     <span class="macro">assert_eq!</span>(<span class="ident">hash</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="number">1</span>)<span class="question-mark">?</span>.<span class="ident">unwrap</span>(), <span class="number">2</span>); <span class="comment">// confirm that 1 is in the table</span>
+     <span class="ident">hash</span>.<span class="ident">remove</span>(<span class="kw-2">&amp;</span><span class="number">1</span>)<span class="question-mark">?</span>; <span class="comment">// remove</span>
+     <span class="macro">assert!</span>(<span class="ident">hash</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="number">1</span>)<span class="question-mark">?</span>.<span class="ident">is_none</span>()); <span class="comment">// confirm that 1 has been removed</span>
+
+     <span class="prelude-val">Ok</span>(())
+ }
+
+ <span class="kw">fn</span> <span class="ident">test_advanced</span>() -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {
+     <span class="comment">// create a hashtable with maximum_entries of 10.</span>
+     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">hash1</span> <span class="op">=</span> <span class="macro">hashtable!</span>(<span class="number">10</span>)<span class="question-mark">?</span>;
+
+     <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> <span class="number">0</span>..<span class="number">10</span> {
+         <span class="kw">let</span> <span class="ident">key</span> <span class="op">=</span> <span class="ident">i</span> <span class="kw">as</span> <span class="ident">u128</span>;
+
+         <span class="comment">// insert with a u128 key and value of String.</span>
+         <span class="comment">// note that anything inserted must implement the [`crate::Serializable`]</span>
+         <span class="comment">// trait.</span>
+         <span class="ident">hash1</span>.<span class="ident">insert</span>(<span class="kw-2">&amp;</span><span class="ident">key</span>, <span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">&quot;something{}&quot;</span>, <span class="ident">i</span>))<span class="question-mark">?</span>;
+     }
+
+     <span class="macro">assert!</span>(<span class="ident">hash1</span>.<span class="ident">insert</span>(<span class="kw-2">&amp;</span><span class="number">100u128</span>, <span class="kw-2">&amp;</span><span class="string">&quot;anything&quot;</span>.<span class="ident">to_string</span>()).<span class="ident">is_err</span>());
+
+     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">count</span> <span class="op">=</span> <span class="number">0</span>;
+     <span class="comment">// The [`std::iter::IntoIterator`] trait is implemented, so iteration</span>
+     <span class="comment">// is simple</span>
+     <span class="kw">for</span> (<span class="ident">k</span>,<span class="ident">v</span>) <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">hash1</span> {
+         <span class="macro">info!</span>(<span class="string">&quot;k={},v={}&quot;</span>, <span class="ident">k</span>, <span class="ident">v</span>)<span class="question-mark">?</span>;
+         <span class="ident">count</span> <span class="op">+</span><span class="op">=</span> <span class="number">1</span>;
+     }
+
+     <span class="macro">assert_eq!</span>(<span class="ident">count</span>, <span class="number">9</span>);
+
+     <span class="comment">// create a hash with a non-default maximum load capacity.</span>
+     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">hash2</span> <span class="op">=</span> <span class="macro">hashtable!</span>(<span class="number">10</span>, <span class="number">0.5</span>)<span class="question-mark">?</span>;
+
+     <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> <span class="number">0</span>..<span class="number">10</span> {
+         <span class="kw">let</span> <span class="ident">key</span> <span class="op">=</span> <span class="ident">i</span> <span class="kw">as</span> <span class="ident">u128</span>;
+
+         <span class="comment">// insert with a u128 key and value of String.</span>
+         <span class="comment">// note that anything inserted must implement the [`crate::Serializable`]</span>
+         <span class="comment">// trait.</span>
+         <span class="ident">hash2</span>.<span class="ident">insert</span>(<span class="kw-2">&amp;</span><span class="ident">key</span>, <span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">&quot;something{}&quot;</span>, <span class="ident">i</span>))<span class="question-mark">?</span>;
+     }
+
+     <span class="comment">// note that hash2 appears to behave the same way as hash1. Both allow</span>
+     <span class="comment">// for 10 entries regardless of the load factor (hash1 has a default load factor of</span>
+     <span class="comment">// 0.75 and hash2 has a load factor configured to 0.5). The difference is that</span>
+     <span class="comment">// when hash2 was instantiated, an entry array of length 20 would be used, whereas</span>
+     <span class="comment">// with hash1, an array of 14 would have been used. Both ensure that exactly max_entries</span>
+     <span class="comment">// items can be inserted. The main considerations for the user is memory consuption and</span>
+     <span class="comment">// performance.</span>
+     <span class="macro">assert!</span>(<span class="ident">hash2</span>.<span class="ident">insert</span>(<span class="kw-2">&amp;</span><span class="number">100u128</span>, <span class="kw-2">&amp;</span><span class="string">&quot;anything&quot;</span>.<span class="ident">to_string</span>()).<span class="ident">is_err</span>());
+
+     <span class="prelude-val">Ok</span>(())
+ }</code></pre></div>
+</div></details><h2 id="macros" class="small-section-header"><a href="#macros">Macros</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashset.html" title="bmw_util::hashset macro">hashset</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable.html" title="bmw_util::hashtable macro">hashtable</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.slab_allocator.html" title="bmw_util::slab_allocator macro">slab_allocator</a></div><div class="item-right docblock-short"></div></div></div><h2 id="structs" class="small-section-header"><a href="#structs">Structs</a></h2>
 <div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.BinReader.html" title="bmw_util::BinReader struct">BinReader</a></div><div class="item-right docblock-short"><p>Utility to read from a binary source</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.BinWriter.html" title="bmw_util::BinWriter struct">BinWriter</a></div><div class="item-right docblock-short"><p>Utility wrapper for an underlying byte Writer. Defines higher level methods
 to write numbers, byte vectors, hashes, etc.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabAllocatorBuilder.html" title="bmw_util::SlabAllocatorBuilder struct">SlabAllocatorBuilder</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabAllocatorConfig.html" title="bmw_util::SlabAllocatorConfig struct">SlabAllocatorConfig</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashsetBuilder.html" title="bmw_util::StaticHashsetBuilder struct">StaticHashsetBuilder</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashsetConfig.html" title="bmw_util::StaticHashsetConfig struct">StaticHashsetConfig</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashtableBuilder.html" title="bmw_util::StaticHashtableBuilder struct">StaticHashtableBuilder</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashtableConfig.html" title="bmw_util::StaticHashtableConfig struct">StaticHashtableConfig</a></div><div class="item-right docblock-short"></div></div></div><h2 id="constants" class="small-section-header"><a href="#constants">Constants</a></h2>
-<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="constant" href="constant.GLOBAL_SLAB_ALLOCATOR.html" title="bmw_util::GLOBAL_SLAB_ALLOCATOR constant">GLOBAL_SLAB_ALLOCATOR</a></div><div class="item-right docblock-short"></div></div></div><h2 id="traits" class="small-section-header"><a href="#traits">Traits</a></h2>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabAllocatorBuilder.html" title="bmw_util::SlabAllocatorBuilder struct">SlabAllocatorBuilder</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabAllocatorConfig.html" title="bmw_util::SlabAllocatorConfig struct">SlabAllocatorConfig</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashsetBuilder.html" title="bmw_util::StaticHashsetBuilder struct">StaticHashsetBuilder</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashsetConfig.html" title="bmw_util::StaticHashsetConfig struct">StaticHashsetConfig</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashtableBuilder.html" title="bmw_util::StaticHashtableBuilder struct">StaticHashtableBuilder</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashtableConfig.html" title="bmw_util::StaticHashtableConfig struct">StaticHashtableConfig</a></div><div class="item-right docblock-short"></div></div></div><h2 id="traits" class="small-section-header"><a href="#traits">Traits</a></h2>
 <div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.RawHashsetIterator.html" title="bmw_util::RawHashsetIterator trait">RawHashsetIterator</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.RawHashtableIterator.html" title="bmw_util::RawHashtableIterator trait">RawHashtableIterator</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Reader.html" title="bmw_util::Reader trait">Reader</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Serializable.html" title="bmw_util::Serializable trait">Serializable</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Slab.html" title="bmw_util::Slab trait">Slab</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.SlabAllocator.html" title="bmw_util::SlabAllocator trait">SlabAllocator</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.SlabMut.html" title="bmw_util::SlabMut trait">SlabMut</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.StaticHashset.html" title="bmw_util::StaticHashset trait">StaticHashset</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.StaticHashtable.html" title="bmw_util::StaticHashtable trait">StaticHashtable</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.StaticQueue.html" title="bmw_util::StaticQueue trait">StaticQueue</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.ThreadPool.html" title="bmw_util::ThreadPool trait">ThreadPool</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Writer.html" title="bmw_util::Writer trait">Writer</a></div><div class="item-right docblock-short"></div></div></div><h2 id="functions" class="small-section-header"><a href="#functions">Functions</a></h2>
 <div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.deserialize.html" title="bmw_util::deserialize fn">deserialize</a></div><div class="item-right docblock-short"><p>Deserializes a Serializable from any std::io::Read implementation.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.serialize.html" title="bmw_util::serialize fn">serialize</a></div><div class="item-right docblock-short"><p>Serializes a Serializable into any std::io::Write implementation.</p>

@@ -4,7 +4,7 @@
     </nav>
     <nav class="sidebar"><a class="sidebar-logo" href="../bmw_log/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
         </a><h2 class="location"><a href="#">Crate bmw_log</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 0.0.2-beta1</li><li><a id="all-types" href="all.html">All Items</a></li></div></ul><section><div class="block"><ul><li><a href="#macros">Macros</a></li><li><a href="#structs">Structs</a></li><li><a href="#enums">Enums</a></li><li><a href="#traits">Traits</a></li></ul></div></section><div id="sidebar-vars" data-name="bmw_log" data-ty="mod" data-relpath=""></div><script defer src="sidebar-items.js"></script></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../bmw_log/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="main-heading">
-    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">bmw_log</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/bmw_log/lib.rs.html#14-49">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Logging crate used by other crates in bmw. The crate has an extensive macro
+    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">bmw_log</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/bmw_log/lib.rs.html#14-69">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Logging crate used by other crates in bmw. The crate has an extensive macro
 library that allows for logging at the standard 6 levels and also
 allows for specifying a log file and various options. All options can
 be seen in the <a href="struct.LogConfig.html" title="crate::LogConfig"><code>crate::LogConfig</code></a> struct. This crate is largely compatible
@@ -18,6 +18,22 @@ configured and for logging without the timestamp respectively. The main adjustme
 accustomed to using the rust log crate would need to make is that this crate returns
 errors so you will have to add error handling which can be as simple as using
 the question mark operator or using the <a href="../bmw_err/macro.map_err.html" title="bmw_err::map_err"><code>bmw_err::map_err</code></a> macro.</p>
+<h2 id="examples"><a href="#examples">Examples</a></h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code> <span class="kw">use</span> <span class="ident">bmw_err</span>::<span class="kw-2">*</span>;
+ <span class="kw">use</span> <span class="ident">bmw_log</span>::<span class="kw-2">*</span>;
+
+ <span class="comment">// set log level for this file. Anthing below this scope will only be</span>
+ <span class="comment">// logged if it is equal to or less than log level &#39;INFO&#39;.</span>
+ <span class="macro">info!</span>();
+
+ <span class="kw">fn</span> <span class="ident">main</span>() -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {
+     <span class="kw">let</span> <span class="ident">abc</span> <span class="op">=</span> <span class="number">123</span>;
+     <span class="macro">info!</span>(<span class="string">&quot;v1={},v2={}&quot;</span>, <span class="ident">abc</span>, <span class="string">&quot;def&quot;</span>)<span class="question-mark">?</span>; <span class="comment">// will show up</span>
+     <span class="macro">debug!</span>(<span class="string">&quot;test&quot;</span>)<span class="question-mark">?</span>; <span class="comment">// will not show up</span>
+
+     <span class="prelude-val">Ok</span>(())
+ }
+</code></pre></div>
 <p>The default output will look something like this:</p>
 <div class="example-wrap"><pre class="language-text"><code>[2022-02-24 13:52:24.123]: (FATAL) [..ibconcord/src/main.rs:116]: fatal
 [2022-02-24 13:52:24.123]: (ERROR) [..ibconcord/src/main.rs:120]: error
