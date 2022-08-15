@@ -368,16 +368,16 @@ where
 	fn peek(&self) -> Result<Option<V>, Error>;
 }
 
-pub trait StaticList<V>
+pub trait StaticList<'a, V>
 where
 	V: Serializable,
 {
+	type SlabType: Slab;
 	fn push(&mut self, value: &V) -> Result<(), Error>;
 	fn pop(&mut self) -> Result<Option<V>, Error>;
 	fn push_front(&mut self, value: V) -> Result<(), Error>;
 	fn pop_front(&mut self) -> Result<Option<V>, Error>;
-	//fn iter(&self) -> Result<Iterator<Item = V> + Sized, Error>;
-	//fn rev_iter(&self) -> Result<Iterator<Item = V> + Sized, Error>;
+	fn pop_raw(&mut self) -> Result<Self::SlabType, Error>;
 }
 
 pub trait Array<V>

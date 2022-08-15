@@ -36,7 +36,7 @@ struct SlabMutImpl<'a> {
 	pub id: usize,
 }
 
-struct SlabImpl<'a> {
+pub(crate) struct SlabImpl<'a> {
 	pub data: &'a [u8],
 	pub id: usize,
 }

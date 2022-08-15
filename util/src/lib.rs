@@ -196,6 +196,7 @@ mod macros;
 mod ser;
 mod slabs;
 mod static_hash;
+mod static_list;
 mod types;
 
 pub use crate::ser::{deserialize, serialize, BinReader, BinWriter};
@@ -204,5 +205,5 @@ pub use crate::static_hash::{StaticHashsetBuilder, StaticHashtableBuilder};
 pub use crate::types::{
 	RawHashsetIterator, RawHashtableIterator, Reader, Serializable, Slab, SlabAllocator,
 	SlabAllocatorConfig, SlabMut, StaticHashset, StaticHashsetConfig, StaticHashtable,
-	StaticHashtableConfig, StaticQueue, ThreadPool, Writer,
+	StaticHashtableConfig, StaticList, StaticQueue, ThreadPool, Writer,
 };
