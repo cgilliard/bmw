@@ -493,10 +493,10 @@ impl LogImpl {
 					#[cfg(not(debug_assertions))]
 					if let Some(name) = symbol.name() {
 						let name = name.to_string();
-						if name.find("bmw_log::LogImpl::log").is_some() {
+						if name.find("as bmw_log::types::Log").is_some() {
 							found_logger = true;
 						}
-						if name.find("bmw_log::LogImpl::log").is_none() && found_logger {
+						if name.find("as bmw_log::types::Log").is_none() && found_logger {
 							let pos = name.rfind(':');
 							let name = match pos {
 								Some(pos) => match pos > 1 {

@@ -57,6 +57,7 @@ static GLOBAL: MonAllocator = MonAllocator;
 fn main() -> Result<(), Error> {
 	log_init!(LogConfig {
 		show_bt: bmw_log::LogConfigOption::ShowBt(false),
+		line_num: bmw_log::LogConfigOption::LineNum(false),
 		..Default::default()
 	})?;
 
@@ -116,8 +117,10 @@ fn main() -> Result<(), Error> {
 					max_load_factor: 1.0,
 					..Default::default()
 				};
-				let slabs = SlabAllocatorBuilder::build_unsafe(sconf)?;
-				let mut sh = StaticHashtableBuilder::build_unsafe::<(), ()>(shconfig, &slabs)?;
+				let mut slabs = SlabAllocatorBuilder::build();
+				slabs.init(sconf)?;
+				let mut sh = StaticHashtableBuilder::build::<(), ()>(shconfig, Some(slabs))?;
+				//let mut sh = StaticHashtableBuilder::build::<(), ()>(shconfig, None)?;
 
 				let mut keys = vec![];
 				let mut values = vec![];
@@ -131,14 +134,14 @@ fn main() -> Result<(), Error> {
 				for i in 0..count {
 					let mut hasher = DefaultHasher::new();
 					keys[i].hash(&mut hasher);
-					let hash = hasher.finish() as u64;
-					sh.insert_raw(&keys[i], hash, &values[i]);
+					let hash = hasher.finish() as usize;
+					sh.insert_raw(&keys[i], hash, &values[i])?;
 					if !no_gets {
 						for _ in 0..get_count {
 							let mut hasher = DefaultHasher::new();
 							keys[i].hash(&mut hasher);
-							let hash = hasher.finish() as u64;
-							sh.get_raw(&keys[i], hash);
+							let hash = hasher.finish() as usize;
+							sh.get_raw(&keys[i], hash)?;
 						}
 					}
 				}
