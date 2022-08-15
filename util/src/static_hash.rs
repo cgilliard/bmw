@@ -1031,6 +1031,12 @@ impl StaticHashImpl {
 			},
 		}
 
+		if k_bytes.len() == 0 {
+			let fmt = "key must not be 0 length";
+			let e = err!(ErrKind::IllegalArgument, fmt);
+			return Err(e);
+		}
+
 		match value_ser {
 			Some(value) => {
 				let mut v = vec![];
@@ -2139,6 +2145,50 @@ mod test {
 
 			assert!(sh.insert(&20, &20).is_err());
 		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_raw1() -> Result<(), Error> {
+		initialize()?;
+		let mut slabs1 = SlabAllocatorBuilder::build();
+		slabs1.init(SlabAllocatorConfig::default())?;
+		let mut sh = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
+
+		let mut hasher = DefaultHasher::new();
+		(b"hi").hash(&mut hasher);
+		let hash = hasher.finish();
+		sh.insert_raw(b"hi", usize!(hash), b"ok")?;
+		{
+			let slab = sh.get_raw(b"hi", usize!(hash))?.unwrap();
+			// key = 104/105 (hi), value = 111/107 (ok)
+			assert_eq!(
+				slab.get()[0..36],
+				[
+					255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+					0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
+				]
+			);
+		}
+
+		let mut count = 0;
+		for x in sh.iter_raw() {
+			info!("x={:?}", x)?;
+			// key = 104/105 (hi), value = 111/107 (ok)
+			assert_eq!(x, (vec![104, 105], vec![111, 107]));
+			count += 1;
+		}
+
+		assert_eq!(count, 1);
+
+		assert!(sh.remove_raw(b"hi", usize!(hash))?);
+		assert!(sh.get_raw(b"hi", usize!(hash))?.is_none());
+
+		assert_eq!(sh.size(), 0);
+		assert!(!sh.remove_raw(b"hi", usize!(hash))?);
+		// protect against 0 length keys
+		assert!(sh.insert(&(), &()).is_err());
 
 		Ok(())
 	}

@@ -104,7 +104,7 @@
 //! ```
 //!
 //! So, as seen, the performance is somewhat comparable and keep in mind, that these operations are
-//! being done in the sub micro second time frame, so it's very unlikely that this will ultimately
+//! being done in the sub millisecond time frame, so it's very unlikely that this will ultimately
 //! impact the performance of the application unless it's an already very optimized application
 //! that needs to be very scalable. It's important to note that the "non-raw" versions of these
 //! operations are substantially slower, but if performance is needed in parts of the application,
