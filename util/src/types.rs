@@ -18,10 +18,23 @@ use std::future::Future;
 
 info!();
 
+/// The configuration struct for a [`StaticHashtable`]. This struct is passed
+/// into the [`crate::StaticHashtableBuilder::build`] function. The [`std::default::Default`]
+/// trait is implemented for this trait.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StaticHashtableConfig {
+	/// The maximum number of entries that can exist in this [`StaticHashtable`].
+	/// The default is 1_000_000. Note that the overhead for this value is 8 bytes
+	/// per entry. The [`crate::StaticHashtableConfig::max_load_factor`] setting will
+	/// also affect how much memory is used by the entry array.
 	pub max_entries: usize,
+	/// The maximum load factor for this [`crate::StaticHashtable`]. This number
+	/// incidicates how full the hashtable can be. This is an array based hashtable
+	/// and it is not possible to resize it after it is instantiated. The default value
+	/// is 0.75.
 	pub max_load_factor: f64,
+	/// A debugging option used to test errors in the get slab function. This must be
+	/// set to false except in testing scenarios.
 	pub debug_get_slab_error: bool,
 }
 
@@ -51,10 +64,22 @@ impl Serializable for StaticHashtableConfig {
 	}
 }
 
+/// The configuration struct for a [`StaticHashset`]. This struct is passed
+/// into the [`crate::StaticHashsetBuilder::build`] function. The [`std::default::Default`]
+/// trait is implemented for this trait.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StaticHashsetConfig {
+	/// The maximum number of entries that can exist in this [`StaticHashset`].
+	/// The default is 1_000_000. Note that the overhead for this value is 8 bytes
+	/// per entry. So, by default 8 mb are allocated with this configuration.
 	pub max_entries: usize,
+	/// The maximum load factor for this [`crate::StaticHashset`]. This number
+	/// incidicates how full the hashset can be. This is an array based hashset
+	/// and it is not possible to resize it after it is instantiated. The default value
+	/// is 0.75.
 	pub max_load_factor: f64,
+	/// A debugging option used to test errors in the get slab function. This must be
+	/// set to false except in testing scenarios.
 	pub debug_get_slab_error: bool,
 }
 
@@ -84,9 +109,92 @@ impl Serializable for StaticHashsetConfig {
 	}
 }
 
+/// An iterator for iterating through raw data in this [`crate::StaticHashtable`].
+/// This is distinct from the iterator that is implemented as [`crate::StaticHashtable`]'s
+/// [`std::iter::IntoIterator`] trait which returns the serialized and not raw data.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::*;
+/// use bmw_util::hashtable;
+///
+/// fn test() -> Result<(), Error> {
+///     // create a hashtable
+///     let mut hashtable = hashtable!()?;
+///     // need to do a empty insert so that the types can be inferred. From here on we use raw
+///     // operations
+///     assert!(hashtable.insert(&(), &()).is_err());
+///     let key = [0u8, 1u8, 123u8];
+///     let value = [10u8];
+///     let hash = 123usize;
+///     hashtable.insert_raw(&key, hash, &value)?;
+///
+///     let key = [1u8, 1u8, 125u8];
+///     let value = [14u8];
+///     let hash = 125usize;
+///     hashtable.insert_raw(&key, hash, &value)?;
+///
+///     let mut count = 0;
+///     for (k,v) in hashtable.iter_raw() {
+///         if v == [14u8] {
+///             assert_eq!(k, [1u8, 1u8, 125u8]);
+///             count += 1;
+///         } else if v == [10u8] {
+///             assert_eq!(k, [0u8, 1u8, 123u8]);
+///             count += 1;
+///         }
+///     }
+///
+///     assert_eq!(count, 2);
+///
+///     Ok(())
+/// }
+///```
 pub trait RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)>: Iterator {}
+
+/// An iterator for iterating through raw data in this [`crate::StaticHashtable`].
+/// This is distinct from the iterator that is implemented as [`crate::StaticHashtable`]'s
+/// [`std::iter::IntoIterator`] trait which returns the serialized and not raw data.
+/// # Examples
+///
+///```
+/// use bmw_err::*;
+/// use bmw_util::hashset;
+///
+/// fn test() -> Result<(), Error> {
+///     // create a hashset
+///     let mut hashset = hashset!()?;
+///     // need to do a empty insert so that the types can be inferred. From here on we use raw
+///     // operations
+///     assert!(hashset.insert(&()).is_err());
+///     let key = [0u8, 1u8, 123u8];
+///     let hash = 123usize;
+///     hashset.insert_raw(&key, hash)?;
+///     
+///     let key = [1u8, 1u8, 125u8];
+///     let hash = 125usize;
+///     hashset.insert_raw(&key, hash)?;
+///     
+///     let mut count = 0;
+///     for k in hashset.iter_raw() {
+///         if k ==  [1u8, 1u8, 125u8] || k == [0u8, 1u8, 123u8] {
+///             count += 1;
+///         }
+///     }
+///
+///     assert_eq!(count, 2);
+///
+///     Ok(())
+/// }
+///```
 pub trait RawHashsetIterator<Item = Vec<u8>>: Iterator {}
 
+/// Slab Allocator configuration struct. This struct is the input to the
+/// [`crate::SlabAllocator::init`] function. The two parameters are `slab_size`
+/// which is the size of the slabs in bytes allocated by this
+/// [`crate::SlabAllocator`] and `slab_count` which is the number of slabs
+/// that can be allocated by this [`crate::SlabAllocator`].
 #[derive(Debug)]
 pub struct SlabAllocatorConfig {
 	pub slab_size: usize,
@@ -171,6 +279,43 @@ pub trait SlabMut {
 	fn id(&self) -> usize;
 }
 
+/// This trait defines the public interface for the [`crate::SlabAllocator`]. The slab
+/// allocator is used by the other data structures in this crate to avoid dynamic heap
+/// allocations. By itself, the slab allocator is fairly simple. It only allocates and frees
+/// slabs. [`crate::SlabAllocator::get`] and [`crate::SlabAllocator::get_mut`] are also
+/// provided to obtain immutable and mutable references to a slab respectively. They only
+/// contain references to the data and not copies.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::*;
+/// use bmw_util::slab_allocator;
+///
+/// fn main() -> Result<(), Error> {
+///     // build a slab allocator, in this case with defaults
+///     let mut slabs = slab_allocator!()?;
+///
+///     let id = {
+///         // allocate a slab. [`crate::SlabAllocator::allocate`] returns [`crate::SlabMut`]
+///         // which contains a mutable reference to the underlying data in the slab.
+///         let mut slab = slabs.allocate()?;
+///
+///         // get the id for this slab
+///         let id = slab.id();
+///         // get_mut returns a mutable reference to the data in owned by the
+///         // [`crate::SlabAllocator`]
+///         slab.get_mut()[0] = 101;
+///         id
+///     };
+///
+///     // now we can get an immutable reference to this slab
+///     let slab = slabs.get(id)?;
+///     assert_eq!(slab.get()[0], 101);
+///
+///     Ok(())
+/// }
+///```
 pub trait SlabAllocator {
 	fn allocate<'a>(&'a mut self) -> Result<Box<dyn SlabMut + 'a>, Error>;
 	fn free(&mut self, id: usize) -> Result<(), Error>;
