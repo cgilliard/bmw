@@ -247,7 +247,7 @@ where
 
 impl<'a, K> StaticHashsetIter<'a, K>
 where
-	K: Serializable,
+	K: Serializable + Hash,
 {
 	fn do_next(self: &mut StaticHashsetIter<'a, K>) -> Result<Option<K>, Error> {
 		if self.debug_do_next_error {
@@ -304,7 +304,7 @@ where
 
 impl<'a, K, V> StaticHashtableIter<'a, K, V>
 where
-	K: Serializable,
+	K: Serializable + Hash,
 	V: Serializable,
 {
 	fn do_next(self: &mut StaticHashtableIter<'a, K, V>) -> Result<Option<(K, V)>, Error> {
@@ -695,7 +695,7 @@ impl StaticHashImpl {
 
 	fn read_k_ser<K>(&self, slab_id: usize) -> Result<K, Error>
 	where
-		K: Serializable,
+		K: Serializable + Hash,
 	{
 		let (k, _v) = self.read_value(slab_id)?;
 		let mut cursor = Cursor::new(k);
@@ -707,7 +707,7 @@ impl StaticHashImpl {
 
 	fn read_kv_ser<K, V>(&self, slab_id: usize) -> Result<(K, V), Error>
 	where
-		K: Serializable,
+		K: Serializable + Hash,
 		V: Serializable,
 	{
 		let (k, v) = self.read_value(slab_id)?;
@@ -852,7 +852,7 @@ impl StaticHashImpl {
 		key_raw: Option<&[u8]>,
 	) -> Result<Option<Box<dyn Slab + 'a>>, Error>
 	where
-		K: Serializable,
+		K: Serializable + Hash,
 	{
 		// serialize key
 		let mut k = vec![];

@@ -15,6 +15,7 @@ use bmw_err::*;
 use bmw_log::*;
 use std::fmt::Debug;
 use std::future::Future;
+use std::hash::Hash;
 
 info!();
 
@@ -197,18 +198,121 @@ pub trait RawHashsetIterator<Item = Vec<u8>>: Iterator {}
 /// that can be allocated by this [`crate::SlabAllocator`].
 #[derive(Debug)]
 pub struct SlabAllocatorConfig {
+	/// The size, in bytes, of a slab
 	pub slab_size: usize,
+	/// The number of slabs that this slab allocator can allocate
 	pub slab_count: usize,
 }
 
+/// The [`crate::StaticHashtable`] trait defines the public interface to the
+/// static hashtable. The hashtable in this crate uses linear probing to handle
+/// collisions and it cannot be resized after it is intialized. Configuration of the
+/// hashtable is done via the [`crate::StaticHashtableConfig`] struct. The shared
+/// implementation can be instantiated as a [`crate::StaticHashtable`] through the
+/// [`crate::StaticHashtableBuilder::build`] function or as a [`crate::StaticHashset`]
+/// through the [`crate::StaticHashsetBuilder::build`] function. Although there
+/// is a different interface for each, they are very similar and share most of the
+/// implementation code. In most cases, the datastructures in this crate should be
+/// instantiated through the macros, but they can also be instantiated through the
+/// builder structs as well.
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::hashtable;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///     let mut hash = hashtable!()?;
+///
+///     hash.insert(&1, &"abc".to_string())?;
+///     hash.insert(&3, &"def".to_string())?;
+///
+///     for (k,v) in &hash {
+///         info!("k={},v={}", k, v)?;
+///     }
+///
+///     Ok(())
+/// }
+///```
 pub trait StaticHashtable<K, V>
 where
-	K: Serializable,
+	K: Serializable + Hash,
 	V: Serializable,
 {
+	/// This function returns a copy of the underlying [`crate::StaticHashtableConfig`]
+	/// struct.
+	///
+	/// # Examples
+	///```
+	/// use bmw_err::*;
+	/// use bmw_log::*;
+	/// use bmw_util::hashtable;
+	///
+	/// info!();
+	///
+	/// fn main() -> Result<(), Error> {
+	///     let mut hash = hashtable!(1_000, 0.9)?;
+	///
+	///     hash.insert(&1, &"abc".to_string())?;
+	///     let config = hash.config();
+	///     assert_eq!(config.max_entries, 1_000);
+	///     assert_eq!(config.max_load_factor, 0.9);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn config(&self) -> StaticHashtableConfig;
+
+	/// This function inserts the `key` `value` pair specified. Both K/V must implement the
+	/// [`crate::Serializable`] trait and `key` must implement the [`std::hash::Hash`]
+	/// trait. The key and value are both copied into the table. Note that after this point,
+	/// changes the underlying key or value will not be reflected in the stored value. This
+	/// is in contrast to the Rust standard Hashtable which uses references.
+	///
+	/// # Examples
+	///```
+	/// use bmw_err::*;
+	/// use bmw_util::hashtable;
+	///
+	/// fn main() -> Result<(), Error> {
+	///     let mut hash = hashtable!(1_000, 0.9)?;
+	///
+	///     // since Vec implements Serializable, we can insert vec.
+	///     hash.insert(&1, &vec![1u8,2u8,3u8,4u8])?;
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
+
+	/// Get an element in the [`crate::StaticHashtable`]. A copy of the serialized value
+	/// is returned or None if it is not found.
+	///
+	/// # Examples
+	///
+	///```
+	/// use bmw_err::*;
+	/// use bmw_util::hashtable;
+	///
+	/// fn main() -> Result<(), Error> {
+	///     let mut hash = hashtable!(1_000, 0.9)?;
+	///
+	///     // since Vec implements Serializable, we can insert a Vec.
+	///     hash.insert(&1, &vec![1u8,2u8,3u8,4u8])?;
+	///     let v = hash.get(&1)?;
+	///     assert_eq!(v.unwrap(), vec![1u8,2u8,3u8,4u8]);
+	///     assert!(hash.get(&2)?.is_none());
+	///
+	///     Ok(())
+	/// }
+	///```
+	///
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
+
+	/// Remove an element from the [`crate::StaticHashtable`].
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<Box<dyn Slab + 'b>>, Error>;
 	fn get_raw_mut<'b>(
@@ -226,9 +330,10 @@ where
 	fn get_array(&self) -> &Vec<usize>;
 	fn clear(&mut self) -> Result<(), Error>;
 }
+
 pub trait StaticHashset<K>
 where
-	K: Serializable,
+	K: Serializable + Hash,
 {
 	fn config(&self) -> StaticHashsetConfig;
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
@@ -251,6 +356,7 @@ where
 {
 	fn enqueue(&mut self, value: &V) -> Result<(), Error>;
 	fn dequeue(&mut self) -> Result<Option<&V>, Error>;
+	fn peek(&self) -> Result<Option<&V>, Error>;
 }
 
 pub trait StaticStack<V>
@@ -258,9 +364,29 @@ where
 	V: Serializable,
 {
 	fn push(&mut self, value: &V) -> Result<(), Error>;
-	fn pop(&mut self) -> Result<Option<&V>, Error>;
-	fn peek(&self) -> Result<Option<&V>, Error>;
+	fn pop(&mut self) -> Result<Option<V>, Error>;
+	fn peek(&self) -> Result<Option<V>, Error>;
 }
+
+pub trait StaticList<V>
+where
+	V: Serializable,
+{
+	fn push(&mut self, value: &V) -> Result<(), Error>;
+	fn pop(&mut self) -> Result<Option<V>, Error>;
+	fn push_front(&mut self, value: V) -> Result<(), Error>;
+	fn pop_front(&mut self) -> Result<Option<V>, Error>;
+	//fn iter(&self) -> Result<Iterator<Item = V> + Sized, Error>;
+	//fn rev_iter(&self) -> Result<Iterator<Item = V> + Sized, Error>;
+}
+
+pub trait Array<V>
+where
+	V: Serializable,
+{
+}
+
+pub trait BitVec {}
 
 pub trait ThreadPool {
 	fn execute<F>(&self, f: F) -> Result<(), Error>
@@ -268,18 +394,31 @@ pub trait ThreadPool {
 		F: Future<Output = Result<(), Error>> + Send + Sync + 'static;
 }
 
+/// The public interface to a Slab stored by the [`crate::SlabAllocator`].
+/// [`crate::Slab`] is an immutable reference and [`crate::SlabMut`] is a mutable
+/// reference.
 pub trait Slab {
+	/// Get an immutable reference to the underlying data in this slab.
 	fn get(&self) -> &[u8];
+	/// A unique id for this [`crate::Slab`]. This id can be used to lookup
+	/// the slab later.
 	fn id(&self) -> usize;
 }
 
+/// The public interface to a Slab stored by the [`crate::SlabAllocator`].
+/// [`crate::Slab`] is an immutable reference and [`crate::SlabMut`] is a mutable
+/// reference.
 pub trait SlabMut {
+	/// Get an immutable reference to the underlying data in this slab.
 	fn get(&self) -> &[u8];
+	/// Get a mutable reference to the underlying data in this slab.
 	fn get_mut(&mut self) -> &mut [u8];
+	/// A unique id for this [`crate::Slab`]. This id can be used to lookup
+	/// the slab later.
 	fn id(&self) -> usize;
 }
 
-/// This trait defines the public interface for the [`crate::SlabAllocator`]. The slab
+/// This trait defines the public interface to the [`crate::SlabAllocator`]. The slab
 /// allocator is used by the other data structures in this crate to avoid dynamic heap
 /// allocations. By itself, the slab allocator is fairly simple. It only allocates and frees
 /// slabs. [`crate::SlabAllocator::get`] and [`crate::SlabAllocator::get_mut`] are also
@@ -317,12 +456,161 @@ pub trait SlabMut {
 /// }
 ///```
 pub trait SlabAllocator {
+	/// Allocate a slab and return a [`crate::SlabMut`] on success.
+	/// On failure, return an [`bmw_err::Error`].
+	///
+	/// * [`bmw_err::ErrorKind::IllegalState`] if the [`crate::SlabAllocator::init`]
+	/// function has not been called.
+	///
+	/// * [`bmw_err::ErrorKind::CapacityExceeded`] if the capacity of this
+	/// [`crate::SlabAllocator`] has been exceeded.
 	fn allocate<'a>(&'a mut self) -> Result<Box<dyn SlabMut + 'a>, Error>;
+
+	/// Free a slab that has previously been allocated by this slab allocator.
+	/// `id` is the id of the slab to free. It can be obtained through the
+	/// [`crate::SlabMut::id`] or [`crate::Slab::id`] function. Return a
+	/// [`bmw_err::Error`] on failure.
+	///
+	/// *  [`bmw_err::ErrorKind::ArrayIndexOutOfBounds`] if this slab entry is
+	/// too big for this instance.
+	///
+	/// * [`bmw_err::ErrorKind::IllegalState`] if the [`crate::SlabAllocator::init`]
+	/// function has not been called or this slab was not allocated.
+	///
+	/// # Examples
+	///
+	///```
+	/// use bmw_err::*;
+	/// use bmw_util::slab_allocator;
+	///
+	/// fn main() -> Result<(), Error> {
+	///     // instantiate a slab allocator with a slab count of 1,000.
+	///     let mut slabs = slab_allocator!(1_000, 1_000)?;
+	///
+	///     // assert that there are 1,000 free slabs.
+	///     assert_eq!(slabs.free_count()?, 1_000);
+	///
+	///     let slab_id = {
+	///         // allocate a slab.
+	///         let slab = slabs.allocate()?;
+	///         slab.id()
+	///     };
+	///
+	///     // assert that the free count has decreased by 1.
+	///     assert_eq!(slabs.free_count()?, 999);
+	///
+	///
+	///     // free the slab that was allocated
+	///     slabs.free(slab_id)?;
+	///
+	///     // assert that the free count has returnred to the initial value of 1,000.
+	///     assert_eq!(slabs.free_count()?, 1_000);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn free(&mut self, id: usize) -> Result<(), Error>;
+
+	/// Get an immutable reference to a slab that has previously been allocated by the
+	/// [`crate::SlabAllocator`]. On success a [`crate::Slab`] is returned. On failure,
+	/// a [`bmw_err::Error`] is returned.
+	///
+	/// *  [`bmw_err::ErrorKind::ArrayIndexOutOfBounds`] if this slab entry is
+	/// too big for this instance.
+	///
+	/// * [`bmw_err::ErrorKind::IllegalState`] if the [`crate::SlabAllocator::init`]
+	/// function has not been called or this slab was not allocated.
+	///
+	/// # Examples
+	///
+	///```
+	/// use bmw_err::*;
+	/// use bmw_log::*;
+	/// use bmw_util::slab_allocator;
+	///
+	/// info!();
+	///
+	/// fn main() -> Result<(), Error> {
+	///     // instantiate a slab allocator with a slab count of 1,000.
+	///     let mut slabs = slab_allocator!(1_000, 1_000)?;
+	///
+	///     // assert that there are 1,000 free slabs.
+	///     assert_eq!(slabs.free_count()?, 1_000);
+	///
+	///     let slab_id = {
+	///         // allocate a slab.
+	///         let slab = slabs.allocate()?;
+	///         slab.id()
+	///     };
+	///
+	///     // assert that the free count has decreased by 1.
+	///     assert_eq!(slabs.free_count()?, 999);
+	///
+	///
+	///     // get the slab that was allocated
+	///     let slab = slabs.get(slab_id)?;
+	///
+	///     info!("slab data = {:?}", slab.get())?;
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn get<'a>(&'a self, id: usize) -> Result<Box<dyn Slab + 'a>, Error>;
+
+	/// Get an mutable reference to a slab that has previously been allocated by the
+	/// [`crate::SlabAllocator`]. On success a [`crate::SlabMut`] is returned. On failure,
+	/// a [`bmw_err::Error`] is returned.
+	///
+	/// *  [`bmw_err::ErrorKind::ArrayIndexOutOfBounds`] if this slab entry is
+	/// too big for this instance.
+	///
+	/// * [`bmw_err::ErrorKind::IllegalState`] if the [`crate::SlabAllocator::init`]
+	/// function has not been called or this slab was not allocated.
+	///
+	/// # Examples
+	///
+	///```
+	/// use bmw_err::*;
+	/// use bmw_log::*;
+	/// use bmw_util::slab_allocator;
+	///
+	/// info!();
+	///
+	/// fn main() -> Result<(), Error> {
+	///     // instantiate a slab allocator with a slab count of 1,000.
+	///     let mut slabs = slab_allocator!(1_000, 1_000)?;
+	///
+	///     // assert that there are 1,000 free slabs.
+	///     assert_eq!(slabs.free_count()?, 1_000);
+	///
+	///     let slab_id = {
+	///         // allocate a slab.
+	///         let slab = slabs.allocate()?;
+	///         slab.id()
+	///     };
+	///
+	///     // assert that the free count has decreased by 1.
+	///     assert_eq!(slabs.free_count()?, 999);
+	///
+	///
+	///     // get the slab that was allocated
+	///     let mut slab = slabs.get_mut(slab_id)?;
+	///
+	///     info!("slab data = {:?}", slab.get_mut())?;
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn get_mut<'a>(&'a mut self, id: usize) -> Result<Box<dyn SlabMut + 'a>, Error>;
+
+	/// Returns the number of free slabs this [`crate::SlabAllocator`] has remaining.
 	fn free_count(&self) -> Result<usize, Error>;
+
+	/// Returns the configured `slab_size` for this [`crate::SlabAllocator`].
 	fn slab_size(&self) -> Result<usize, Error>;
+
+	/// Initializes the [`crate::SlabAllocator`] with the given `config`. See
+	/// [`crate::SlabAllocatorConfig`] for further details.
 	fn init(&mut self, config: SlabAllocatorConfig) -> Result<(), Error>;
 }
 
