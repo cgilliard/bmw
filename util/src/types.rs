@@ -124,6 +124,9 @@ impl Serializable for StaticHashsetConfig {
 ///```
 /// use bmw_err::*;
 /// use bmw_util::hashtable;
+/// use bmw_log::*;
+///
+/// info!();
 ///
 /// fn test() -> Result<(), Error> {
 ///     // create a hashtable
@@ -142,17 +145,12 @@ impl Serializable for StaticHashsetConfig {
 ///     hashtable.insert_raw(&key, hash, &value)?;
 ///
 ///     let mut count = 0;
-///     for (k,v) in hashtable.iter_raw() {
-///         if v == [14u8] {
-///             assert_eq!(k, [1u8, 1u8, 125u8]);
-///             count += 1;
-///         } else if v == [10u8] {
-///             assert_eq!(k, [0u8, 1u8, 123u8]);
-///             count += 1;
-///         }
+///     for slab in hashtable.iter_raw() {
+///         info!("slab={:?}", slab.get())?;
+///         count += 1;
 ///     }
 ///
-///     assert_eq!(count, 2);
+///     assert_eq!(count, 3);
 ///
 ///     Ok(())
 /// }
@@ -167,6 +165,9 @@ impl Serializable for StaticHashsetConfig {
 ///```
 /// use bmw_err::*;
 /// use bmw_util::hashset;
+/// use bmw_log::*;
+///
+/// info!();
 ///
 /// fn test() -> Result<(), Error> {
 ///     // create a hashset
@@ -183,10 +184,9 @@ impl Serializable for StaticHashsetConfig {
 ///     hashset.insert_raw(&key, hash)?;
 ///     
 ///     let mut count = 0;
-///     for k in hashset.iter_raw() {
-///         if k ==  [1u8, 1u8, 125u8] || k == [0u8, 1u8, 123u8] {
-///             count += 1;
-///         }
+///     for slab in hashset.iter_raw() {
+///         info!("slab={:?}", slab.get())?;
+///         count += 1;
 ///     }
 ///
 ///     assert_eq!(count, 2);

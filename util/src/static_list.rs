@@ -48,11 +48,12 @@ where
 }
 
 impl<'a> StaticListImpl<'a> {
-	fn new(x: &'a Vec<u8>) -> Result<Self, Error> {
+	fn _new(x: &'a Vec<u8>) -> Result<Self, Error> {
 		Ok(Self { x })
 	}
 }
 
+/*
 pub struct StaticListBuilder {}
 
 impl<'a> StaticListBuilder {
@@ -63,22 +64,22 @@ impl<'a> StaticListBuilder {
 		Ok(StaticListImpl::new(&v)?)
 	}
 }
+*/
 
 #[cfg(test)]
 mod test {
+	/*
 	use crate::static_list::StaticListBuilder;
 	use crate::types::StaticList;
 	use bmw_err::*;
 
 	#[test]
 	fn test_static_list() -> Result<(), Error> {
-		/*
 		let mut v = vec![];
 		v.resize(100, 0u8);
 		let static_list = StaticListImpl::new(&v)?;
 		static_list.push(&1u8)?;
 		let x = static_list.pop_raw();
-			*/
 		let mut v = vec![];
 		v.resize(100, 0u8);
 		let mut static_list = StaticListBuilder::build(&v)?;
@@ -86,4 +87,5 @@ mod test {
 		let _x = static_list.pop_raw()?;
 		Ok(())
 	}
+		*/
 }

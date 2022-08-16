@@ -11,13 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-	Reader, Serializable, StaticHashset, StaticHashsetBuilder, StaticHashsetConfig,
-	StaticHashtable, StaticHashtableBuilder, StaticHashtableConfig, Writer,
-};
+use crate::{Reader, Serializable, Writer};
 use bmw_err::{err, map_err, try_into, ErrKind, Error};
 use bmw_log::*;
-use std::hash::Hash;
 use std::io::{Read, Write};
 use std::str::from_utf8;
 
@@ -106,62 +102,6 @@ impl Serializable for String {
 	}
 	fn read<R: Reader>(reader: &mut R) -> Result<String, Error> {
 		Ok(from_utf8(&reader.read_bytes_len_prefix()?)?.to_string())
-	}
-}
-
-impl<'a, K, V> Serializable for Box<dyn StaticHashtable<K, V>>
-where
-	K: Serializable + Hash + 'a,
-	V: Serializable + 'a,
-{
-	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
-		let config = StaticHashtableConfig::read(reader)?;
-		let size = reader.read_usize()?;
-		let mut hashtable = StaticHashtableBuilder::build(config, None)?;
-		for _ in 0..size {
-			let k = K::read(reader)?;
-			let v = V::read(reader)?;
-			hashtable.insert(&k, &v)?;
-		}
-
-		Ok(hashtable)
-	}
-	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-		StaticHashtableConfig::write(&self.config(), writer)?;
-		writer.write_usize(self.size())?;
-		for (k, v) in self.iter_raw() {
-			let k: K = deserialize(&mut &k[..])?;
-			let v: V = deserialize(&mut &v[..])?;
-			K::write(&k, writer)?;
-			V::write(&v, writer)?;
-		}
-		Ok(())
-	}
-}
-
-impl<'a, K> Serializable for Box<dyn StaticHashset<K>>
-where
-	K: Serializable + Hash + 'a,
-{
-	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
-		let config = StaticHashsetConfig::read(reader)?;
-		let size = reader.read_usize()?;
-		let mut hashset = StaticHashsetBuilder::build(config, None)?;
-		for _ in 0..size {
-			let k = K::read(reader)?;
-			hashset.insert(&k)?;
-		}
-
-		Ok(hashset)
-	}
-	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-		StaticHashsetConfig::write(&self.config(), writer)?;
-		writer.write_usize(self.size())?;
-		for k in self.iter_raw() {
-			let k: K = deserialize(&mut &k[..])?;
-			K::write(&k, writer)?;
-		}
-		Ok(())
 	}
 }
 

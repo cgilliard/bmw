@@ -15,8 +15,8 @@ use crate::ser::{serialize, BinReader};
 use crate::slabs::Slab;
 use crate::slabs::SlabMut;
 use crate::{
-	Serializable, SlabAllocator, SlabAllocatorConfig, StaticHashset, StaticHashsetConfig,
-	StaticHashtable, StaticHashtableConfig, GLOBAL_SLAB_ALLOCATOR,
+	Reader, Serializable, SlabAllocator, SlabAllocatorConfig, StaticHashset, StaticHashsetConfig,
+	StaticHashtable, StaticHashtableConfig, Writer, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, try_into, ErrKind, Error};
 use bmw_log::*;
@@ -139,7 +139,7 @@ pub struct RawHashsetIterator<'a> {
 }
 
 impl<'a> Iterator for RawHashsetIterator<'a> {
-	type Item = Vec<u8>;
+	type Item = Slab<'a>;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
 		match Self::do_next(self) {
 			Ok(x) => x,
@@ -152,22 +152,21 @@ impl<'a> Iterator for RawHashsetIterator<'a> {
 }
 
 impl<'a> RawHashsetIterator<'a> {
-	fn do_next(self: &mut RawHashsetIterator<'a>) -> Result<Option<Vec<u8>>, Error> {
+	fn do_next(self: &mut RawHashsetIterator<'a>) -> Result<Option<Slab<'a>>, Error> {
 		if self.h.config.debug_do_next_error {
 			return Err(err!(ErrKind::Test, "do_next err"));
 		}
+
 		Ok(if self.cur == usize::MAX {
 			None
 		} else {
 			match self.h.get_slab(self.h.entry_array[self.cur]) {
 				Ok(slab) => {
-					let (k, _v) = self.h.read_value(slab.id())?;
-
 					self.cur = usize::from_be_bytes(try_into!(slab.get()[0..8])?);
-					Some(k)
+					Some(slab)
 				}
 				Err(e) => {
-					error!("get_slab generated error: {}", e)?;
+					error!("get slab generated error: {}", e)?;
 					None
 				}
 			}
@@ -181,7 +180,7 @@ pub struct RawHashtableIterator<'a> {
 }
 
 impl<'a> Iterator for RawHashtableIterator<'a> {
-	type Item = (Vec<u8>, Vec<u8>);
+	type Item = Slab<'a>;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
 		match Self::do_next(self) {
 			Ok(x) => x,
@@ -194,7 +193,7 @@ impl<'a> Iterator for RawHashtableIterator<'a> {
 }
 
 impl<'a> RawHashtableIterator<'a> {
-	fn do_next(self: &mut RawHashtableIterator<'a>) -> Result<Option<(Vec<u8>, Vec<u8>)>, Error> {
+	fn do_next(self: &mut RawHashtableIterator<'a>) -> Result<Option<Slab<'a>>, Error> {
 		if self.h.config.debug_do_next_error {
 			return Err(err!(ErrKind::Test, "do_next err"));
 		}
@@ -204,10 +203,8 @@ impl<'a> RawHashtableIterator<'a> {
 		} else {
 			match self.h.get_slab(self.h.entry_array[self.cur]) {
 				Ok(slab) => {
-					let (k, v) = self.h.read_value(slab.id())?;
-
 					self.cur = usize::from_be_bytes(try_into!(slab.get()[0..8])?);
-					Some((k, v))
+					Some(slab)
 				}
 				Err(e) => {
 					error!("get slab generated error: {}", e)?;
@@ -329,6 +326,61 @@ where
 				}
 			}
 		})
+	}
+}
+
+impl<'a, K, V> Serializable for Box<dyn StaticHashtable<K, V>>
+where
+	K: Serializable + Hash + 'a,
+	V: Serializable + 'a,
+{
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		let config = StaticHashtableConfig::read(reader)?;
+		let size = reader.read_usize()?;
+		let mut hashtable = StaticHashtableBuilder::build(config, None)?;
+		for _ in 0..size {
+			let k = K::read(reader)?;
+			let v = V::read(reader)?;
+			hashtable.insert(&k, &v)?;
+		}
+
+		Ok(hashtable)
+	}
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		StaticHashtableConfig::write(&self.config(), writer)?;
+		writer.write_usize(self.size())?;
+		for slab in self.iter_raw() {
+			let (k, v) = self.read_kv(slab.id())?;
+			K::write(&k, writer)?;
+			V::write(&v, writer)?;
+		}
+		Ok(())
+	}
+}
+
+impl<'a, K> Serializable for Box<dyn StaticHashset<K>>
+where
+	K: Serializable + Hash + 'a,
+{
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		let config = StaticHashsetConfig::read(reader)?;
+		let size = reader.read_usize()?;
+		let mut hashset = StaticHashsetBuilder::build(config, None)?;
+		for _ in 0..size {
+			let k = K::read(reader)?;
+			hashset.insert(&k)?;
+		}
+
+		Ok(hashset)
+	}
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		StaticHashsetConfig::write(&self.config(), writer)?;
+		writer.write_usize(self.size())?;
+		for slab in self.iter_raw() {
+			let k = self.read_k(slab.id())?;
+			K::write(&k, writer)?;
+		}
+		Ok(())
 	}
 }
 
@@ -1741,9 +1793,9 @@ mod test {
 
 		let mut count = 0;
 		for x in sh.iter_raw() {
-			info!("x={:?}", x)?;
+			info!("x={:?}", x.get())?;
 			// key = 104/105 (hi), value = 111/107 (ok)
-			assert_eq!(x, vec![104, 105]);
+			assert_eq!(&x.get()[23..26], &[2, 104, 105]);
 			count += 1;
 		}
 
@@ -1783,9 +1835,9 @@ mod test {
 
 		let mut count = 0;
 		for x in sh.iter_raw() {
-			info!("x={:?}", x)?;
+			info!("x={:?}", x.get())?;
 			// key = 104/105 (hi), value = 111/107 (ok)
-			assert_eq!(x, (vec![104, 105], vec![111, 107]));
+			assert_eq!(&x.get()[23..26], &[2, 104, 105]);
 			count += 1;
 		}
 
@@ -2165,9 +2217,9 @@ mod test {
 
 		let mut count = 0;
 		for x in sh.iter_raw() {
-			info!("x={:?}", x)?;
+			info!("x={:?}", x.get())?;
 			// key = 104/105 (hi), value = 111/107 (ok)
-			assert_eq!(x, (vec![104, 105], vec![111, 107]));
+			assert_eq!(&x.get()[23..26], &[2, 104, 105]);
 			count += 1;
 		}
 
