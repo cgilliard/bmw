@@ -18,7 +18,7 @@
 //! if multi-threaded applications are needed, a dedicated thread-safe,
 //! slab allocator may be specified. It is important to note that if the
 //! default slab allocator is used (i.e. if you just call the
-//! [`crate::hashtable`] macro without specifying a slab allocator, the values
+//! [`crate::hashtable`] macro without specifying a slab allocator), the values
 //! stored in the data structure will be unique to each thread.
 //!
 //! # Motivation
