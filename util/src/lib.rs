@@ -127,24 +127,28 @@
 //!```
 //! use bmw_err::*; // errors
 //! use bmw_log::*; // logging
-//! use bmw_util::hashtable; // use hashtable macro
+//! use bmw_util::{ctx, hashtable}; // use ctx and hashtable macro
 //!
 //! info!(); // log at info level in this example
 //!
 //! fn test() -> Result<(), Error> {
+//!     // create a context for the hashtable
+//!     let ctx = ctx!();
+//!
 //!     let mut hash = hashtable!()?; // hashtable with default settings
 //!
-//!     hash.insert(&1, &2)?; // insert 1 -> 2 (default is i32)
-//!     let mut tmp = vec![]; // tmp buffer
-//!     assert_eq!(hash.get(&1, &mut tmp)?.unwrap(), 2); // confirm that 1 is in the table
-//!     hash.remove(&1)?; // remove
-//!     let mut tmp = vec![]; // tmp buffer
-//!     assert!(hash.get(&1, &mut tmp)?.is_none()); // confirm that 1 has been removed
+//!     hash.insert(ctx, &1, &2)?; // insert 1 -> 2 (default is i32)
+//!     assert_eq!(hash.get(ctx, &1)?.unwrap(), 2); // confirm that 1 is in the table
+//!     hash.remove(ctx, &1)?; // remove
+//!     assert!(hash.get(ctx, &1)?.is_none()); // confirm that 1 has been removed
 //!
 //!     Ok(())
 //! }
 //!
 //! fn test_advanced() -> Result<(), Error> {
+//!     // create a context for the hashtable
+//!     let ctx = ctx!();
+//!
 //!     // create a hashtable with maximum_entries of 10.
 //!     let mut hash1 = hashtable!(10)?;
 //!
@@ -154,10 +158,10 @@
 //!         // insert with a u128 key and value of String.
 //!         // note that anything inserted must implement the [`crate::Serializable`]
 //!         // trait.
-//!         hash1.insert(&key, &format!("something{}", i))?;
+//!         hash1.insert(ctx, &key, &format!("something{}", i))?;
 //!     }
 //!
-//!     assert!(hash1.insert(&100u128, &"anything".to_string()).is_err());
+//!     assert!(hash1.insert(ctx, &100u128, &"anything".to_string()).is_err());
 //!
 //!     let mut count = 0;
 //!     // The [`std::iter::IntoIterator`] trait is implemented, so iteration
@@ -178,7 +182,7 @@
 //!         // insert with a u128 key and value of String.
 //!         // note that anything inserted must implement the [`crate::Serializable`]
 //!         // trait.
-//!         hash2.insert(&key, &format!("something{}", i))?;
+//!         hash2.insert(ctx, &key, &format!("something{}", i))?;
 //!     }
 //!
 //!     // note that hash2 appears to behave the same way as hash1. Both allow
@@ -188,7 +192,7 @@
 //!     // with hash1, an array of 14 would have been used. Both ensure that exactly max_entries
 //!     // items can be inserted. The main considerations for the user is memory consuption and
 //!     // performance.
-//!     assert!(hash2.insert(&100u128, &"anything".to_string()).is_err());
+//!     assert!(hash2.insert(ctx, &100u128, &"anything".to_string()).is_err());
 //!
 //!     Ok(())
 //! }

@@ -147,29 +147,31 @@ impl Serializable for StaticHashsetConfig {
 ///
 ///```
 /// use bmw_err::*;
-/// use bmw_util::hashtable;
+/// use bmw_util::{hashtable, hashtable_set_raw, ctx};
 /// use bmw_log::*;
 ///
 /// info!();
 ///
 /// fn test() -> Result<(), Error> {
+///     // create a context
+///     let ctx = ctx!();
 ///     // create a hashtable
 ///     let mut hashtable = hashtable!()?;
 ///     // need to do a empty insert so that the types can be inferred. From here on we use raw
 ///     // operations
-///     assert!(hashtable.insert(&(), &()).is_err());
+///     hashtable_set_raw!(ctx, hashtable);
 ///     let key = [0u8, 1u8, 123u8];
 ///     let value = [10u8];
 ///     let hash = 123usize;
-///     hashtable.insert_raw(&key, hash, &value)?;
+///     hashtable.insert_raw(ctx, &key, hash, &value)?;
 ///
 ///     let key = [1u8, 1u8, 125u8];
 ///     let value = [14u8];
 ///     let hash = 125usize;
-///     hashtable.insert_raw(&key, hash, &value)?;
+///     hashtable.insert_raw(ctx, &key, hash, &value)?;
 ///
 ///     let mut count = 0;
-///     for slab in hashtable.iter_raw() {
+///     for slab in hashtable.iter_raw(ctx) {
 ///         info!("slab={:?}", slab.get())?;
 ///         count += 1;
 ///     }
@@ -188,27 +190,29 @@ impl Serializable for StaticHashsetConfig {
 ///
 ///```
 /// use bmw_err::*;
-/// use bmw_util::hashset;
+/// use bmw_util::{hashset,ctx};
 /// use bmw_log::*;
 ///
 /// info!();
 ///
 /// fn test() -> Result<(), Error> {
+///     // create a context
+///     let ctx = ctx!();
 ///     // create a hashset
 ///     let mut hashset = hashset!()?;
 ///     // need to do a empty insert so that the types can be inferred. From here on we use raw
 ///     // operations
-///     assert!(hashset.insert(&()).is_err());
+///     assert!(hashset.insert(ctx, &()).is_err());
 ///     let key = [0u8, 1u8, 123u8];
 ///     let hash = 123usize;
-///     hashset.insert_raw(&key, hash)?;
+///     hashset.insert_raw(ctx, &key, hash)?;
 ///     
 ///     let key = [1u8, 1u8, 125u8];
 ///     let hash = 125usize;
-///     hashset.insert_raw(&key, hash)?;
+///     hashset.insert_raw(ctx, &key, hash)?;
 ///     
 ///     let mut count = 0;
-///     for slab in hashset.iter_raw() {
+///     for slab in hashset.iter_raw(ctx) {
 ///         info!("slab={:?}", slab.get())?;
 ///         count += 1;
 ///     }
@@ -249,15 +253,16 @@ pub struct SlabAllocatorConfig {
 ///```
 /// use bmw_err::*;
 /// use bmw_log::*;
-/// use bmw_util::hashtable;
+/// use bmw_util::{ctx, hashtable};
 ///
 /// info!();
 ///
 /// fn main() -> Result<(), Error> {
+///     let ctx = ctx!();
 ///     let mut hash = hashtable!()?;
 ///
-///     hash.insert(&1, &"abc".to_string())?;
-///     hash.insert(&3, &"def".to_string())?;
+///     hash.insert(ctx, &1, &"abc".to_string())?;
+///     hash.insert(ctx, &3, &"def".to_string())?;
 ///
 ///     for (k,v) in &hash {
 ///         info!("k={},v={}", k, v)?;
@@ -278,14 +283,15 @@ where
 	///```
 	/// use bmw_err::*;
 	/// use bmw_log::*;
-	/// use bmw_util::hashtable;
+	/// use bmw_util::{ctx, hashtable};
 	///
 	/// info!();
 	///
 	/// fn main() -> Result<(), Error> {
+	///     let ctx = ctx!();
 	///     let mut hash = hashtable!(1_000, 0.9)?;
 	///
-	///     hash.insert(&1, &"abc".to_string())?;
+	///     hash.insert(ctx, &1, &"abc".to_string())?;
 	///     let config = hash.config();
 	///     assert_eq!(config.max_entries, 1_000);
 	///     assert_eq!(config.max_load_factor, 0.9);
@@ -304,13 +310,14 @@ where
 	/// # Examples
 	///```
 	/// use bmw_err::*;
-	/// use bmw_util::hashtable;
+	/// use bmw_util::{ctx, hashtable};
 	///
 	/// fn main() -> Result<(), Error> {
+	///     let ctx = ctx!();
 	///     let mut hash = hashtable!(1_000, 0.9)?;
 	///
 	///     // since Vec implements Serializable, we can insert vec.
-	///     hash.insert(&1, &vec![1u8,2u8,3u8,4u8])?;
+	///     hash.insert(ctx, &1, &vec![1u8,2u8,3u8,4u8])?;
 	///
 	///     Ok(())
 	/// }
@@ -324,18 +331,17 @@ where
 	///
 	///```
 	/// use bmw_err::*;
-	/// use bmw_util::hashtable;
+	/// use bmw_util::{ctx, hashtable};
 	///
 	/// fn main() -> Result<(), Error> {
+	///     let ctx = ctx!(); // context
 	///     let mut hash = hashtable!(1_000, 0.9)?;
 	///
 	///     // since Vec implements Serializable, we can insert a Vec.
-	///     hash.insert(&1, &vec![1u8,2u8,3u8,4u8])?;
-	///     let mut tmp = vec![]; // tmp buffer
-	///     let v = hash.get(&1, &mut tmp)?;
+	///     hash.insert(ctx, &1, &vec![1u8,2u8,3u8,4u8])?;
+	///     let v = hash.get(ctx, &1)?;
 	///     assert_eq!(v.unwrap(), vec![1u8,2u8,3u8,4u8]);
-	///     tmp.clear();
-	///     assert!(hash.get(&2, &mut tmp)?.is_none());
+	///     assert!(hash.get(ctx, &2)?.is_none());
 	///
 	///     Ok(())
 	/// }
@@ -351,12 +357,6 @@ where
 		key: &[u8],
 		hash: usize,
 	) -> Result<Option<Slab<'b>>, Error>;
-	fn get_raw_mut<'b>(
-		&'b mut self,
-		ctx: &mut Context,
-		key: &[u8],
-		hash: usize,
-	) -> Result<Option<SlabMut<'b>>, Error>;
 	fn insert_raw(
 		&mut self,
 		ctx: &mut Context,

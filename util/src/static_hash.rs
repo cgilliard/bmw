@@ -463,16 +463,7 @@ where
 		context.shrink();
 		ret
 	}
-	fn get_raw_mut<'b>(
-		&'b mut self,
-		context: &mut Context,
-		key: &[u8],
-		hash: usize,
-	) -> Result<Option<SlabMut<'b>>, Error> {
-		let ret = self.get_raw_mut_impl::<K>(key, hash, &mut context.buf1);
-		context.shrink();
-		ret
-	}
+
 	fn insert_raw(
 		&mut self,
 		context: &mut Context,
@@ -494,23 +485,23 @@ where
 		context.shrink();
 		ret
 	}
-	fn iter_raw<'b>(&'b self, context: &mut Context) -> RawHashtableIterator<'b> {
+	fn iter_raw<'b>(&'b self, _context: &mut Context) -> RawHashtableIterator<'b> {
 		let cur = self.first_entry;
 		let h = self;
 		let r = RawHashtableIterator { cur, h };
 		r
 	}
-	fn size(&self, context: &mut Context) -> usize {
+	fn size(&self, _context: &mut Context) -> usize {
 		self.size
 	}
-	fn clear(&mut self, context: &mut Context) -> Result<(), Error> {
+	fn clear(&mut self, _context: &mut Context) -> Result<(), Error> {
 		self.clear_impl()
 	}
-	fn first_entry(&self, context: &mut Context) -> usize {
+	fn first_entry(&self, _context: &mut Context) -> usize {
 		self.first_entry
 	}
 
-	fn slab<'b>(&'b self, context: &mut Context, id: usize) -> Result<Slab<'b>, Error> {
+	fn slab<'b>(&'b self, _context: &mut Context, id: usize) -> Result<Slab<'b>, Error> {
 		self.get_slab(id)
 	}
 
@@ -519,7 +510,7 @@ where
 		context.shrink();
 		ret
 	}
-	fn get_array(&self, context: &mut Context) -> &Vec<usize> {
+	fn get_array(&self, _context: &mut Context) -> &Vec<usize> {
 		&self.entry_array
 	}
 }
@@ -574,23 +565,23 @@ where
 		ret
 	}
 
-	fn iter_raw<'b>(&'b self, context: &mut Context) -> RawHashsetIterator<'b> {
+	fn iter_raw<'b>(&'b self, _context: &mut Context) -> RawHashsetIterator<'b> {
 		let cur = self.first_entry;
 		let h = self;
 		let r = RawHashsetIterator { cur, h };
 		r
 	}
 
-	fn size(&self, context: &mut Context) -> usize {
+	fn size(&self, _context: &mut Context) -> usize {
 		self.size
 	}
-	fn clear(&mut self, context: &mut Context) -> Result<(), Error> {
+	fn clear(&mut self, _context: &mut Context) -> Result<(), Error> {
 		self.clear_impl()
 	}
-	fn first_entry(&self, context: &mut Context) -> usize {
+	fn first_entry(&self, _context: &mut Context) -> usize {
 		self.first_entry
 	}
-	fn slab<'b>(&'b self, context: &mut Context, id: usize) -> Result<Slab<'b>, Error> {
+	fn slab<'b>(&'b self, _context: &mut Context, id: usize) -> Result<Slab<'b>, Error> {
 		self.get_slab(id)
 	}
 	fn read_k(&self, context: &mut Context, slab_id: usize) -> Result<K, Error> {
@@ -598,7 +589,7 @@ where
 		context.shrink();
 		Ok(k)
 	}
-	fn get_array(&self, context: &mut Context) -> &Vec<usize> {
+	fn get_array(&self, _context: &mut Context) -> &Vec<usize> {
 		&self.entry_array
 	}
 }
@@ -753,27 +744,6 @@ impl StaticHashImpl {
 			self.free_tail(cur)?;
 		}
 		Ok(())
-	}
-
-	fn get_raw_mut_impl<'b, K>(
-		&'b mut self,
-		key_raw: &[u8],
-		hash: usize,
-		tmp: &mut Vec<u8>,
-	) -> Result<Option<SlabMut<'b>>, Error>
-	where
-		K: Serializable + Hash,
-	{
-		let slab_id = {
-			let entry = self.find_entry::<K>(None, Some(key_raw), hash, tmp)?;
-			if entry.is_none() {
-				return Ok(None);
-			}
-			let entry = entry.unwrap();
-			let slab = entry.1;
-			slab.id()
-		};
-		Ok(Some(self.get_mut(slab_id)?))
 	}
 
 	fn get_raw_impl<'b, K>(
@@ -1620,21 +1590,15 @@ mod test {
 		(b"hi").hash(&mut hasher);
 		let hash = hasher.finish();
 		sh.insert_raw(ctx, b"hi", usize!(hash), b"ok")?;
-		{
-			let mut slab = sh.get_raw_mut(ctx, b"hi", usize!(hash))?.unwrap();
-			slab.get_mut()[35] = 106;
-		}
-		{
-			assert!(sh.get_raw_mut(ctx, b"hi2", 0).unwrap().is_none());
-		}
+		assert!(sh.get_raw(ctx, b"hi2", 0).unwrap().is_none());
 		{
 			let slab = sh.get_raw(ctx, b"hi", usize!(hash))?.unwrap();
-			// key = 104/105 (hi), value = 111/106 (oj) (updated the k -> j with slab mut
+			// key = 104/105 (hi), value = 111/107 (oj)
 			assert_eq!(
 				slab.get()[0..36],
 				[
 					255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-					0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 106
+					0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
 				]
 			);
 		}

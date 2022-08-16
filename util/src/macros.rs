@@ -37,14 +37,19 @@
 /// # Examples
 ///```
 /// use bmw_err::*;
-/// use bmw_util::{hashtable, init_slab_allocator, SlabAllocatorConfig};
+/// use bmw_util::{ctx, hashtable, init_slab_allocator, SlabAllocatorConfig};
 ///
 /// fn main() -> Result<(), Error> {
+///     // create a context
+///     let ctx = ctx!();
+///
 ///     // initialize the slab allocator for this thread with 25_000 128 byte entries
 ///     init_slab_allocator!(128, 25_000);
+///
 ///     // The hashtable will use this default thread local slab allocator
 ///     let mut hashtable = hashtable!()?;
-///     hashtable.insert(&1, &2)?;
+///
+///     hashtable.insert(ctx, &1, &2)?;
 ///     // ...
 ///
 ///     Ok(())
@@ -94,9 +99,10 @@ macro_rules! init_slab_allocator {
 ///
 ///```
 /// use bmw_err::*;
-/// use bmw_util::{slab_allocator, hashtable};
+/// use bmw_util::{ctx, slab_allocator, hashtable};
 ///
 /// fn main() -> Result<(), Error> {
+///     let ctx = ctx!();
 ///     let slab_allocator1 = slab_allocator!()?;
 ///     let slab_allocator2 = slab_allocator!(8_000)?;
 ///     let slab_allocator3 = slab_allocator!(3_000, 2_048)?;
@@ -104,9 +110,9 @@ macro_rules! init_slab_allocator {
 ///     let mut hashtable2 = hashtable!(5_000, 0.8, slab_allocator2)?;
 ///     let mut hashtable3 = hashtable!(3_000, 0.7, slab_allocator3)?;
 ///
-///     hashtable1.insert(&1, &2)?;
-///     hashtable2.insert(&10, &20)?;
-///     hashtable3.insert(&100, &200)?;
+///     hashtable1.insert(ctx, &1, &2)?;
+///     hashtable2.insert(ctx, &10, &20)?;
+///     hashtable3.insert(ctx, &100, &200)?;
 ///
 ///     // ...
 ///     Ok(())
@@ -171,9 +177,12 @@ macro_rules! slab_allocator {
 /// # Examples
 ///```
 /// use bmw_err::*;
-/// use bmw_util::{hashtable, init_slab_allocator, slab_allocator, SlabAllocatorConfig};
+/// use bmw_util::{ctx, hashtable, init_slab_allocator, slab_allocator, SlabAllocatorConfig};
 ///
 /// fn main() -> Result<(), Error> {
+///     // create a context
+///     let ctx = ctx!();
+///
 ///     // initialize the default global thread local slab allocator for this thread.
 ///     init_slab_allocator!(1_000_000, 64);
 ///
@@ -193,10 +202,10 @@ macro_rules! slab_allocator {
 ///     // max_entries of 20,000, max_load_factor of 0.9 and an owned/dedicated slab allocator
 ///     let mut hashtable4 = hashtable!(20_000, 0.9, slabs)?;
 ///
-///     hashtable1.insert(&1, &100)?;
-///     hashtable2.insert(&2, &100)?;
-///     hashtable3.insert(&3, &100)?;
-///     hashtable4.insert(&4, &100)?;
+///     hashtable1.insert(ctx, &1, &100)?;
+///     hashtable2.insert(ctx, &2, &100)?;
+///     hashtable3.insert(ctx, &3, &100)?;
+///     hashtable4.insert(ctx, &4, &100)?;
 ///     
 ///
 ///     Ok(())
@@ -254,7 +263,7 @@ macro_rules! hashtable {
 /// # Examples
 ///```
 /// use bmw_err::*;
-/// use bmw_util::{hashset, init_slab_allocator, slab_allocator, SlabAllocatorConfig};
+/// use bmw_util::{ctx, hashset, init_slab_allocator, slab_allocator, SlabAllocatorConfig};
 ///
 /// fn main() -> Result<(), Error> {
 ///     // initialize the default global thread local slab allocator for this thread.
@@ -276,10 +285,13 @@ macro_rules! hashtable {
 ///     // max_entries of 20,000, max_load_factor of 0.9 and an owned/dedicated slab allocator
 ///     let mut hashset4 = hashset!(20_000, 0.9, slabs)?;
 ///
-///     hashset1.insert(&1)?;
-///     hashset2.insert(&2)?;
-///     hashset3.insert(&3)?;
-///     hashset4.insert(&4)?;
+///     // get a context
+///     let ctx = ctx!();
+///
+///     hashset1.insert(ctx, &1)?;
+///     hashset2.insert(ctx, &2)?;
+///     hashset3.insert(ctx, &3)?;
+///     hashset4.insert(ctx, &4)?;
 ///     
 ///
 ///     Ok(())
@@ -319,6 +331,13 @@ macro_rules! hashset {
 macro_rules! ctx {
 	() => {{
 		&mut bmw_util::Context::new()
+	}};
+}
+
+#[macro_export]
+macro_rules! hashtable_set_raw {
+	($ctx:expr, $hashtable:expr) => {{
+		let _ = $hashtable.insert($ctx, &(), &());
 	}};
 }
 
