@@ -11,8 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::SlabAllocatorConfig;
-use crate::{Slab, SlabAllocator, SlabMut};
+use crate::{SlabAllocator, SlabAllocatorConfig};
 use bmw_err::{err, try_into, ErrKind, Error};
 use bmw_log::*;
 use std::cell::UnsafeCell;
@@ -29,16 +28,24 @@ thread_local! {
 				SlabAllocatorBuilder::build_unsafe();
 }
 
+/// Builder struct used to build slab allocators. The build functions are generally called
+/// through the [`crate::slab_allocator`] macro to create instances of [`crate::SlabAllocator`]
+/// or through the [`crate::init_slab_allocator`] to configure the global thread local
+/// [`crate::SlabAllocator`].
 pub struct SlabAllocatorBuilder {}
 
-struct SlabMutImpl<'a> {
-	pub data: &'a mut [u8],
-	pub id: usize,
+/// Struct that is used as a mutable refernce to data in a slab. See [`crate::SlabAllocator`] for
+/// further details.
+pub struct SlabMut<'a> {
+	pub(crate) data: &'a mut [u8],
+	pub(crate) id: usize,
 }
 
-struct SlabImpl<'a> {
-	pub data: &'a [u8],
-	pub id: usize,
+/// Struct that is used as a immutable refernce to data in a slab. See [`crate::SlabAllocator`] for
+/// further details.
+pub struct Slab<'a> {
+	pub(crate) data: &'a [u8],
+	pub(crate) id: usize,
 }
 
 struct SlabAllocatorImpl {
@@ -57,29 +64,39 @@ impl Default for SlabAllocatorConfig {
 	}
 }
 
-impl<'a> SlabMut for SlabMutImpl<'a> {
-	fn get(&self) -> &[u8] {
+impl<'a> SlabMut<'a> {
+	/// get an immutable refernce to the data held in this slab.
+	pub fn get(&self) -> &[u8] {
 		&self.data
 	}
-	fn get_mut(&mut self) -> &mut [u8] {
+
+	/// get a mutable reference to the data held in this slab.
+	pub fn get_mut(&mut self) -> &mut [u8] {
 		&mut self.data
 	}
-	fn id(&self) -> usize {
+
+	/// get the id of this slab. Each slab has in an instance of [`crate::SlabAllocator`]
+	/// has a unique id.
+	pub fn id(&self) -> usize {
 		self.id
 	}
 }
 
-impl<'a> Slab for SlabImpl<'a> {
-	fn get(&self) -> &[u8] {
+impl<'a> Slab<'a> {
+	/// get a mutable reference to the data held in this slab.
+	pub fn get(&self) -> &[u8] {
 		&self.data
 	}
-	fn id(&self) -> usize {
+
+	/// get the id of this slab. Each slab in an instance of [`crate::SlabAllocator`]
+	/// has a unique id.
+	pub fn id(&self) -> usize {
 		self.id
 	}
 }
 
 impl SlabAllocator for SlabAllocatorImpl {
-	fn allocate<'a>(&'a mut self) -> Result<Box<dyn SlabMut + 'a>, Error> {
+	fn allocate<'a>(&'a mut self) -> Result<SlabMut<'a>, Error> {
 		if self.config.is_none() {
 			return Err(err!(ErrKind::IllegalState, "not initialied"));
 		}
@@ -100,7 +117,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		let data = &mut self.data[offset..offset + config.slab_size as usize];
 		self.free_count = self.free_count.saturating_sub(1);
 
-		Ok(Box::new(SlabMutImpl { data, id }))
+		Ok(SlabMut { data, id })
 	}
 	fn free(&mut self, id: usize) -> Result<(), Error> {
 		match &self.config {
@@ -131,7 +148,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			)),
 		}
 	}
-	fn get<'a>(&'a self, id: usize) -> Result<Box<dyn Slab + 'a>, Error> {
+	fn get<'a>(&'a self, id: usize) -> Result<Slab<'a>, Error> {
 		if self.config.is_none() {
 			return Err(err!(ErrKind::IllegalState, "not initialied"));
 		}
@@ -143,9 +160,9 @@ impl SlabAllocator for SlabAllocatorImpl {
 		debug!("get:self.config={:?},id={}", config, id)?;
 		let offset = 8 + ((8 + config.slab_size) * id);
 		let data = &self.data[offset..offset + config.slab_size];
-		Ok(Box::new(SlabImpl { data, id }))
+		Ok(Slab { data, id })
 	}
-	fn get_mut<'a>(&'a mut self, id: usize) -> Result<Box<dyn SlabMut + 'a>, Error> {
+	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMut<'a>, Error> {
 		if self.config.is_none() {
 			return Err(err!(ErrKind::IllegalState, "not initialied"));
 		}
@@ -157,7 +174,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		debug!("get_mut:self.config={:?},id={}", config, id)?;
 		let offset = 8 + ((8 + config.slab_size) * id);
 		let data = &mut self.data[offset..offset + config.slab_size as usize];
-		Ok(Box::new(SlabMutImpl { data, id }))
+		Ok(SlabMut { data, id })
 	}
 
 	fn free_count(&self) -> Result<usize, Error> {
@@ -241,10 +258,17 @@ impl SlabAllocatorImpl {
 }
 
 impl SlabAllocatorBuilder {
+	/// Build a slab allocator on the heap in an [`std::cell::UnsafeCell`].
+	/// This function is used by the global thread local slab allocator to allocate
+	/// thread local slab allocators. Note that it calls unsafe functions. This
+	/// function should generally be called through the [`crate::init_slab_allocator`]
+	/// macro.
 	pub fn build_unsafe() -> UnsafeCell<Box<dyn SlabAllocator>> {
 		UnsafeCell::new(Box::new(SlabAllocatorImpl::new()))
 	}
 
+	/// Build a slab allocator on the heap. This function is used by [`crate::slab_allocator`]
+	/// to create slab allocators for use with the other macros.
 	pub fn build() -> Box<dyn SlabAllocator + Send + Sync> {
 		Box::new(SlabAllocatorImpl::new())
 	}
@@ -252,6 +276,7 @@ impl SlabAllocatorBuilder {
 
 #[cfg(test)]
 mod test {
+	use crate::slabs::SlabMut;
 	use crate::types::SlabAllocatorConfig;
 	use crate::SlabAllocatorBuilder;
 	use bmw_err::Error;
@@ -294,11 +319,9 @@ mod test {
 				Ok(())
 			}
 		})?;
-		let slab = crate::slabs::GLOBAL_SLAB_ALLOCATOR.with(
-			|f| -> Result<Box<dyn crate::SlabMut>, Error> {
-				Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
-			},
-		)?;
+		let slab = crate::slabs::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut<'_>, Error> {
+			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
+		})?;
 		info!("slab={:?}", slab.get())?;
 		Ok(())
 	}

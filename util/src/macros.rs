@@ -37,14 +37,19 @@
 /// # Examples
 ///```
 /// use bmw_err::*;
-/// use bmw_util::{hashtable, init_slab_allocator, SlabAllocatorConfig};
+/// use bmw_util::{ctx, hashtable, init_slab_allocator, SlabAllocatorConfig};
 ///
 /// fn main() -> Result<(), Error> {
+///     // create a context
+///     let ctx = ctx!();
+///
 ///     // initialize the slab allocator for this thread with 25_000 128 byte entries
 ///     init_slab_allocator!(128, 25_000);
+///
 ///     // The hashtable will use this default thread local slab allocator
 ///     let mut hashtable = hashtable!()?;
-///     hashtable.insert(&1, &2)?;
+///
+///     hashtable.insert(ctx, &1, &2)?;
 ///     // ...
 ///
 ///     Ok(())
@@ -94,9 +99,10 @@ macro_rules! init_slab_allocator {
 ///
 ///```
 /// use bmw_err::*;
-/// use bmw_util::{slab_allocator, hashtable};
+/// use bmw_util::{ctx, slab_allocator, hashtable};
 ///
 /// fn main() -> Result<(), Error> {
+///     let ctx = ctx!();
 ///     let slab_allocator1 = slab_allocator!()?;
 ///     let slab_allocator2 = slab_allocator!(8_000)?;
 ///     let slab_allocator3 = slab_allocator!(3_000, 2_048)?;
@@ -104,9 +110,9 @@ macro_rules! init_slab_allocator {
 ///     let mut hashtable2 = hashtable!(5_000, 0.8, slab_allocator2)?;
 ///     let mut hashtable3 = hashtable!(3_000, 0.7, slab_allocator3)?;
 ///
-///     hashtable1.insert(&1, &2)?;
-///     hashtable2.insert(&10, &20)?;
-///     hashtable3.insert(&100, &200)?;
+///     hashtable1.insert(ctx, &1, &2)?;
+///     hashtable2.insert(ctx, &10, &20)?;
+///     hashtable3.insert(ctx, &100, &200)?;
 ///
 ///     // ...
 ///     Ok(())
@@ -121,7 +127,10 @@ macro_rules! slab_allocator {
 		let mut slabs = bmw_util::SlabAllocatorBuilder::build();
 		match slabs.init(bmw_util::SlabAllocatorConfig::default()) {
 			Ok(_) => Ok(slabs),
-			Err(e) => Err(err!(ErrKind::Configuration, format!("{}", e))),
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Configuration,
+				format!("{}", e)
+			)),
 		}
 	}};
 	($slab_count:expr) => {{
@@ -132,7 +141,10 @@ macro_rules! slab_allocator {
 		let mut slabs = bmw_util::SlabAllocatorBuilder::build();
 		match slabs.init(config) {
 			Ok(_) => Ok(slabs),
-			Err(e) => Err(err!(ErrKind::Configuration, format!("{}", e))),
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Configuration,
+				format!("{}", e)
+			)),
 		}
 	}};
 	($slab_count:expr, $slab_size:expr) => {{
@@ -144,7 +156,10 @@ macro_rules! slab_allocator {
 		let mut slabs = bmw_util::SlabAllocatorBuilder::build();
 		match slabs.init(config) {
 			Ok(_) => Ok(slabs),
-			Err(e) => Err(err!(ErrKind::Configuration, format!("{}", e))),
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Configuration,
+				format!("{}", e)
+			)),
 		}
 	}};
 }
@@ -171,9 +186,12 @@ macro_rules! slab_allocator {
 /// # Examples
 ///```
 /// use bmw_err::*;
-/// use bmw_util::{hashtable, init_slab_allocator, slab_allocator, SlabAllocatorConfig};
+/// use bmw_util::{ctx, hashtable, init_slab_allocator, slab_allocator, SlabAllocatorConfig};
 ///
 /// fn main() -> Result<(), Error> {
+///     // create a context
+///     let ctx = ctx!();
+///
 ///     // initialize the default global thread local slab allocator for this thread.
 ///     init_slab_allocator!(1_000_000, 64);
 ///
@@ -193,10 +211,10 @@ macro_rules! slab_allocator {
 ///     // max_entries of 20,000, max_load_factor of 0.9 and an owned/dedicated slab allocator
 ///     let mut hashtable4 = hashtable!(20_000, 0.9, slabs)?;
 ///
-///     hashtable1.insert(&1, &100)?;
-///     hashtable2.insert(&2, &100)?;
-///     hashtable3.insert(&3, &100)?;
-///     hashtable4.insert(&4, &100)?;
+///     hashtable1.insert(ctx, &1, &100)?;
+///     hashtable2.insert(ctx, &2, &100)?;
+///     hashtable3.insert(ctx, &3, &100)?;
+///     hashtable4.insert(ctx, &4, &100)?;
 ///     
 ///
 ///     Ok(())
@@ -254,7 +272,7 @@ macro_rules! hashtable {
 /// # Examples
 ///```
 /// use bmw_err::*;
-/// use bmw_util::{hashset, init_slab_allocator, slab_allocator, SlabAllocatorConfig};
+/// use bmw_util::{ctx, hashset, init_slab_allocator, slab_allocator, SlabAllocatorConfig};
 ///
 /// fn main() -> Result<(), Error> {
 ///     // initialize the default global thread local slab allocator for this thread.
@@ -276,10 +294,13 @@ macro_rules! hashtable {
 ///     // max_entries of 20,000, max_load_factor of 0.9 and an owned/dedicated slab allocator
 ///     let mut hashset4 = hashset!(20_000, 0.9, slabs)?;
 ///
-///     hashset1.insert(&1)?;
-///     hashset2.insert(&2)?;
-///     hashset3.insert(&3)?;
-///     hashset4.insert(&4)?;
+///     // get a context
+///     let ctx = ctx!();
+///
+///     hashset1.insert(ctx, &1)?;
+///     hashset2.insert(ctx, &2)?;
+///     hashset3.insert(ctx, &3)?;
+///     hashset4.insert(ctx, &4)?;
 ///     
 ///
 ///     Ok(())
@@ -315,6 +336,102 @@ macro_rules! hashset {
 	}};
 }
 
+/// Macro to create a context which is used by the data structures.
+///
+/// # Examples
+///```
+///    use bmw_err::Error;
+///    use bmw_util::{ctx, hashtable};
+///
+///    fn test() -> Result<(), Error> {
+///        let ctx = ctx!();
+///        let mut h = hashtable!()?;
+///        h.insert(ctx, &1, &2)?;
+///        let v = h.get(ctx, &1)?;
+///        assert_eq!(v, Some(2));
+///
+///        Ok(())
+///    }
+///```
+#[macro_export]
+macro_rules! ctx {
+	() => {{
+		&mut bmw_util::Context::new()
+	}};
+}
+
+/// This macro is used to put a hashtable into 'raw' mode. After this
+/// function is called, only the 'raw' functions (i.e. [`crate::StaticHashtable::insert_raw`],
+/// [`crate::StaticHashtable::get_raw`], [`crate::StaticHashtable::remove_raw`] and
+/// [`crate::StaticHashtable::iter_raw`]) will return useful values.
+///
+/// # Examples
+///
+///```
+///    use bmw_err::Error;
+///    use bmw_util::{ctx, hashtable, hashtable_set_raw};
+///    use std::collections::hash_map::DefaultHasher;
+///    use std::hash::{Hash, Hasher};
+///    use bmw_log::*;
+///
+///    info!();
+///
+///    fn test() -> Result<(), Error> {
+///        let ctx = ctx!();
+///        let mut h = hashtable!()?;
+///        hashtable_set_raw!(ctx, h);
+///
+///        let mut hasher = DefaultHasher::new();
+///        (b"test").hash(&mut hasher);
+///        let hash = hasher.finish();
+///        h.insert_raw(ctx, b"test", usize!(hash), b"123")?;
+///
+///        Ok(())
+///    }
+///```
+#[macro_export]
+macro_rules! hashtable_set_raw {
+	($ctx:expr, $hashtable:expr) => {{
+		let _ = $hashtable.insert($ctx, &(), &());
+	}};
+}
+
+/// This macro is used to put a hashset into 'raw' mode. After this
+/// function is called, only the 'raw' functions (i.e. [`crate::StaticHashset::insert_raw`],
+/// [`crate::StaticHashset::contains_raw`], [`crate::StaticHashset::remove_raw`] and
+/// [`crate::StaticHashset::iter_raw`]) will return useful values.
+///
+/// # Examples
+///
+///```
+///    use bmw_err::Error;
+///    use bmw_util::{ctx, hashset, hashset_set_raw};
+///    use std::collections::hash_map::DefaultHasher;
+///    use std::hash::{Hash, Hasher};
+///    use bmw_log::*;
+///
+///    info!();
+///
+///    fn test() -> Result<(), Error> {
+///        let ctx = ctx!();
+///        let mut h = hashset!()?;
+///        hashset_set_raw!(ctx, h);
+///
+///        let mut hasher = DefaultHasher::new();
+///        (b"test").hash(&mut hasher);
+///        let hash = hasher.finish();
+///        h.insert_raw(ctx, b"test", usize!(hash))?;
+///
+///        Ok(())
+///    }
+///```
+#[macro_export]
+macro_rules! hashset_set_raw {
+	($ctx:expr, $hashset:expr) => {{
+		let _ = $hashset.insert($ctx, &());
+	}};
+}
+
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
@@ -325,56 +442,58 @@ mod test {
 
 	#[test]
 	fn test_hashtable_macro() -> Result<(), Error> {
+		let ctx = ctx!();
 		let mut hash = hashtable!()?;
-		hash.insert(&1, &2)?;
-		assert_eq!(hash.get(&1)?.unwrap(), 2);
+		hash.insert(ctx, &1, &2)?;
+		assert_eq!(hash.get(ctx, &1)?.unwrap(), 2);
 
 		let mut hash = hashtable!(10)?;
 		for i in 0..10 {
-			hash.insert(&i, &100)?;
+			hash.insert(ctx, &i, &100)?;
 		}
-		assert!(hash.insert(&100, &100).is_err());
+		assert!(hash.insert(ctx, &100, &100).is_err());
 
 		let mut hash = hashtable!(10, 0.85)?;
 		for i in 0..10 {
-			hash.insert(&i, &100)?;
+			hash.insert(ctx, &i, &100)?;
 		}
-		assert!(hash.insert(&100, &100).is_err());
+		assert!(hash.insert(ctx, &100, &100).is_err());
 
 		let slabs = slab_allocator!(10)?;
 		let mut hash = hashtable!(100, 0.85, slabs)?;
 		for i in 0..10 {
-			hash.insert(&i, &100)?;
+			hash.insert(ctx, &i, &100)?;
 		}
-		assert!(hash.insert(&100, &100).is_err());
+		assert!(hash.insert(ctx, &100, &100).is_err());
 
 		Ok(())
 	}
 
 	#[test]
 	fn test_hashset_macro() -> Result<(), Error> {
+		let ctx = ctx!();
 		let mut hash = hashset!()?;
-		hash.insert(&1)?;
-		assert!(hash.contains(&1)?);
+		hash.insert(ctx, &1)?;
+		assert!(hash.contains(ctx, &1)?);
 
 		let mut hash = hashset!(10)?;
 		for i in 0..10 {
-			hash.insert(&i)?;
+			hash.insert(ctx, &i)?;
 		}
-		assert!(hash.insert(&100).is_err());
+		assert!(hash.insert(ctx, &100).is_err());
 
 		let mut hash = hashset!(10, 0.85)?;
 		for i in 0..10 {
-			hash.insert(&i)?;
+			hash.insert(ctx, &i)?;
 		}
-		assert!(hash.insert(&100).is_err());
+		assert!(hash.insert(ctx, &100).is_err());
 
 		let slabs = slab_allocator!(10)?;
 		let mut hash = hashset!(100, 0.85, slabs)?;
 		for i in 0..10 {
-			hash.insert(&i)?;
+			hash.insert(ctx, &i)?;
 		}
-		assert!(hash.insert(&100).is_err());
+		assert!(hash.insert(ctx, &100).is_err());
 
 		Ok(())
 	}
