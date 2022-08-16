@@ -200,7 +200,7 @@ mod static_list;
 mod types;
 
 pub use crate::ser::{deserialize, serialize, BinReader, BinWriter};
-pub use crate::slabs::{SlabAllocatorBuilder, GLOBAL_SLAB_ALLOCATOR};
+pub use crate::slabs::{Slab, SlabAllocatorBuilder, SlabMut, GLOBAL_SLAB_ALLOCATOR};
 pub use crate::static_hash::{StaticHashsetBuilder, StaticHashtableBuilder};
 pub use crate::types::{
 	Reader, Serializable, SlabAllocator, SlabAllocatorConfig, StaticHashset, StaticHashsetConfig,
