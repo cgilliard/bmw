@@ -350,7 +350,7 @@ where
 	fn get(&self, ctx: &mut Context, key: &K) -> Result<Option<V>, Error>;
 
 	/// Remove an element from the [`crate::StaticHashtable`].
-	fn remove(&mut self, ctx: &mut Context, key: &K) -> Result<bool, Error>;
+	fn remove(&mut self, ctx: &mut Context, key: &K) -> Result<Option<V>, Error>;
 	fn get_raw<'b>(
 		&'b self,
 		ctx: &mut Context,

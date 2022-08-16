@@ -448,8 +448,8 @@ where
 		context.shrink();
 		ret
 	}
-	fn remove(&mut self, context: &mut Context, key: &K) -> Result<bool, Error> {
-		let ret = self.remove_impl(Some(key), None, 0, &mut context.buf1);
+	fn remove(&mut self, context: &mut Context, key: &K) -> Result<Option<V>, Error> {
+		let ret = self.remove_impl(Some(key), None, 0, context);
 		context.shrink();
 		ret
 	}
@@ -481,9 +481,9 @@ where
 		key: &[u8],
 		hash: usize,
 	) -> Result<bool, Error> {
-		let ret = self.remove_impl::<K>(None, Some(key), hash, &mut context.buf1);
+		let ret = self.remove_impl::<K, V>(None, Some(key), hash, context)?;
 		context.shrink();
-		ret
+		Ok(ret.is_some())
 	}
 	fn iter_raw<'b>(&'b self, _context: &mut Context) -> RawHashtableIterator<'b> {
 		let cur = self.first_entry;
@@ -545,9 +545,21 @@ where
 	}
 
 	fn remove(&mut self, context: &mut Context, key: &K) -> Result<bool, Error> {
-		let ret = self.remove_impl(Some(key), None, 0, &mut context.buf1);
+		let (entry, slab) = match self.find_entry(Some(key), None, 0, &mut context.buf1)? {
+			Some((entry, slab)) => (entry, slab),
+			None => {
+				context.shrink();
+				return Ok(false);
+			}
+		};
+
+		let slab_id = slab.id();
+		self.free_tail(slab_id)?;
+		self.entry_array[entry] = SLOT_DELETED;
+		self.size = self.size.saturating_sub(1);
 		context.shrink();
-		ret
+
+		Ok(true)
 	}
 	fn insert_raw(&mut self, context: &mut Context, key: &[u8], hash: usize) -> Result<(), Error> {
 		let ret = self.insert_impl::<K, K>(None, hash, Some(key), None, None, context);
@@ -560,9 +572,22 @@ where
 		key: &[u8],
 		hash: usize,
 	) -> Result<bool, Error> {
-		let ret = self.remove_impl::<K>(None, Some(key), hash, &mut context.buf1);
-		context.shrink();
-		ret
+		let (entry, slab_id) =
+			match self.find_entry::<K>(None, Some(key), hash, &mut context.buf1)? {
+				Some((entry, slab)) => {
+					context.shrink();
+					(entry, slab.id())
+				}
+				None => {
+					context.shrink();
+					return Ok(false);
+				}
+			};
+
+		self.free_tail(slab_id)?;
+		self.entry_array[entry] = SLOT_DELETED;
+		self.size = self.size.saturating_sub(1);
+		Ok(true)
 	}
 
 	fn iter_raw<'b>(&'b self, _context: &mut Context) -> RawHashsetIterator<'b> {
@@ -1318,25 +1343,27 @@ impl StaticHashImpl {
 		Ok(())
 	}
 
-	fn remove_impl<K>(
+	fn remove_impl<K, V>(
 		&mut self,
 		key_ser: Option<&K>,
 		key_raw: Option<&[u8]>,
 		hash: usize,
-		tmp: &mut Vec<u8>,
-	) -> Result<bool, Error>
+		context: &mut Context,
+	) -> Result<Option<V>, Error>
 	where
 		K: Serializable + Hash,
+		V: Serializable,
 	{
-		let (entry, slab_id) = match self.find_entry(key_ser, key_raw, hash, tmp)? {
+		let (entry, slab_id) = match self.find_entry(key_ser, key_raw, hash, &mut context.buf1)? {
 			Some((entry, slab)) => (entry, slab.id()),
-			None => return Ok(false),
+			None => return Ok(None),
 		};
 
 		self.free_tail(slab_id)?;
 		self.entry_array[entry] = SLOT_DELETED;
 		self.size = self.size.saturating_sub(1);
-		Ok(true)
+
+		Ok(Some(self.read_kv_ser::<K, V>(slab_id, context)?.1))
 	}
 
 	fn entry_hash<K: Hash>(&self, key: &K) -> usize {
@@ -2175,11 +2202,11 @@ mod test {
 			..SlabAllocatorConfig::default()
 		})?;
 		let mut sh = StaticHashtableBuilder::build(config, Some(slabs))?;
-		assert!(sh.insert(ctx, &80u32, &VarSer { len: 76 }).is_err());
-		assert!(sh.insert(ctx, &90u32, &VarSer { len: 75 }).is_ok());
+		assert!(sh.insert(ctx, &80u32, &VarSer { len: 77 }).is_err());
+		assert!(sh.insert(ctx, &90u32, &VarSer { len: 76 }).is_ok());
 		sh.remove(ctx, &90u32)?;
-		assert!(sh.insert(ctx, &80u32, &VarSer { len: 75 }).is_ok());
-		assert_eq!(sh.get(ctx, &80u32)?, Some(VarSer { len: 75 }));
+		assert!(sh.insert(ctx, &80u32, &VarSer { len: 76 }).is_ok());
+		assert_eq!(sh.get(ctx, &80u32)?, Some(VarSer { len: 76 }));
 
 		Ok(())
 	}
@@ -2439,6 +2466,21 @@ mod test {
 				.insert(ctx, &VarSz { len: 0 }, &VarSz { len: 135 })
 				.is_err());
 		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_remove_ser() -> Result<(), Error> {
+		let mut h = hashtable!()?;
+		let ctx = ctx!();
+		h.insert(ctx, &1, &2)?;
+		let x = h.remove(ctx, &2)?;
+		assert_eq!(x, None);
+		let x = h.remove(ctx, &1)?;
+		assert_eq!(x, Some(2));
+		let x = h.remove(ctx, &1)?;
+		assert_eq!(x, None);
 
 		Ok(())
 	}
