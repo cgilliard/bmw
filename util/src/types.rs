@@ -19,6 +19,8 @@ use std::hash::Hash;
 
 use crate::slabs::SlabImpl;
 use crate::slabs::SlabMutImpl;
+use crate::static_hash::RawHashsetIteratorImpl;
+use crate::static_hash::RawHashtableIteratorImpl;
 
 info!();
 
@@ -155,7 +157,7 @@ impl Serializable for StaticHashsetConfig {
 ///     Ok(())
 /// }
 ///```
-pub trait RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)>: Iterator {}
+//pub trait RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)>: Iterator {}
 
 /// An iterator for iterating through raw data in this [`crate::StaticHashtable`].
 /// This is distinct from the iterator that is implemented as [`crate::StaticHashtable`]'s
@@ -192,7 +194,7 @@ pub trait RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)>: Iterator {}
 ///     Ok(())
 /// }
 ///```
-pub trait RawHashsetIterator<Item = Vec<u8>>: Iterator {}
+//pub trait RawHashsetIterator<Item = Vec<u8>>: Iterator {}
 
 /// Slab Allocator configuration struct. This struct is the input to the
 /// [`crate::SlabAllocator::init`] function. The two parameters are `slab_size`
@@ -325,7 +327,7 @@ where
 	) -> Result<Option<SlabMutImpl<'b>>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error>;
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
-	fn iter_raw<'b>(&'b self) -> Box<dyn RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)> + 'b>;
+	fn iter_raw<'b>(&'b self) -> RawHashtableIteratorImpl<'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error>;
@@ -345,7 +347,7 @@ where
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize) -> Result<(), Error>;
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
-	fn iter_raw<'b>(&'b self) -> Box<dyn RawHashsetIterator<Item = Vec<u8>> + 'b>;
+	fn iter_raw<'b>(&'b self) -> RawHashsetIteratorImpl<'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
 	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error>;

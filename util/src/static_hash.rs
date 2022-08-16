@@ -15,9 +15,8 @@ use crate::ser::{serialize, BinReader};
 use crate::slabs::SlabImpl;
 use crate::slabs::SlabMutImpl;
 use crate::{
-	RawHashsetIterator, RawHashtableIterator, Serializable, SlabAllocator, SlabAllocatorConfig,
-	StaticHashset, StaticHashsetConfig, StaticHashtable, StaticHashtableConfig,
-	GLOBAL_SLAB_ALLOCATOR,
+	Serializable, SlabAllocator, SlabAllocatorConfig, StaticHashset, StaticHashsetConfig,
+	StaticHashtable, StaticHashtableConfig, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, try_into, ErrKind, Error};
 use bmw_log::*;
@@ -111,7 +110,7 @@ impl Default for StaticHashsetConfig {
 	}
 }
 
-struct StaticHashImpl {
+pub struct StaticHashImpl {
 	config: StaticHashConfig,
 	slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
 	entry_array: Vec<usize>,
@@ -134,12 +133,10 @@ impl Drop for StaticHashImpl {
 	}
 }
 
-struct RawHashsetIteratorImpl<'a> {
+pub struct RawHashsetIteratorImpl<'a> {
 	h: &'a StaticHashImpl,
 	cur: usize,
 }
-
-impl<'a> RawHashsetIterator for RawHashsetIteratorImpl<'a> {}
 
 impl<'a> Iterator for RawHashsetIteratorImpl<'a> {
 	type Item = Vec<u8>;
@@ -178,12 +175,10 @@ impl<'a> RawHashsetIteratorImpl<'a> {
 	}
 }
 
-struct RawHashtableIteratorImpl<'a> {
-	h: &'a StaticHashImpl,
-	cur: usize,
+pub struct RawHashtableIteratorImpl<'a> {
+	pub h: &'a StaticHashImpl,
+	pub cur: usize,
 }
-
-impl<'a> RawHashtableIterator for RawHashtableIteratorImpl<'a> {}
 
 impl<'a> Iterator for RawHashtableIteratorImpl<'a> {
 	type Item = (Vec<u8>, Vec<u8>);
@@ -405,11 +400,11 @@ where
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error> {
 		self.remove_impl::<K>(None, Some(key), hash)
 	}
-	fn iter_raw<'b>(&'b self) -> Box<dyn RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)> + 'b> {
+	fn iter_raw<'b>(&'b self) -> RawHashtableIteratorImpl<'b> {
 		let cur = self.first_entry;
 		let h = self;
 		let r = RawHashtableIteratorImpl { cur, h };
-		Box::new(r)
+		r
 	}
 	fn size(&self) -> usize {
 		self.size
@@ -462,11 +457,11 @@ where
 		self.remove_impl::<K>(None, Some(key), hash)
 	}
 
-	fn iter_raw<'b>(&'b self) -> Box<dyn RawHashsetIterator<Item = Vec<u8>> + 'b> {
+	fn iter_raw<'b>(&'b self) -> RawHashsetIteratorImpl<'b> {
 		let cur = self.first_entry;
 		let h = self;
 		let r = RawHashsetIteratorImpl { cur, h };
-		Box::new(r)
+		r
 	}
 
 	fn size(&self) -> usize {
