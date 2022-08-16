@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::slabs::SlabImpl;
+use crate::slabs::Slab;
 use crate::{Serializable, StaticList};
 use bmw_err::*;
 use bmw_log::*;
@@ -38,8 +38,8 @@ where
 	fn pop_front(&mut self) -> Result<Option<V>, Error> {
 		todo!()
 	}
-	fn pop_raw(&mut self) -> Result<SlabImpl, Error> {
-		let slab_impl = SlabImpl {
+	fn pop_raw(&mut self) -> Result<Slab, Error> {
+		let slab_impl = Slab {
 			id: 0,
 			data: &self.x[0..10],
 		};

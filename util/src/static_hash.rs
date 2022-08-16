@@ -12,8 +12,8 @@
 // limitations under the License.
 
 use crate::ser::{serialize, BinReader};
-use crate::slabs::SlabImpl;
-use crate::slabs::SlabMutImpl;
+use crate::slabs::Slab;
+use crate::slabs::SlabMut;
 use crate::{
 	Serializable, SlabAllocator, SlabAllocatorConfig, StaticHashset, StaticHashsetConfig,
 	StaticHashtable, StaticHashtableConfig, GLOBAL_SLAB_ALLOCATOR,
@@ -133,12 +133,12 @@ impl Drop for StaticHashImpl {
 	}
 }
 
-pub struct RawHashsetIteratorImpl<'a> {
+pub struct RawHashsetIterator<'a> {
 	h: &'a StaticHashImpl,
 	cur: usize,
 }
 
-impl<'a> Iterator for RawHashsetIteratorImpl<'a> {
+impl<'a> Iterator for RawHashsetIterator<'a> {
 	type Item = Vec<u8>;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
 		match Self::do_next(self) {
@@ -151,8 +151,8 @@ impl<'a> Iterator for RawHashsetIteratorImpl<'a> {
 	}
 }
 
-impl<'a> RawHashsetIteratorImpl<'a> {
-	fn do_next(self: &mut RawHashsetIteratorImpl<'a>) -> Result<Option<Vec<u8>>, Error> {
+impl<'a> RawHashsetIterator<'a> {
+	fn do_next(self: &mut RawHashsetIterator<'a>) -> Result<Option<Vec<u8>>, Error> {
 		if self.h.config.debug_do_next_error {
 			return Err(err!(ErrKind::Test, "do_next err"));
 		}
@@ -175,12 +175,12 @@ impl<'a> RawHashsetIteratorImpl<'a> {
 	}
 }
 
-pub struct RawHashtableIteratorImpl<'a> {
+pub struct RawHashtableIterator<'a> {
 	pub h: &'a StaticHashImpl,
 	pub cur: usize,
 }
 
-impl<'a> Iterator for RawHashtableIteratorImpl<'a> {
+impl<'a> Iterator for RawHashtableIterator<'a> {
 	type Item = (Vec<u8>, Vec<u8>);
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
 		match Self::do_next(self) {
@@ -193,10 +193,8 @@ impl<'a> Iterator for RawHashtableIteratorImpl<'a> {
 	}
 }
 
-impl<'a> RawHashtableIteratorImpl<'a> {
-	fn do_next(
-		self: &mut RawHashtableIteratorImpl<'a>,
-	) -> Result<Option<(Vec<u8>, Vec<u8>)>, Error> {
+impl<'a> RawHashtableIterator<'a> {
+	fn do_next(self: &mut RawHashtableIterator<'a>) -> Result<Option<(Vec<u8>, Vec<u8>)>, Error> {
 		if self.h.config.debug_do_next_error {
 			return Err(err!(ErrKind::Test, "do_next err"));
 		}
@@ -384,14 +382,14 @@ where
 	fn remove(&mut self, key: &K) -> Result<bool, Error> {
 		self.remove_impl(Some(key), None, 0)
 	}
-	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<SlabImpl<'b>>, Error> {
+	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<Slab<'b>>, Error> {
 		self.get_raw_impl::<K>(key, hash)
 	}
 	fn get_raw_mut<'b>(
 		&'b mut self,
 		key: &[u8],
 		hash: usize,
-	) -> Result<Option<SlabMutImpl<'b>>, Error> {
+	) -> Result<Option<SlabMut<'b>>, Error> {
 		self.get_raw_mut_impl::<K>(key, hash)
 	}
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error> {
@@ -400,10 +398,10 @@ where
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error> {
 		self.remove_impl::<K>(None, Some(key), hash)
 	}
-	fn iter_raw<'b>(&'b self) -> RawHashtableIteratorImpl<'b> {
+	fn iter_raw<'b>(&'b self) -> RawHashtableIterator<'b> {
 		let cur = self.first_entry;
 		let h = self;
-		let r = RawHashtableIteratorImpl { cur, h };
+		let r = RawHashtableIterator { cur, h };
 		r
 	}
 	fn size(&self) -> usize {
@@ -416,7 +414,7 @@ where
 		self.first_entry
 	}
 
-	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error> {
+	fn slab<'b>(&'b self, id: usize) -> Result<Slab<'b>, Error> {
 		self.get_slab(id)
 	}
 
@@ -457,10 +455,10 @@ where
 		self.remove_impl::<K>(None, Some(key), hash)
 	}
 
-	fn iter_raw<'b>(&'b self) -> RawHashsetIteratorImpl<'b> {
+	fn iter_raw<'b>(&'b self) -> RawHashsetIterator<'b> {
 		let cur = self.first_entry;
 		let h = self;
-		let r = RawHashsetIteratorImpl { cur, h };
+		let r = RawHashsetIterator { cur, h };
 		r
 	}
 
@@ -473,7 +471,7 @@ where
 	fn first_entry(&self) -> usize {
 		self.first_entry
 	}
-	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error> {
+	fn slab<'b>(&'b self, id: usize) -> Result<Slab<'b>, Error> {
 		self.get_slab(id)
 	}
 	fn read_k(&self, slab_id: usize) -> Result<K, Error> {
@@ -552,31 +550,31 @@ impl StaticHashImpl {
 		Self::clear_impl(self)?;
 		Ok(())
 	}
-	fn get_slab<'a>(&'a self, id: usize) -> Result<SlabImpl<'a>, Error> {
+	fn get_slab<'a>(&'a self, id: usize) -> Result<Slab<'a>, Error> {
 		if self.config.debug_get_slab_error {
 			return Err(err!(ErrKind::Test, "simulate get_slab error"));
 		}
 		match &self.slabs {
 			Some(slabs) => Ok(slabs.get(id)?),
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabImpl<'a>, Error> {
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Slab<'a>, Error> {
 				Ok(unsafe { f.get().as_ref().unwrap().get(id)? })
 			}),
 		}
 	}
 
-	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMutImpl<'a>, Error> {
+	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMut<'a>, Error> {
 		match &mut self.slabs {
 			Some(slabs) => Ok(slabs.get_mut(id)?),
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMutImpl<'a>, Error> {
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut<'a>, Error> {
 				Ok(unsafe { f.get().as_mut().unwrap().get_mut(id)? })
 			}),
 		}
 	}
 
-	fn allocate<'a>(&'a mut self) -> Result<SlabMutImpl<'a>, Error> {
+	fn allocate<'a>(&'a mut self) -> Result<SlabMut<'a>, Error> {
 		match &mut self.slabs {
 			Some(slabs) => Ok(slabs.allocate()?),
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMutImpl<'a>, Error> {
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut<'a>, Error> {
 				Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 			}),
 		}
@@ -641,7 +639,7 @@ impl StaticHashImpl {
 		&'b mut self,
 		key_raw: &[u8],
 		hash: usize,
-	) -> Result<Option<SlabMutImpl<'b>>, Error>
+	) -> Result<Option<SlabMut<'b>>, Error>
 	where
 		K: Serializable + Hash,
 	{
@@ -657,11 +655,7 @@ impl StaticHashImpl {
 		Ok(Some(self.get_mut(slab_id)?))
 	}
 
-	fn get_raw_impl<'b, K>(
-		&'b self,
-		key_raw: &[u8],
-		hash: usize,
-	) -> Result<Option<SlabImpl<'b>>, Error>
+	fn get_raw_impl<'b, K>(&'b self, key_raw: &[u8], hash: usize) -> Result<Option<Slab<'b>>, Error>
 	where
 		K: Serializable + Hash,
 	{
@@ -801,7 +795,7 @@ impl StaticHashImpl {
 		key: Option<&K>,
 		key_raw: Option<&[u8]>,
 		hash: usize,
-	) -> Result<Option<(usize, SlabImpl<'a>)>, Error>
+	) -> Result<Option<(usize, Slab<'a>)>, Error>
 	where
 		K: Serializable + Hash,
 	{
@@ -847,7 +841,7 @@ impl StaticHashImpl {
 		id: usize,
 		key_ser: Option<&K>,
 		key_raw: Option<&[u8]>,
-	) -> Result<Option<SlabImpl<'a>>, Error>
+	) -> Result<Option<Slab<'a>>, Error>
 	where
 		K: Serializable + Hash,
 	{
@@ -1282,7 +1276,7 @@ impl StaticHashsetBuilder {
 mod test {
 	use crate::static_hash::StaticHashConfig;
 	use crate::static_hash::StaticHashImpl;
-	use crate::static_hash::{RawHashsetIteratorImpl, RawHashtableIteratorImpl};
+	use crate::static_hash::{RawHashsetIterator, RawHashtableIterator};
 	use crate::types::SlabAllocatorConfig;
 	use crate::types::{Reader, Writer};
 	use crate::GLOBAL_SLAB_ALLOCATOR;
@@ -1869,14 +1863,14 @@ mod test {
 			sh.config.debug_clear_error = true;
 			sh.config.debug_do_next_error = true;
 
-			let mut rhii = RawHashsetIteratorImpl {
+			let mut rhii = RawHashsetIterator {
 				h: &sh,
 				cur: sh.first_entry,
 			};
 
 			assert!(rhii.next().iter().next().is_none());
 
-			let mut rhii = RawHashtableIteratorImpl {
+			let mut rhii = RawHashtableIterator {
 				h: &sh,
 				cur: sh.first_entry,
 			};
@@ -1929,13 +1923,13 @@ mod test {
 
 			sh.insert_impl(Some(&1), 0, None, Some(&1), None)?;
 			sh.config.debug_get_slab_error = true;
-			let mut rhii = RawHashsetIteratorImpl {
+			let mut rhii = RawHashsetIterator {
 				h: &sh,
 				cur: sh.first_entry,
 			};
 			assert!(rhii.next().iter().next().is_none());
 
-			let mut rhii = RawHashtableIteratorImpl {
+			let mut rhii = RawHashtableIterator {
 				h: &sh,
 				cur: sh.first_entry,
 			};

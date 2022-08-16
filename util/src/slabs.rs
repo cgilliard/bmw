@@ -30,12 +30,12 @@ thread_local! {
 
 pub struct SlabAllocatorBuilder {}
 
-pub struct SlabMutImpl<'a> {
+pub struct SlabMut<'a> {
 	pub(crate) data: &'a mut [u8],
 	pub(crate) id: usize,
 }
 
-pub struct SlabImpl<'a> {
+pub struct Slab<'a> {
 	pub(crate) data: &'a [u8],
 	pub(crate) id: usize,
 }
@@ -56,7 +56,7 @@ impl Default for SlabAllocatorConfig {
 	}
 }
 
-impl<'a> SlabMutImpl<'a> {
+impl<'a> SlabMut<'a> {
 	pub fn get(&self) -> &[u8] {
 		&self.data
 	}
@@ -68,7 +68,7 @@ impl<'a> SlabMutImpl<'a> {
 	}
 }
 
-impl<'a> SlabImpl<'a> {
+impl<'a> Slab<'a> {
 	pub fn get(&self) -> &[u8] {
 		&self.data
 	}
@@ -78,7 +78,7 @@ impl<'a> SlabImpl<'a> {
 }
 
 impl SlabAllocator for SlabAllocatorImpl {
-	fn allocate<'a>(&'a mut self) -> Result<SlabMutImpl<'a>, Error> {
+	fn allocate<'a>(&'a mut self) -> Result<SlabMut<'a>, Error> {
 		if self.config.is_none() {
 			return Err(err!(ErrKind::IllegalState, "not initialied"));
 		}
@@ -99,7 +99,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		let data = &mut self.data[offset..offset + config.slab_size as usize];
 		self.free_count = self.free_count.saturating_sub(1);
 
-		Ok(SlabMutImpl { data, id })
+		Ok(SlabMut { data, id })
 	}
 	fn free(&mut self, id: usize) -> Result<(), Error> {
 		match &self.config {
@@ -130,7 +130,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			)),
 		}
 	}
-	fn get<'a>(&'a self, id: usize) -> Result<SlabImpl<'a>, Error> {
+	fn get<'a>(&'a self, id: usize) -> Result<Slab<'a>, Error> {
 		if self.config.is_none() {
 			return Err(err!(ErrKind::IllegalState, "not initialied"));
 		}
@@ -142,9 +142,9 @@ impl SlabAllocator for SlabAllocatorImpl {
 		debug!("get:self.config={:?},id={}", config, id)?;
 		let offset = 8 + ((8 + config.slab_size) * id);
 		let data = &self.data[offset..offset + config.slab_size];
-		Ok(SlabImpl { data, id })
+		Ok(Slab { data, id })
 	}
-	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMutImpl<'a>, Error> {
+	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMut<'a>, Error> {
 		if self.config.is_none() {
 			return Err(err!(ErrKind::IllegalState, "not initialied"));
 		}
@@ -156,7 +156,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		debug!("get_mut:self.config={:?},id={}", config, id)?;
 		let offset = 8 + ((8 + config.slab_size) * id);
 		let data = &mut self.data[offset..offset + config.slab_size as usize];
-		Ok(SlabMutImpl { data, id })
+		Ok(SlabMut { data, id })
 	}
 
 	fn free_count(&self) -> Result<usize, Error> {
@@ -251,7 +251,7 @@ impl SlabAllocatorBuilder {
 
 #[cfg(test)]
 mod test {
-	use crate::slabs::SlabMutImpl;
+	use crate::slabs::SlabMut;
 	use crate::types::SlabAllocatorConfig;
 	use crate::SlabAllocatorBuilder;
 	use bmw_err::Error;
@@ -294,10 +294,9 @@ mod test {
 				Ok(())
 			}
 		})?;
-		let slab =
-			crate::slabs::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMutImpl<'_>, Error> {
-				Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
-			})?;
+		let slab = crate::slabs::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut<'_>, Error> {
+			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
+		})?;
 		info!("slab={:?}", slab.get())?;
 		Ok(())
 	}

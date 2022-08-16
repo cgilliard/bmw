@@ -17,10 +17,10 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 
-use crate::slabs::SlabImpl;
-use crate::slabs::SlabMutImpl;
-use crate::static_hash::RawHashsetIteratorImpl;
-use crate::static_hash::RawHashtableIteratorImpl;
+use crate::slabs::Slab;
+use crate::slabs::SlabMut;
+use crate::static_hash::RawHashsetIterator;
+use crate::static_hash::RawHashtableIterator;
 
 info!();
 
@@ -319,18 +319,15 @@ where
 
 	/// Remove an element from the [`crate::StaticHashtable`].
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
-	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<SlabImpl<'b>>, Error>;
-	fn get_raw_mut<'b>(
-		&'b mut self,
-		key: &[u8],
-		hash: usize,
-	) -> Result<Option<SlabMutImpl<'b>>, Error>;
+	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<Slab<'b>>, Error>;
+	fn get_raw_mut<'b>(&'b mut self, key: &[u8], hash: usize)
+		-> Result<Option<SlabMut<'b>>, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error>;
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
-	fn iter_raw<'b>(&'b self) -> RawHashtableIteratorImpl<'b>;
+	fn iter_raw<'b>(&'b self) -> RawHashtableIterator<'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
-	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error>;
+	fn slab<'b>(&'b self, id: usize) -> Result<Slab<'b>, Error>;
 	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error>;
 	fn get_array(&self) -> &Vec<usize>;
 	fn clear(&mut self) -> Result<(), Error>;
@@ -347,10 +344,10 @@ where
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn insert_raw(&mut self, key: &[u8], hash: usize) -> Result<(), Error>;
 	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
-	fn iter_raw<'b>(&'b self) -> RawHashsetIteratorImpl<'b>;
+	fn iter_raw<'b>(&'b self) -> RawHashsetIterator<'b>;
 	fn size(&self) -> usize;
 	fn first_entry(&self) -> usize;
-	fn slab<'b>(&'b self, id: usize) -> Result<SlabImpl<'b>, Error>;
+	fn slab<'b>(&'b self, id: usize) -> Result<Slab<'b>, Error>;
 	fn read_k(&self, slab_id: usize) -> Result<K, Error>;
 	fn get_array(&self) -> &Vec<usize>;
 	fn clear(&mut self) -> Result<(), Error>;
@@ -381,7 +378,7 @@ where
 	fn pop(&mut self) -> Result<Option<V>, Error>;
 	fn push_front(&mut self, value: V) -> Result<(), Error>;
 	fn pop_front(&mut self) -> Result<Option<V>, Error>;
-	fn pop_raw(&mut self) -> Result<SlabImpl, Error>;
+	fn pop_raw(&mut self) -> Result<Slab, Error>;
 }
 
 pub trait Array<V>
@@ -470,7 +467,7 @@ pub trait SlabAllocator {
 	///
 	/// * [`bmw_err::ErrorKind::CapacityExceeded`] if the capacity of this
 	/// [`crate::SlabAllocator`] has been exceeded.
-	fn allocate<'a>(&'a mut self) -> Result<SlabMutImpl<'a>, Error>;
+	fn allocate<'a>(&'a mut self) -> Result<SlabMut<'a>, Error>;
 
 	/// Free a slab that has previously been allocated by this slab allocator.
 	/// `id` is the id of the slab to free. It can be obtained through the
@@ -561,7 +558,7 @@ pub trait SlabAllocator {
 	///     Ok(())
 	/// }
 	///```
-	fn get<'a>(&'a self, id: usize) -> Result<SlabImpl<'a>, Error>;
+	fn get<'a>(&'a self, id: usize) -> Result<Slab<'a>, Error>;
 
 	/// Get an mutable reference to a slab that has previously been allocated by the
 	/// [`crate::SlabAllocator`]. On success a [`crate::SlabMut`] is returned. On failure,
@@ -607,7 +604,7 @@ pub trait SlabAllocator {
 	///     Ok(())
 	/// }
 	///```
-	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMutImpl<'a>, Error>;
+	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMut<'a>, Error>;
 
 	/// Returns the number of free slabs this [`crate::SlabAllocator`] has remaining.
 	fn free_count(&self) -> Result<usize, Error>;
