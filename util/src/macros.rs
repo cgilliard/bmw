@@ -127,7 +127,10 @@ macro_rules! slab_allocator {
 		let mut slabs = bmw_util::SlabAllocatorBuilder::build();
 		match slabs.init(bmw_util::SlabAllocatorConfig::default()) {
 			Ok(_) => Ok(slabs),
-			Err(e) => Err(err!(ErrKind::Configuration, format!("{}", e))),
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Configuration,
+				format!("{}", e)
+			)),
 		}
 	}};
 	($slab_count:expr) => {{
@@ -138,7 +141,10 @@ macro_rules! slab_allocator {
 		let mut slabs = bmw_util::SlabAllocatorBuilder::build();
 		match slabs.init(config) {
 			Ok(_) => Ok(slabs),
-			Err(e) => Err(err!(ErrKind::Configuration, format!("{}", e))),
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Configuration,
+				format!("{}", e)
+			)),
 		}
 	}};
 	($slab_count:expr, $slab_size:expr) => {{
@@ -150,7 +156,10 @@ macro_rules! slab_allocator {
 		let mut slabs = bmw_util::SlabAllocatorBuilder::build();
 		match slabs.init(config) {
 			Ok(_) => Ok(slabs),
-			Err(e) => Err(err!(ErrKind::Configuration, format!("{}", e))),
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Configuration,
+				format!("{}", e)
+			)),
 		}
 	}};
 }

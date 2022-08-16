@@ -1161,7 +1161,7 @@ impl StaticHashImpl {
 		}
 
 		let needed_len = v_bytes.len() + k_bytes.len() + 32;
-		let slabs_needed = needed_len as usize / bytes_per_slab;
+		let slabs_needed = needed_len.saturating_sub(1) as usize / bytes_per_slab;
 
 		if free_count < slabs_needed + 1 {
 			return Err(err!(ErrKind::CapacityExceeded, "no more slabs"));
@@ -1389,11 +1389,11 @@ mod test {
 	use crate::types::{Reader, Writer};
 	use crate::GLOBAL_SLAB_ALLOCATOR;
 	use crate::{
-		ctx, Serializable, SlabAllocatorBuilder, StaticHashsetBuilder, StaticHashsetConfig,
-		StaticHashtableBuilder, StaticHashtableConfig,
+		ctx, hashtable, slab_allocator, Serializable, SlabAllocatorBuilder, StaticHashsetBuilder,
+		StaticHashsetConfig, StaticHashtableBuilder, StaticHashtableConfig,
 	};
 	use bmw_deps::rand;
-	use bmw_err::Error;
+	use bmw_err::*;
 	use bmw_log::*;
 	use std::collections::hash_map::DefaultHasher;
 	use std::collections::HashMap;
@@ -2329,6 +2329,116 @@ mod test {
 		assert!(!sh.remove_raw(ctx, b"hi", usize!(hash))?);
 		// protect against 0 length keys
 		assert!(sh.insert(ctx, &(), &()).is_err());
+
+		Ok(())
+	}
+
+	#[derive(Hash)]
+	struct VarSz {
+		len: usize,
+	}
+
+	impl Serializable for VarSz {
+		fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+			let len = reader.read_u8()? as usize;
+			for _ in 0..len {
+				reader.read_u8()?;
+			}
+
+			Ok(Self { len })
+		}
+		fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+			writer.write_u8(try_into!(self.len)?)?;
+			for _ in 0..self.len {
+				writer.write_u8(0)?;
+			}
+			Ok(())
+		}
+	}
+
+	#[test]
+	fn test_boundries() -> Result<(), Error> {
+		initialize()?;
+		let ctx = ctx!();
+
+		// one slab
+		{
+			let slabs = slab_allocator!(1, 64)?;
+			let mut hashtable = hashtable!(100, 1.0, slabs)?;
+
+			// overhead is 16 bytes for the iterator list, 8 bytes for the key_len, 8 bytes
+			// value_len, 8 bytes reserved for next pointer. So, total reserved is 40.
+
+			// VarSz has 1 byte overhead + len bytes.
+
+			// The key always has 1 byte total. The value is variable starting at 1 byte.
+			// We should be able to store 24 bytes which is i = 22. (1 byte for key, 1 byte for
+			// value len in the 64 byte slab.
+
+			for i in 0..23 {
+				hashtable.insert(ctx, &VarSz { len: 0 }, &VarSz { len: i })?;
+				hashtable.clear(ctx)?;
+				info!("value_len={} success!", i)?;
+			}
+			assert!(hashtable
+				.insert(ctx, &VarSz { len: 0 }, &VarSz { len: 23 })
+				.is_err());
+		}
+
+		// two slabs
+		{
+			let slabs = slab_allocator!(2, 64)?;
+			let mut hashtable = hashtable!(100, 1.0, slabs)?;
+
+			// overhead is 16 bytes for the iterator list, 8 bytes for the key_len, 8 bytes
+			// value_len, 8 bytes reserved for next pointer. So, total reserved is 40.
+
+			// VarSz has 1 byte overhead + len bytes.
+
+			// The key always has 1 byte total. The value is variable starting at 1 byte.
+			// We should be able to store 24 bytes which is i = 22. (1 byte for key, 1 byte for
+			// value len in the 64 byte slab. With two slabs, the second slab has only
+			// 8 bytes of overhead because the key/value and the iterator list pointers
+			// are not stored there. So there should be a total of 56 bytes left for data.
+			// This means i = 78 will fit.
+
+			for i in 0..79 {
+				hashtable.insert(ctx, &VarSz { len: 0 }, &VarSz { len: i })?;
+				hashtable.clear(ctx)?;
+				info!("value_len={} success!", i)?;
+			}
+			assert!(hashtable
+				.insert(ctx, &VarSz { len: 0 }, &VarSz { len: 79 })
+				.is_err());
+		}
+
+		// three slabs
+		{
+			let slabs = slab_allocator!(3, 64)?;
+			let mut hashtable = hashtable!(100, 1.0, slabs)?;
+
+			// overhead is 16 bytes for the iterator list, 8 bytes for the key_len, 8 bytes
+			// value_len, 8 bytes reserved for next pointer. So, total reserved is 40.
+
+			// VarSz has 1 byte overhead + len bytes.
+
+			// The key always has 1 byte total. The value is variable starting at 1 byte.
+			// We should be able to store 24 bytes which is i = 22. (1 byte for key, 1 byte for
+			// value len in the 64 byte slab. With two slabs, the second slab has only
+			// 8 bytes of overhead because the key/value and the iterator list pointers
+			// are not stored there. So there should be a total of 56 bytes left for data.
+			// This means i = 78 will fit. With the third slab, an additional 56 bytes
+			// is available so i = 134 will fit.
+
+			for i in 0..135 {
+				hashtable.insert(ctx, &VarSz { len: 0 }, &VarSz { len: i })?;
+				hashtable.clear(ctx)?;
+				info!("value_len={} success!", i)?;
+			}
+			assert!(hashtable
+				.insert(ctx, &VarSz { len: 0 }, &VarSz { len: 135 })
+				.is_err());
+		}
 
 		Ok(())
 	}
