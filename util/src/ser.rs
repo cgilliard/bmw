@@ -128,12 +128,12 @@ impl<'a> Writer for BinWriter<'a> {
 /// Utility to read from a binary source
 pub struct BinReader<'a, R: Read> {
 	source: &'a mut R,
-	buf: Vec<u8>,
+	buf: &'a mut Vec<u8>,
 }
 
 impl<'a, R: Read> BinReader<'a, R> {
 	/// Constructor for a new BinReader for the provided source
-	pub fn new(source: &'a mut R, buf: Vec<u8>) -> Self {
+	pub fn new(source: &'a mut R, buf: &'a mut Vec<u8>) -> Self {
 		BinReader { source, buf }
 	}
 }
@@ -228,13 +228,17 @@ pub fn serialize<W: Serializable>(sink: &mut dyn Write, thing: &W) -> Result<(),
 }
 
 /// Deserializes a Serializable from any std::io::Read implementation.
-pub fn deserialize<T: Serializable, R: Read>(source: &mut R, buf: Vec<u8>) -> Result<T, Error> {
+pub fn deserialize<T: Serializable, R: Read>(
+	source: &mut R,
+	buf: &mut Vec<u8>,
+) -> Result<T, Error> {
 	let mut reader = BinReader::new(source, buf);
 	T::read(&mut reader)
 }
 
 #[cfg(test)]
 mod test {
+	use crate as bmw_util;
 	use crate::*;
 	use bmw_deps::rand;
 	use bmw_err::*;
@@ -336,7 +340,8 @@ mod test {
 	fn ser_helper<S: Serializable + Debug + PartialEq>(ser_out: S) -> Result<(), Error> {
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
-		let ser_in: S = deserialize(&mut &v[..], vec![])?;
+		let mut buf = vec![];
+		let ser_in: S = deserialize(&mut &v[..], &mut buf)?;
 		assert_eq!(ser_in, ser_out);
 		Ok(())
 	}
@@ -364,19 +369,22 @@ mod test {
 		let ser_out = SerErr { exp: 100, empty: 0 };
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
-		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..], vec![]);
+		let mut tmp = vec![];
+		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..], &mut tmp);
 		assert!(ser_in.is_err());
 
 		let ser_out = SerErr { exp: 99, empty: 0 };
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
-		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..], vec![]);
+		let mut tmp = vec![];
+		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..], &mut tmp);
 		assert!(ser_in.is_ok());
 
 		let ser_out = SerErr { exp: 99, empty: 1 };
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
-		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..], vec![]);
+		let mut tmp = vec![];
+		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..], &mut tmp);
 		assert!(ser_in.is_err());
 
 		let v = vec!["test1".to_string(), "a".to_string(), "okokok".to_string()];
@@ -387,14 +395,16 @@ mod test {
 
 	#[test]
 	fn test_hashtable_ser() -> Result<(), Error> {
+		let ctx = ctx!();
 		let mut hashtable = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
-		hashtable.insert(&1u32, &4u64)?;
+		hashtable.insert(ctx, &1u32, &4u64)?;
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &hashtable)?;
+		let mut tmp = vec![];
 		let ser_in: Result<Box<dyn StaticHashtable<u32, u64>>, Error> =
-			deserialize(&mut &v[..], vec![]);
+			deserialize(&mut &v[..], &mut tmp);
 		let ser_in = ser_in.unwrap();
-		assert_eq!(ser_in.get(&1u32).unwrap().unwrap(), 4u64);
+		assert_eq!(ser_in.get(ctx, &1u32).unwrap().unwrap(), 4u64);
 
 		let config = StaticHashtableConfig {
 			debug_get_slab_error: true,
@@ -407,20 +417,22 @@ mod test {
 
 	#[test]
 	fn test_hashset_ser() -> Result<(), Error> {
+		let ctx = ctx!();
 		let mut hashset = StaticHashsetBuilder::build(
 			StaticHashsetConfig {
 				..StaticHashsetConfig::default()
 			},
 			None,
 		)?;
-		hashset.insert(&1u32)?;
+		hashset.insert(ctx, &1u32)?;
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &hashset)?;
-		let ser_in: Result<Box<dyn StaticHashset<u32>>, Error> = deserialize(&mut &v[..], vec![]);
+		let mut tmp = vec![];
+		let ser_in: Result<Box<dyn StaticHashset<u32>>, Error> = deserialize(&mut &v[..], &mut tmp);
 		let ser_in = ser_in.unwrap();
-		assert!(ser_in.contains(&1u32).unwrap());
-		assert!(!ser_in.contains(&2u32).unwrap());
-		assert_eq!(ser_in.size(), 1);
+		assert!(ser_in.contains(ctx, &1u32).unwrap());
+		assert!(!ser_in.contains(ctx, &2u32).unwrap());
+		assert_eq!(ser_in.size(ctx), 1);
 
 		let config = StaticHashsetConfig {
 			debug_get_slab_error: true,

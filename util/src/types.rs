@@ -22,7 +22,31 @@ use crate::slabs::SlabMut;
 use crate::static_hash::RawHashsetIterator;
 use crate::static_hash::RawHashtableIterator;
 
+const STANDARD_BUF_CAPACITY: usize = 1024;
+
 info!();
+
+pub struct Context {
+	pub(crate) buf1: Vec<u8>,
+	pub(crate) buf2: Vec<u8>,
+	pub(crate) buf3: Vec<u8>,
+}
+
+impl Context {
+	pub fn new() -> Self {
+		Self {
+			buf1: vec![],
+			buf2: vec![],
+			buf3: vec![],
+		}
+	}
+
+	pub fn shrink(&mut self) {
+		self.buf1.shrink_to(STANDARD_BUF_CAPACITY);
+		self.buf2.shrink_to(STANDARD_BUF_CAPACITY);
+		self.buf3.shrink_to(STANDARD_BUF_CAPACITY);
+	}
+}
 
 /// The configuration struct for a [`StaticHashtable`]. This struct is passed
 /// into the [`crate::StaticHashtableBuilder::build`] function. The [`std::default::Default`]
@@ -291,7 +315,7 @@ where
 	///     Ok(())
 	/// }
 	///```
-	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
+	fn insert(&mut self, ctx: &mut Context, key: &K, value: &V) -> Result<(), Error>;
 
 	/// Get an element in the [`crate::StaticHashtable`]. A copy of the serialized value
 	/// is returned or None if it is not found.
@@ -307,30 +331,47 @@ where
 	///
 	///     // since Vec implements Serializable, we can insert a Vec.
 	///     hash.insert(&1, &vec![1u8,2u8,3u8,4u8])?;
-	///     let v = hash.get(&1)?;
+	///     let mut tmp = vec![]; // tmp buffer
+	///     let v = hash.get(&1, &mut tmp)?;
 	///     assert_eq!(v.unwrap(), vec![1u8,2u8,3u8,4u8]);
-	///     assert!(hash.get(&2)?.is_none());
+	///     tmp.clear();
+	///     assert!(hash.get(&2, &mut tmp)?.is_none());
 	///
 	///     Ok(())
 	/// }
 	///```
 	///
-	fn get(&self, key: &K) -> Result<Option<V>, Error>;
+	fn get(&self, ctx: &mut Context, key: &K) -> Result<Option<V>, Error>;
 
 	/// Remove an element from the [`crate::StaticHashtable`].
-	fn remove(&mut self, key: &K) -> Result<bool, Error>;
-	fn get_raw<'b>(&'b self, key: &[u8], hash: usize) -> Result<Option<Slab<'b>>, Error>;
-	fn get_raw_mut<'b>(&'b mut self, key: &[u8], hash: usize)
-		-> Result<Option<SlabMut<'b>>, Error>;
-	fn insert_raw(&mut self, key: &[u8], hash: usize, value: &[u8]) -> Result<(), Error>;
-	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
-	fn iter_raw<'b>(&'b self) -> RawHashtableIterator<'b>;
-	fn size(&self) -> usize;
-	fn first_entry(&self) -> usize;
-	fn slab<'b>(&'b self, id: usize) -> Result<Slab<'b>, Error>;
-	fn read_kv(&self, slab_id: usize) -> Result<(K, V), Error>;
-	fn get_array(&self) -> &Vec<usize>;
-	fn clear(&mut self) -> Result<(), Error>;
+	fn remove(&mut self, ctx: &mut Context, key: &K) -> Result<bool, Error>;
+	fn get_raw<'b>(
+		&'b self,
+		ctx: &mut Context,
+		key: &[u8],
+		hash: usize,
+	) -> Result<Option<Slab<'b>>, Error>;
+	fn get_raw_mut<'b>(
+		&'b mut self,
+		ctx: &mut Context,
+		key: &[u8],
+		hash: usize,
+	) -> Result<Option<SlabMut<'b>>, Error>;
+	fn insert_raw(
+		&mut self,
+		ctx: &mut Context,
+		key: &[u8],
+		hash: usize,
+		value: &[u8],
+	) -> Result<(), Error>;
+	fn remove_raw(&mut self, ctx: &mut Context, key: &[u8], hash: usize) -> Result<bool, Error>;
+	fn iter_raw<'b>(&'b self, ctx: &mut Context) -> RawHashtableIterator<'b>;
+	fn size(&self, ctx: &mut Context) -> usize;
+	fn first_entry(&self, ctx: &mut Context) -> usize;
+	fn slab<'b>(&'b self, ctx: &mut Context, id: usize) -> Result<Slab<'b>, Error>;
+	fn read_kv(&self, ctx: &mut Context, slab_id: usize) -> Result<(K, V), Error>;
+	fn get_array(&self, ctx: &mut Context) -> &Vec<usize>;
+	fn clear(&mut self, ctx: &mut Context) -> Result<(), Error>;
 }
 
 pub trait StaticHashset<K>
@@ -338,19 +379,19 @@ where
 	K: Serializable + Hash,
 {
 	fn config(&self) -> StaticHashsetConfig;
-	fn insert(&mut self, key: &K) -> Result<(), Error>;
-	fn contains(&self, key: &K) -> Result<bool, Error>;
-	fn contains_raw(&self, key: &[u8], hash: usize) -> Result<bool, Error>;
-	fn remove(&mut self, key: &K) -> Result<bool, Error>;
-	fn insert_raw(&mut self, key: &[u8], hash: usize) -> Result<(), Error>;
-	fn remove_raw(&mut self, key: &[u8], hash: usize) -> Result<bool, Error>;
-	fn iter_raw<'b>(&'b self) -> RawHashsetIterator<'b>;
-	fn size(&self) -> usize;
-	fn first_entry(&self) -> usize;
-	fn slab<'b>(&'b self, id: usize) -> Result<Slab<'b>, Error>;
-	fn read_k(&self, slab_id: usize) -> Result<K, Error>;
-	fn get_array(&self) -> &Vec<usize>;
-	fn clear(&mut self) -> Result<(), Error>;
+	fn insert(&mut self, ctx: &mut Context, key: &K) -> Result<(), Error>;
+	fn contains(&self, ctx: &mut Context, key: &K) -> Result<bool, Error>;
+	fn contains_raw(&self, ctx: &mut Context, key: &[u8], hash: usize) -> Result<bool, Error>;
+	fn remove(&mut self, ctx: &mut Context, key: &K) -> Result<bool, Error>;
+	fn insert_raw(&mut self, ctx: &mut Context, key: &[u8], hash: usize) -> Result<(), Error>;
+	fn remove_raw(&mut self, ctx: &mut Context, key: &[u8], hash: usize) -> Result<bool, Error>;
+	fn iter_raw<'b>(&'b self, ctx: &mut Context) -> RawHashsetIterator<'b>;
+	fn size(&self, ctx: &mut Context) -> usize;
+	fn first_entry(&self, ctx: &mut Context) -> usize;
+	fn slab<'b>(&'b self, ctx: &mut Context, id: usize) -> Result<Slab<'b>, Error>;
+	fn read_k(&self, ctx: &mut Context, slab_id: usize) -> Result<K, Error>;
+	fn get_array(&self, ctx: &mut Context) -> &Vec<usize>;
+	fn clear(&mut self, ctx: &mut Context) -> Result<(), Error>;
 }
 pub trait StaticQueue<V>
 where
@@ -394,32 +435,6 @@ pub trait ThreadPool {
 	where
 		F: Future<Output = Result<(), Error>> + Send + Sync + 'static;
 }
-
-/*
-/// The public interface to a Slab stored by the [`crate::SlabAllocator`].
-/// [`crate::Slab`] is an immutable reference and [`crate::SlabMut`] is a mutable
-/// reference.
-pub trait Slab {
-	/// Get an immutable reference to the underlying data in this slab.
-	fn get(&self) -> &[u8];
-	/// A unique id for this [`crate::Slab`]. This id can be used to lookup
-	/// the slab later.
-	fn id(&self) -> usize;
-}
-
-/// The public interface to a Slab stored by the [`crate::SlabAllocator`].
-/// [`crate::Slab`] is an immutable reference and [`crate::SlabMut`] is a mutable
-/// reference.
-pub trait SlabMut {
-	/// Get an immutable reference to the underlying data in this slab.
-	fn get(&self) -> &[u8];
-	/// Get a mutable reference to the underlying data in this slab.
-	fn get_mut(&mut self) -> &mut [u8];
-	/// A unique id for this [`crate::Slab`]. This id can be used to lookup
-	/// the slab later.
-	fn id(&self) -> usize;
-}
-*/
 
 /// This trait defines the public interface to the [`crate::SlabAllocator`]. The slab
 /// allocator is used by the other data structures in this crate to avoid dynamic heap

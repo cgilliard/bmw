@@ -135,9 +135,11 @@
 //!     let mut hash = hashtable!()?; // hashtable with default settings
 //!
 //!     hash.insert(&1, &2)?; // insert 1 -> 2 (default is i32)
-//!     assert_eq!(hash.get(&1)?.unwrap(), 2); // confirm that 1 is in the table
+//!     let mut tmp = vec![]; // tmp buffer
+//!     assert_eq!(hash.get(&1, &mut tmp)?.unwrap(), 2); // confirm that 1 is in the table
 //!     hash.remove(&1)?; // remove
-//!     assert!(hash.get(&1)?.is_none()); // confirm that 1 has been removed
+//!     let mut tmp = vec![]; // tmp buffer
+//!     assert!(hash.get(&1, &mut tmp)?.is_none()); // confirm that 1 has been removed
 //!
 //!     Ok(())
 //! }
@@ -203,6 +205,7 @@ pub use crate::ser::{deserialize, serialize, BinReader, BinWriter};
 pub use crate::slabs::{Slab, SlabAllocatorBuilder, SlabMut, GLOBAL_SLAB_ALLOCATOR};
 pub use crate::static_hash::{StaticHashsetBuilder, StaticHashtableBuilder};
 pub use crate::types::{
-	Reader, Serializable, SlabAllocator, SlabAllocatorConfig, StaticHashset, StaticHashsetConfig,
-	StaticHashtable, StaticHashtableConfig, StaticList, StaticQueue, ThreadPool, Writer,
+	Context, Reader, Serializable, SlabAllocator, SlabAllocatorConfig, StaticHashset,
+	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, StaticList, StaticQueue,
+	ThreadPool, Writer,
 };

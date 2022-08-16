@@ -315,6 +315,13 @@ macro_rules! hashset {
 	}};
 }
 
+#[macro_export]
+macro_rules! ctx {
+	() => {{
+		&mut bmw_util::Context::new()
+	}};
+}
+
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
@@ -325,56 +332,58 @@ mod test {
 
 	#[test]
 	fn test_hashtable_macro() -> Result<(), Error> {
+		let ctx = ctx!();
 		let mut hash = hashtable!()?;
-		hash.insert(&1, &2)?;
-		assert_eq!(hash.get(&1)?.unwrap(), 2);
+		hash.insert(ctx, &1, &2)?;
+		assert_eq!(hash.get(ctx, &1)?.unwrap(), 2);
 
 		let mut hash = hashtable!(10)?;
 		for i in 0..10 {
-			hash.insert(&i, &100)?;
+			hash.insert(ctx, &i, &100)?;
 		}
-		assert!(hash.insert(&100, &100).is_err());
+		assert!(hash.insert(ctx, &100, &100).is_err());
 
 		let mut hash = hashtable!(10, 0.85)?;
 		for i in 0..10 {
-			hash.insert(&i, &100)?;
+			hash.insert(ctx, &i, &100)?;
 		}
-		assert!(hash.insert(&100, &100).is_err());
+		assert!(hash.insert(ctx, &100, &100).is_err());
 
 		let slabs = slab_allocator!(10)?;
 		let mut hash = hashtable!(100, 0.85, slabs)?;
 		for i in 0..10 {
-			hash.insert(&i, &100)?;
+			hash.insert(ctx, &i, &100)?;
 		}
-		assert!(hash.insert(&100, &100).is_err());
+		assert!(hash.insert(ctx, &100, &100).is_err());
 
 		Ok(())
 	}
 
 	#[test]
 	fn test_hashset_macro() -> Result<(), Error> {
+		let ctx = ctx!();
 		let mut hash = hashset!()?;
-		hash.insert(&1)?;
-		assert!(hash.contains(&1)?);
+		hash.insert(ctx, &1)?;
+		assert!(hash.contains(ctx, &1)?);
 
 		let mut hash = hashset!(10)?;
 		for i in 0..10 {
-			hash.insert(&i)?;
+			hash.insert(ctx, &i)?;
 		}
-		assert!(hash.insert(&100).is_err());
+		assert!(hash.insert(ctx, &100).is_err());
 
 		let mut hash = hashset!(10, 0.85)?;
 		for i in 0..10 {
-			hash.insert(&i)?;
+			hash.insert(ctx, &i)?;
 		}
-		assert!(hash.insert(&100).is_err());
+		assert!(hash.insert(ctx, &100).is_err());
 
 		let slabs = slab_allocator!(10)?;
 		let mut hash = hashset!(100, 0.85, slabs)?;
 		for i in 0..10 {
-			hash.insert(&i)?;
+			hash.insert(ctx, &i)?;
 		}
-		assert!(hash.insert(&100).is_err());
+		assert!(hash.insert(ctx, &100).is_err());
 
 		Ok(())
 	}
