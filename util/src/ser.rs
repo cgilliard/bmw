@@ -128,12 +128,13 @@ impl<'a> Writer for BinWriter<'a> {
 /// Utility to read from a binary source
 pub struct BinReader<'a, R: Read> {
 	source: &'a mut R,
+	buf: Vec<u8>,
 }
 
 impl<'a, R: Read> BinReader<'a, R> {
 	/// Constructor for a new BinReader for the provided source
-	pub fn new(source: &'a mut R) -> Self {
-		BinReader { source }
+	pub fn new(source: &'a mut R, buf: Vec<u8>) -> Self {
+		BinReader { source, buf }
 	}
 }
 
@@ -197,16 +198,16 @@ impl<'a, R: Read> Reader for BinReader<'a, R> {
 		Ok(i64::from_be_bytes(b))
 	}
 	/// Read a variable size vector from the underlying Read. Expects a usize
-	fn read_bytes_len_prefix(&mut self) -> Result<Vec<u8>, Error> {
+	fn read_bytes_len_prefix<'b>(&'b mut self) -> Result<&'b Vec<u8>, Error> {
 		let len = self.read_usize()?;
 		self.read_fixed_bytes(len)
 	}
 
 	/// Read a fixed number of bytes.
-	fn read_fixed_bytes(&mut self, len: usize) -> Result<Vec<u8>, Error> {
-		let mut buf = vec![0; len];
-		map_err!(self.source.read_exact(&mut buf), ErrKind::IO)?;
-		Ok(buf)
+	fn read_fixed_bytes<'b>(&'b mut self, len: usize) -> Result<&'b Vec<u8>, Error> {
+		self.buf.resize(len, 0u8);
+		map_err!(self.source.read_exact(&mut self.buf), ErrKind::IO)?;
+		Ok(&self.buf)
 	}
 
 	fn expect_u8(&mut self, val: u8) -> Result<u8, Error> {
@@ -214,7 +215,7 @@ impl<'a, R: Read> Reader for BinReader<'a, R> {
 		if b == val {
 			Ok(b)
 		} else {
-			let fmt = format!("expected: {:?}, received: {:?}", vec![val], vec![b]);
+			let fmt = format!("expected: {:?}, received: {:?}", val, b);
 			Err(err!(ErrKind::CorruptedData, fmt))
 		}
 	}
@@ -227,8 +228,8 @@ pub fn serialize<W: Serializable>(sink: &mut dyn Write, thing: &W) -> Result<(),
 }
 
 /// Deserializes a Serializable from any std::io::Read implementation.
-pub fn deserialize<T: Serializable, R: Read>(source: &mut R) -> Result<T, Error> {
-	let mut reader = BinReader::new(source);
+pub fn deserialize<T: Serializable, R: Read>(source: &mut R, buf: Vec<u8>) -> Result<T, Error> {
+	let mut reader = BinReader::new(source, buf);
 	T::read(&mut reader)
 }
 
@@ -335,7 +336,7 @@ mod test {
 	fn ser_helper<S: Serializable + Debug + PartialEq>(ser_out: S) -> Result<(), Error> {
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
-		let ser_in: S = deserialize(&mut &v[..])?;
+		let ser_in: S = deserialize(&mut &v[..], vec![])?;
 		assert_eq!(ser_in, ser_out);
 		Ok(())
 	}
@@ -363,19 +364,19 @@ mod test {
 		let ser_out = SerErr { exp: 100, empty: 0 };
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
-		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..]);
+		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..], vec![]);
 		assert!(ser_in.is_err());
 
 		let ser_out = SerErr { exp: 99, empty: 0 };
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
-		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..]);
+		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..], vec![]);
 		assert!(ser_in.is_ok());
 
 		let ser_out = SerErr { exp: 99, empty: 1 };
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &ser_out)?;
-		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..]);
+		let ser_in: Result<SerErr, Error> = deserialize(&mut &v[..], vec![]);
 		assert!(ser_in.is_err());
 
 		let v = vec!["test1".to_string(), "a".to_string(), "okokok".to_string()];
@@ -390,7 +391,8 @@ mod test {
 		hashtable.insert(&1u32, &4u64)?;
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &hashtable)?;
-		let ser_in: Result<Box<dyn StaticHashtable<u32, u64>>, Error> = deserialize(&mut &v[..]);
+		let ser_in: Result<Box<dyn StaticHashtable<u32, u64>>, Error> =
+			deserialize(&mut &v[..], vec![]);
 		let ser_in = ser_in.unwrap();
 		assert_eq!(ser_in.get(&1u32).unwrap().unwrap(), 4u64);
 
@@ -414,7 +416,7 @@ mod test {
 		hashset.insert(&1u32)?;
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &hashset)?;
-		let ser_in: Result<Box<dyn StaticHashset<u32>>, Error> = deserialize(&mut &v[..]);
+		let ser_in: Result<Box<dyn StaticHashset<u32>>, Error> = deserialize(&mut &v[..], vec![]);
 		let ser_in = ser_in.unwrap();
 		assert!(ser_in.contains(&1u32).unwrap());
 		assert!(!ser_in.contains(&2u32).unwrap());

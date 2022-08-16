@@ -743,7 +743,7 @@ impl StaticHashImpl {
 		let (k, _v) = self.read_value(slab_id)?;
 		let mut cursor = Cursor::new(k);
 		cursor.set_position(0);
-		let mut reader1 = BinReader::new(&mut cursor);
+		let mut reader1 = BinReader::new(&mut cursor, vec![]);
 		let k = K::read(&mut reader1)?;
 		Ok(k)
 	}
@@ -756,10 +756,10 @@ impl StaticHashImpl {
 		let (k, v) = self.read_value(slab_id)?;
 		let mut cursor = Cursor::new(k);
 		cursor.set_position(0);
-		let mut reader1 = BinReader::new(&mut cursor);
+		let mut reader1 = BinReader::new(&mut cursor, vec![]);
 		let mut cursor = Cursor::new(v);
 		cursor.set_position(0);
-		let mut reader2 = BinReader::new(&mut cursor);
+		let mut reader2 = BinReader::new(&mut cursor, vec![]);
 		let k = K::read(&mut reader1)?;
 		let v = V::read(&mut reader2)?;
 		Ok((k, v))

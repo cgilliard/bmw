@@ -695,7 +695,10 @@ pub trait Writer {
 	fn write_fixed_bytes<T: AsRef<[u8]>>(&mut self, bytes: T) -> Result<(), Error>;
 
 	fn write_empty_bytes(&mut self, length: usize) -> Result<(), Error> {
-		self.write_fixed_bytes(vec![0u8; length])
+		for _ in 0..length {
+			self.write_u8(0)?;
+		}
+		Ok(())
 	}
 }
 
@@ -711,8 +714,8 @@ pub trait Reader {
 	fn read_i32(&mut self) -> Result<i32, Error>;
 	fn read_i64(&mut self) -> Result<i64, Error>;
 	fn read_usize(&mut self) -> Result<usize, Error>;
-	fn read_bytes_len_prefix(&mut self) -> Result<Vec<u8>, Error>;
-	fn read_fixed_bytes(&mut self, length: usize) -> Result<Vec<u8>, Error>;
+	fn read_bytes_len_prefix<'a>(&'a mut self) -> Result<&'a Vec<u8>, Error>;
+	fn read_fixed_bytes<'a>(&'a mut self, length: usize) -> Result<&'a Vec<u8>, Error>;
 	fn expect_u8(&mut self, val: u8) -> Result<u8, Error>;
 
 	fn read_empty_bytes(&mut self, length: usize) -> Result<(), Error> {
