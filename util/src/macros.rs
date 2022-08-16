@@ -336,6 +336,23 @@ macro_rules! hashset {
 	}};
 }
 
+/// Macro to create a context which is used by the data structures.
+///
+/// # Examples
+///```
+///    use bmw_err::Error;
+///    use bmw_util::{ctx, hashtable};
+///
+///    fn test() -> Result<(), Error> {
+///        let ctx = ctx!();
+///        let mut h = hashtable!()?;
+///        h.insert(ctx, &1, &2)?;
+///        let v = h.get(ctx, &1)?;
+///        assert_eq!(v, Some(2));
+///
+///        Ok(())
+///    }
+///```
 #[macro_export]
 macro_rules! ctx {
 	() => {{
@@ -343,10 +360,75 @@ macro_rules! ctx {
 	}};
 }
 
+/// This macro is used to put a hashtable into 'raw' mode. After this
+/// function is called, only the 'raw' functions (i.e. [`crate::StaticHashtable::insert_raw`],
+/// [`crate::StaticHashtable::get_raw`], [`crate::StaticHashtable::remove_raw`] and
+/// [`crate::StaticHashtable::iter_raw`]) will return useful values.
+///
+/// # Examples
+///
+///```
+///    use bmw_err::Error;
+///    use bmw_util::{ctx, hashtable, hashtable_set_raw};
+///    use std::collections::hash_map::DefaultHasher;
+///    use std::hash::{Hash, Hasher};
+///    use bmw_log::*;
+///
+///    info!();
+///
+///    fn test() -> Result<(), Error> {
+///        let ctx = ctx!();
+///        let mut h = hashtable!()?;
+///        hashtable_set_raw!(ctx, h);
+///
+///        let mut hasher = DefaultHasher::new();
+///        (b"test").hash(&mut hasher);
+///        let hash = hasher.finish();
+///        h.insert_raw(ctx, b"test", usize!(hash), b"123")?;
+///
+///        Ok(())
+///    }
+///```
 #[macro_export]
 macro_rules! hashtable_set_raw {
 	($ctx:expr, $hashtable:expr) => {{
 		let _ = $hashtable.insert($ctx, &(), &());
+	}};
+}
+
+/// This macro is used to put a hashset into 'raw' mode. After this
+/// function is called, only the 'raw' functions (i.e. [`crate::StaticHashset::insert_raw`],
+/// [`crate::StaticHashset::contains_raw`], [`crate::StaticHashset::remove_raw`] and
+/// [`crate::StaticHashset::iter_raw`]) will return useful values.
+///
+/// # Examples
+///
+///```
+///    use bmw_err::Error;
+///    use bmw_util::{ctx, hashset, hashset_set_raw};
+///    use std::collections::hash_map::DefaultHasher;
+///    use std::hash::{Hash, Hasher};
+///    use bmw_log::*;
+///
+///    info!();
+///
+///    fn test() -> Result<(), Error> {
+///        let ctx = ctx!();
+///        let mut h = hashset!()?;
+///        hashset_set_raw!(ctx, h);
+///
+///        let mut hasher = DefaultHasher::new();
+///        (b"test").hash(&mut hasher);
+///        let hash = hasher.finish();
+///        h.insert_raw(ctx, b"test", usize!(hash))?;
+///
+///        Ok(())
+///    }
+///```
+#[macro_export]
+macro_rules! hashset_set_raw {
+	($ctx:expr, $hashset:expr) => {{
+		let _ = $hashset.insert($ctx, &());
 	}};
 }
 

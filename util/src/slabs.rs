@@ -28,13 +28,21 @@ thread_local! {
 				SlabAllocatorBuilder::build_unsafe();
 }
 
+/// Builder struct used to build slab allocators. The build functions are generally called
+/// through the [`crate::slab_allocator`] macro to create instances of [`crate::SlabAllocator`]
+/// or through the [`crate::init_slab_allocator`] to configure the global thread local
+/// [`crate::SlabAllocator`].
 pub struct SlabAllocatorBuilder {}
 
+/// Struct that is used as a mutable refernce to data in a slab. See [`crate::SlabAllocator`] for
+/// further details.
 pub struct SlabMut<'a> {
 	pub(crate) data: &'a mut [u8],
 	pub(crate) id: usize,
 }
 
+/// Struct that is used as a immutable refernce to data in a slab. See [`crate::SlabAllocator`] for
+/// further details.
 pub struct Slab<'a> {
 	pub(crate) data: &'a [u8],
 	pub(crate) id: usize,
@@ -57,21 +65,31 @@ impl Default for SlabAllocatorConfig {
 }
 
 impl<'a> SlabMut<'a> {
+	/// get an immutable refernce to the data held in this slab.
 	pub fn get(&self) -> &[u8] {
 		&self.data
 	}
+
+	/// get a mutable reference to the data held in this slab.
 	pub fn get_mut(&mut self) -> &mut [u8] {
 		&mut self.data
 	}
+
+	/// get the id of this slab. Each slab has in an instance of [`crate::SlabAllocator`]
+	/// has a unique id.
 	pub fn id(&self) -> usize {
 		self.id
 	}
 }
 
 impl<'a> Slab<'a> {
+	/// get a mutable reference to the data held in this slab.
 	pub fn get(&self) -> &[u8] {
 		&self.data
 	}
+
+	/// get the id of this slab. Each slab in an instance of [`crate::SlabAllocator`]
+	/// has a unique id.
 	pub fn id(&self) -> usize {
 		self.id
 	}
@@ -240,10 +258,17 @@ impl SlabAllocatorImpl {
 }
 
 impl SlabAllocatorBuilder {
+	/// Build a slab allocator on the heap in an [`std::cell::UnsafeCell`].
+	/// This function is used by the global thread local slab allocator to allocate
+	/// thread local slab allocators. Note that it calls unsafe functions. This
+	/// function should generally be called through the [`crate::init_slab_allocator`]
+	/// macro.
 	pub fn build_unsafe() -> UnsafeCell<Box<dyn SlabAllocator>> {
 		UnsafeCell::new(Box::new(SlabAllocatorImpl::new()))
 	}
 
+	/// Build a slab allocator on the heap. This function is used by [`crate::slab_allocator`]
+	/// to create slab allocators for use with the other macros.
 	pub fn build() -> Box<dyn SlabAllocator + Send + Sync> {
 		Box::new(SlabAllocatorImpl::new())
 	}

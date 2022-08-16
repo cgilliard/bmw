@@ -125,7 +125,8 @@ impl<'a> Writer for BinWriter<'a> {
 	}
 }
 
-/// Utility to read from a binary source
+/// Utility wrapper for an underlying byte Reader. Defines higher level methods
+/// to write numbers, byte vectors, hashes, etc.
 pub struct BinReader<'a, R: Read> {
 	source: &'a mut R,
 	buf: &'a mut Vec<u8>,
@@ -138,8 +139,6 @@ impl<'a, R: Read> BinReader<'a, R> {
 	}
 }
 
-/// Utility wrapper for an underlying byte Reader. Defines higher level methods
-/// to read numbers, byte vectors, hashes, etc.
 impl<'a, R: Read> Reader for BinReader<'a, R> {
 	fn read_u8(&mut self) -> Result<u8, Error> {
 		let mut b = [0u8; 1];

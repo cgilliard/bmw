@@ -1377,9 +1377,21 @@ impl StaticHashImpl {
 	}
 }
 
+/// A builder struct used to build a [`crate::StaticHashtable`]. This macro
+/// is called by [`crate::hashtable`]. [`crate::StaticHashtable`]s are generally built
+/// through that macro.
 pub struct StaticHashtableBuilder {}
 
 impl StaticHashtableBuilder {
+	/// Build a [`crate::StaticHashtable`] based on the specified
+	/// [`crate::StaticHashtableConfig`] and optional [`crate::SlabAllocator`].
+	/// The function returns a boxed [`crate::StaticHashtable`] on success
+	/// and returns a [`bmw_err::Error`] on failure.
+	///
+	/// # Errors
+	///
+	/// * [`bmw_err::ErrorKind::IllegalArgument`] if the max_load_factor is not greater
+	/// than 0 and less than or equal to 1.0 or if the max_entries is equal to 0.
 	pub fn build<K, V>(
 		config: StaticHashtableConfig,
 		slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
@@ -1392,9 +1404,21 @@ impl StaticHashtableBuilder {
 	}
 }
 
+/// A builder struct used to build a [`crate::StaticHashset`]. This macro
+/// is called by [`crate::hashset`]. [`crate::StaticHashset`]s are generally built
+/// through that macro.
 pub struct StaticHashsetBuilder {}
 
 impl StaticHashsetBuilder {
+	/// Build a [`crate::StaticHashset`] based on the specified
+	/// [`crate::StaticHashsetConfig`] and optional [`crate::SlabAllocator`].
+	/// The function returns a boxed [`crate::StaticHashset`] on success
+	/// and returns a [`bmw_err::Error`] on failure.
+	///
+	/// # Errors
+	///
+	/// * [`bmw_err::ErrorKind::IllegalArgument`] if the max_load_factor is not greater
+	/// than 0 and less than or equal to 1.0 or if the max_entries is equal to 0.
 	pub fn build<K>(
 		config: StaticHashsetConfig,
 		slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,

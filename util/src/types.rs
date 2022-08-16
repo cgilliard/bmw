@@ -26,6 +26,25 @@ const STANDARD_BUF_CAPACITY: usize = 1024;
 
 info!();
 
+/// A context which is used in many of the methods in this crate. The reason for using
+/// the context is to avoid creating new Vectors, and other structures that require heap
+/// allocations at run time. Instead the context may be created at startup and used
+/// throughout the lifecycle of the application. The [`crate::Context`] struct may be
+/// conveniently built through the [`crate::ctx`] macro.
+///
+/// # Examples
+///
+///```
+/// use bmw_util::{ctx, hashtable};
+/// use bmw_err::Error;
+///
+/// fn main() -> Result<(), Error> {
+///     let ctx = ctx!(); // create a context
+///     let mut h = hashtable!()?; // create a hashtable
+///     h.insert(ctx, &1, &2)?; // use the context in most of the functions
+///     Ok(())
+/// }
+///```
 pub struct Context {
 	pub(crate) buf1: Vec<u8>,
 	pub(crate) buf2: Vec<u8>,
@@ -139,91 +158,6 @@ impl Serializable for StaticHashsetConfig {
 	}
 }
 
-/// An iterator for iterating through raw data in this [`crate::StaticHashtable`].
-/// This is distinct from the iterator that is implemented as [`crate::StaticHashtable`]'s
-/// [`std::iter::IntoIterator`] trait which returns the serialized and not raw data.
-///
-/// # Examples
-///
-///```
-/// use bmw_err::*;
-/// use bmw_util::{hashtable, hashtable_set_raw, ctx};
-/// use bmw_log::*;
-///
-/// info!();
-///
-/// fn test() -> Result<(), Error> {
-///     // create a context
-///     let ctx = ctx!();
-///     // create a hashtable
-///     let mut hashtable = hashtable!()?;
-///     // need to do a empty insert so that the types can be inferred. From here on we use raw
-///     // operations
-///     hashtable_set_raw!(ctx, hashtable);
-///     let key = [0u8, 1u8, 123u8];
-///     let value = [10u8];
-///     let hash = 123usize;
-///     hashtable.insert_raw(ctx, &key, hash, &value)?;
-///
-///     let key = [1u8, 1u8, 125u8];
-///     let value = [14u8];
-///     let hash = 125usize;
-///     hashtable.insert_raw(ctx, &key, hash, &value)?;
-///
-///     let mut count = 0;
-///     for slab in hashtable.iter_raw(ctx) {
-///         info!("slab={:?}", slab.get())?;
-///         count += 1;
-///     }
-///
-///     assert_eq!(count, 3);
-///
-///     Ok(())
-/// }
-///```
-//pub trait RawHashtableIterator<Item = (Vec<u8>, Vec<u8>)>: Iterator {}
-
-/// An iterator for iterating through raw data in this [`crate::StaticHashtable`].
-/// This is distinct from the iterator that is implemented as [`crate::StaticHashtable`]'s
-/// [`std::iter::IntoIterator`] trait which returns the serialized and not raw data.
-/// # Examples
-///
-///```
-/// use bmw_err::*;
-/// use bmw_util::{hashset,ctx};
-/// use bmw_log::*;
-///
-/// info!();
-///
-/// fn test() -> Result<(), Error> {
-///     // create a context
-///     let ctx = ctx!();
-///     // create a hashset
-///     let mut hashset = hashset!()?;
-///     // need to do a empty insert so that the types can be inferred. From here on we use raw
-///     // operations
-///     assert!(hashset.insert(ctx, &()).is_err());
-///     let key = [0u8, 1u8, 123u8];
-///     let hash = 123usize;
-///     hashset.insert_raw(ctx, &key, hash)?;
-///     
-///     let key = [1u8, 1u8, 125u8];
-///     let hash = 125usize;
-///     hashset.insert_raw(ctx, &key, hash)?;
-///     
-///     let mut count = 0;
-///     for slab in hashset.iter_raw(ctx) {
-///         info!("slab={:?}", slab.get())?;
-///         count += 1;
-///     }
-///
-///     assert_eq!(count, 2);
-///
-///     Ok(())
-/// }
-///```
-//pub trait RawHashsetIterator<Item = Vec<u8>>: Iterator {}
-
 /// Slab Allocator configuration struct. This struct is the input to the
 /// [`crate::SlabAllocator::init`] function. The two parameters are `slab_size`
 /// which is the size of the slabs in bytes allocated by this
@@ -245,9 +179,9 @@ pub struct SlabAllocatorConfig {
 /// [`crate::StaticHashtableBuilder::build`] function or as a [`crate::StaticHashset`]
 /// through the [`crate::StaticHashsetBuilder::build`] function. Although there
 /// is a different interface for each, they are very similar and share most of the
-/// implementation code. In most cases, the datastructures in this crate should be
+/// implementation code. In most cases, the data structures in this crate should be
 /// instantiated through the macros, but they can also be instantiated through the
-/// builder structs as well.
+/// builder structs as well. See [`crate::hashtable`].
 ///
 /// # Examples
 ///```
@@ -349,14 +283,117 @@ where
 	///
 	fn get(&self, ctx: &mut Context, key: &K) -> Result<Option<V>, Error>;
 
-	/// Remove an element from the [`crate::StaticHashtable`].
+	/// Remove an element from the [`crate::StaticHashtable`]. Upon success, the element
+	/// removed from the [`crate::StaticHashtable`] is returned. If the `key` is not found
+	/// in the [`crate::StaticHashtable`], None is returned. If an error occurs,
+	/// [`bmw_err::Error`] is returned.
+	///
+	/// # Examples
+	///
+	///```
+	/// use bmw_util::{ctx,hashtable};
+	/// use bmw_err::Error;
+	///
+	/// fn hashtable_remove() -> Result<(), Error> {
+	///     let ctx = ctx!();
+	///     let mut sh = hashtable!()?;
+	///     assert_eq!(sh.get(ctx, &1)?, None);
+	///     sh.insert(ctx, &1, &100)?;
+	///     assert_eq!(sh.get(ctx, &1)?, Some(100));
+	///     sh.remove(ctx, &1)?;
+	///     assert_eq!(sh.get(ctx, &1)?, None);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn remove(&mut self, ctx: &mut Context, key: &K) -> Result<Option<V>, Error>;
+
+	/// Get the raw [`crate::Slab`] data, if it exists, in this [`crate::StaticHashtable`].
+	/// On success return the slab, if the slab is not found, return None or if an error
+	/// occurs, return [`bmw_err::Error`].
+	///
+	/// # Examples
+	///```
+	/// use bmw_util::{hashtable, ctx, hashtable_set_raw};
+	/// use bmw_err::Error;
+	/// use std::collections::hash_map::DefaultHasher;
+	/// use std::hash::{Hash, Hasher};
+	/// use bmw_log::usize;
+	///
+	/// fn raw_ex() -> Result<(), Error> {
+	///     let ctx = ctx!(); // create a context
+	///     let mut sh = hashtable!()?; // create a hashtable
+	///     hashtable_set_raw!(ctx, sh); // set raw mode
+	///
+	///     // generate our own hash manually
+	///     let mut hasher = DefaultHasher::new();
+	///     (b"hi").hash(&mut hasher);
+	///     let hash = hasher.finish();
+	///
+	///     // insert
+	///     sh.insert_raw(ctx, b"hi", usize!(hash), b"ok")?;
+	///
+	///     // call get_raw to lookup our entry
+	///     let slab = sh.get_raw(ctx, b"hi", usize!(hash))?.unwrap();
+	///
+	///     // key = 104/105 (hi), value = 111/107 (ok)
+	///     assert_eq!(
+	///         slab.get()[0..36],
+	///         [
+	///             255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	///             0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
+	///         ]
+	///     );
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn get_raw<'b>(
 		&'b self,
 		ctx: &mut Context,
 		key: &[u8],
 		hash: usize,
 	) -> Result<Option<Slab<'b>>, Error>;
+
+	/// Insert raw data into the [`crate::StaticHashtable`]. On success returns Ok(()), on
+	/// failure returns [`bmw_err::Error`].
+	///
+	/// # Examples
+	///```
+	/// use bmw_util::{hashtable, ctx, hashtable_set_raw};
+	/// use bmw_err::Error;
+	/// use std::collections::hash_map::DefaultHasher;
+	/// use std::hash::{Hash, Hasher};
+	/// use bmw_log::usize;
+	///
+	/// fn raw_ex() -> Result<(), Error> {
+	///     let ctx = ctx!(); // create a context
+	///     let mut sh = hashtable!()?; // create a hashtable
+	///     hashtable_set_raw!(ctx, sh); // set raw mode
+	///
+	///     // generate our own hash manually
+	///     let mut hasher = DefaultHasher::new();
+	///     (b"hi").hash(&mut hasher);
+	///     let hash = hasher.finish();
+	///
+	///     // insert
+	///     sh.insert_raw(ctx, b"hi", usize!(hash), b"ok")?;
+	///
+	///     // call get_raw to lookup our entry
+	///     let slab = sh.get_raw(ctx, b"hi", usize!(hash))?.unwrap();
+	///
+	///     // key = 104/105 (hi), value = 111/107 (ok)
+	///     assert_eq!(
+	///         slab.get()[0..36],
+	///         [
+	///             255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+	///             0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 2, 111, 107
+	///         ]
+	///     );
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn insert_raw(
 		&mut self,
 		ctx: &mut Context,
@@ -364,35 +401,419 @@ where
 		hash: usize,
 		value: &[u8],
 	) -> Result<(), Error>;
+
+	/// Remove raw data from the [`crate::StaticHashtable`]. On success returns Ok(bool), on
+	/// failure returns [`bmw_err::Error`]. If the element is found, true is returned,
+	/// otherwise, false.
+	///
+	/// # Examples
+	///```
+	/// use bmw_util::{hashtable, ctx, hashtable_set_raw};
+	/// use bmw_err::Error;
+	/// use std::collections::hash_map::DefaultHasher;
+	/// use std::hash::{Hash, Hasher};
+	/// use bmw_log::usize;
+	///
+	/// fn raw_ex() -> Result<(), Error> {
+	///     let ctx = ctx!(); // create a context
+	///     let mut sh = hashtable!()?; // create a hashtable
+	///     hashtable_set_raw!(ctx, sh); // set raw mode
+	///
+	///     // generate our own hash manually
+	///     let mut hasher = DefaultHasher::new();
+	///     (b"hi").hash(&mut hasher);
+	///     let hash = hasher.finish();
+	///
+	///     // insert
+	///     sh.insert_raw(ctx, b"hi", usize!(hash), b"ok")?;
+	///
+	///     sh.remove_raw(ctx, b"hi", usize!(hash))?;
+	///     // call get_raw to lookup our entry which is no longer in the table
+	///     let slab = sh.get_raw(ctx, b"hi", usize!(hash))?;
+	///     assert!(slab.is_none());
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn remove_raw(&mut self, ctx: &mut Context, key: &[u8], hash: usize) -> Result<bool, Error>;
+
+	/// Returns an iterator for iterating through raw data in this [`crate::StaticHashtable`].
+	/// This is distinct from the iterator that is implemented as [`crate::StaticHashtable`]'s
+	/// [`std::iter::IntoIterator`] trait which returns the serialized and not raw data.
+	/// An understanding of the structure of the raw data in the [`crate::StaticHashtable`]'s
+	/// slabs is necessary to use this function.
+	///
+	/// # Examples
+	///
+	///```
+	/// use bmw_err::*;
+	/// use bmw_util::{hashtable, hashtable_set_raw, ctx};
+	/// use bmw_log::*;
+	///
+	/// info!();
+	///
+	/// fn test() -> Result<(), Error> {
+	///     // create a context
+	///     let ctx = ctx!();
+	///     // create a hashtable
+	///     let mut hashtable = hashtable!()?;
+	///     // need to do a empty insert so that the types can be inferred. From here on we use raw
+	///     // operations. The hashtable_set_raw macro handles this.
+	///     hashtable_set_raw!(ctx, hashtable);
+	///     let key = [0u8, 1u8, 123u8];
+	///     let value = [10u8];
+	///     let hash = 123usize;
+	///     hashtable.insert_raw(ctx, &key, hash, &value)?;
+	///
+	///     let key = [1u8, 1u8, 125u8];
+	///     let value = [14u8];
+	///     let hash = 125usize;
+	///     hashtable.insert_raw(ctx, &key, hash, &value)?;
+	///
+	///     let mut count = 0;
+	///     for slab in hashtable.iter_raw(ctx) {
+	///         info!("slab={:?}", slab.get())?;
+	///         count += 1;
+	///     }
+	///
+	///     assert_eq!(count, 3);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn iter_raw<'b>(&'b self, ctx: &mut Context) -> RawHashtableIterator<'b>;
+
+	/// Return the current size of this [`crate::StaticHashtable`].
 	fn size(&self, ctx: &mut Context) -> usize;
+
+	/// Return the slab id of the first entry in this [`crate::StaticHashtable`].
+	/// note: this function is mostly used internally by iterators.
 	fn first_entry(&self, ctx: &mut Context) -> usize;
+
+	/// Return this [`crate::Slab`] associated with this id.
+	/// note: this function is mostly used internally by iterators.
 	fn slab<'b>(&'b self, ctx: &mut Context, id: usize) -> Result<Slab<'b>, Error>;
+
+	/// Return the key value pair associated with this slab id in serialized form.
 	fn read_kv(&self, ctx: &mut Context, slab_id: usize) -> Result<(K, V), Error>;
+
+	/// Return an immutable reference to the underlying array backing this
+	/// [`crate::StaticHashtable`].
+	/// note: this function is mostly used internally by iterators.
 	fn get_array(&self, ctx: &mut Context) -> &Vec<usize>;
+
+	/// Clear all elements in this [`crate::StaticHashtable`] and free any slabs
+	/// that were associated with this table.
 	fn clear(&mut self, ctx: &mut Context) -> Result<(), Error>;
 }
 
+/// The [`crate::StaticHashset`] trait defines the public interface to the
+/// static hashset. The hashset in this crate uses linear probing to handle
+/// collisions and it cannot be resized after it is intialized. Configuration of the
+/// hashset is done via the [`crate::StaticHashsetConfig`] struct. The shared
+/// implementation can be instantiated as a [`crate::StaticHashset`] through the
+/// [`crate::StaticHashsetBuilder::build`] function or as a [`crate::StaticHashtable`]
+/// through the [`crate::StaticHashtableBuilder::build`] function. Although there
+/// is a different interface for each, they are very similar and share most of the
+/// implementation code. In most cases, the data structures in this crate should be
+/// instantiated through the macros, but they can also be instantiated through the
+/// builder structs as well. See [`crate::hashset`].
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::{ctx, hashset};
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///     let ctx = ctx!();
+///     let mut hash = hashset!()?;
+///
+///     hash.insert(ctx, &1)?;
+///     hash.insert(ctx, &3)?;
+///
+///     for k in &hash {
+///         info!("k={}", k)?;
+///     }
+///
+///     Ok(())
+/// }
+///```
 pub trait StaticHashset<K>
 where
 	K: Serializable + Hash,
 {
+	/// This function returns a copy of the underlying [`crate::StaticHashsetConfig`]
+	/// struct.
+	///
+	/// # Examples
+	///```
+	/// use bmw_err::*;
+	/// use bmw_log::*;
+	/// use bmw_util::{ctx, hashset};
+	///
+	/// info!();
+	///
+	/// fn main() -> Result<(), Error> {
+	///     let ctx = ctx!();
+	///     let mut hash = hashset!(1_000, 0.9)?;
+	///
+	///     hash.insert(ctx, &1)?;
+	///     let config = hash.config();
+	///     assert_eq!(config.max_entries, 1_000);
+	///     assert_eq!(config.max_load_factor, 0.9);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn config(&self) -> StaticHashsetConfig;
+
+	/// This function inserts the `key` specified into the [`crate::StaticHashset`]. `key` must implement the
+	/// [`crate::Serializable`] trait and the [`std::hash::Hash`] trait. The key is copied into the set.
+	///
+	/// # Examples
+	///```
+	/// use bmw_err::*;
+	/// use bmw_util::{ctx, hashset};
+	/// use bmw_log::*;
+	///
+	/// info!();
+	///
+	/// fn main() -> Result<(), Error> {
+	///     let ctx = ctx!();
+	///     let mut hash = hashset!(1_000, 0.9)?;
+	///
+	///     hash.insert(ctx, &1)?;
+	///     hash.insert(ctx, &2)?;
+	///
+	///     for k in &hash {
+	///         info!("k={}", k)?;
+	///     }
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn insert(&mut self, ctx: &mut Context, key: &K) -> Result<(), Error>;
+
+	/// This function returns true if the `key` specified is a member of the [`crate::StaticHashset`].
+	/// Otherwise, false is returned. In the event of an error a [`bmw_err::Error`] is
+	/// returned.
+	///
+	/// # Examples
+	///```
+	/// use bmw_err::*;
+	/// use bmw_util::{ctx, hashset};
+	/// use bmw_log::*;
+	///
+	/// info!();
+	///
+	/// fn main() -> Result<(), Error> {
+	///     let ctx = ctx!();
+	///     let mut hash = hashset!(1_000, 0.9)?;
+	///
+	///     hash.insert(ctx, &1)?;
+	///     hash.insert(ctx, &2)?;
+	///
+	///     assert!(hash.contains(ctx, &1)?);
+	///     assert!(hash.contains(ctx, &2)?);
+	///     assert!(!hash.contains(ctx, &3)?);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn contains(&self, ctx: &mut Context, key: &K) -> Result<bool, Error>;
+
+	/// This function is the raw version of the [`crate::StaticHashset::contains`] function. It
+	/// is the same, except that the key is specified as a byte array instead of a serialized
+	/// structure.
+	///
+	///```
+	/// use bmw_err::*;
+	/// use bmw_util::{ctx, hashset, hashset_set_raw};
+	/// use bmw_log::*;
+	///
+	/// info!();
+	///
+	/// fn main() -> Result<(), Error> {
+	///     let ctx = ctx!();
+	///     let mut hash = hashset!()?;
+	///     hashset_set_raw!(ctx, hash);
+	///
+	///     hash.insert_raw(ctx, &[1], 1)?;
+	///     hash.insert_raw(ctx, &[2], 2)?;
+	///
+	///     assert!(hash.contains_raw(ctx, &[1], 1)?);
+	///     assert!(hash.contains_raw(ctx, &[2], 2)?);
+	///     assert!(!hash.contains_raw(ctx, &[3], 3)?);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn contains_raw(&self, ctx: &mut Context, key: &[u8], hash: usize) -> Result<bool, Error>;
+
+	/// Remove an element from the [`crate::StaticHashset`]. Upon success, the element
+	/// is removed from the [`crate::StaticHashset`]. If the `key` was found and deleted,
+	/// true is returned. Otherwise, false is returned. If an error occurs, [`bmw_err::Error`]
+	/// is returned.
+	///
+	/// # Examples
+	///
+	///```
+	/// use bmw_util::{ctx,hashset};
+	/// use bmw_err::Error;
+	///
+	/// fn hashset() -> Result<(), Error> {
+	///     let ctx = ctx!();
+	///     let mut hash = hashset!()?;
+	///     assert_eq!(hash.contains(ctx, &1)?, false);
+	///     hash.insert(ctx, &1)?;
+	///     assert_eq!(hash.contains(ctx, &1)?, true);
+	///     hash.remove(ctx, &1)?;
+	///     assert_eq!(hash.contains(ctx, &1)?, false);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn remove(&mut self, ctx: &mut Context, key: &K) -> Result<bool, Error>;
+
+	/// Insert raw data into the [`crate::StaticHashset`]. On success returns Ok(()), on
+	/// failure returns [`bmw_err::Error`].
+	///
+	/// # Examples
+	///```
+	/// use bmw_util::{hashset, ctx, hashset_set_raw};
+	/// use bmw_err::Error;
+	/// use std::collections::hash_map::DefaultHasher;
+	/// use std::hash::{Hash, Hasher};
+	/// use bmw_log::usize;
+	///
+	/// fn raw_ex() -> Result<(), Error> {
+	///     let ctx = ctx!(); // create a context
+	///     let mut sh = hashset!()?; // create a hashset
+	///     hashset_set_raw!(ctx, sh); // set raw mode
+	///
+	///     // generate our own hash manually
+	///     let mut hasher = DefaultHasher::new();
+	///     (b"hi").hash(&mut hasher);
+	///     let hash = hasher.finish();
+	///
+	///     // insert
+	///     sh.insert_raw(ctx, b"hi", usize!(hash))?;
+	///
+	///     // call contains_raw to lookup our entry
+	///     assert_eq!(sh.contains_raw(ctx, b"hi", usize!(hash))?, true);
+	///     assert_eq!(sh.contains_raw(ctx, b"other", usize!(hash))?, false);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn insert_raw(&mut self, ctx: &mut Context, key: &[u8], hash: usize) -> Result<(), Error>;
+
+	/// Remove raw data from the [`crate::StaticHashset`]. On success returns Ok(bool), on
+	/// failure returns [`bmw_err::Error`]. If the element is found, true is returned,
+	/// otherwise, false.
+	///
+	/// # Examples
+	///```
+	/// use bmw_util::{hashset, ctx, hashset_set_raw};
+	/// use bmw_err::Error;
+	/// use std::collections::hash_map::DefaultHasher;
+	/// use std::hash::{Hash, Hasher};
+	/// use bmw_log::usize;
+	///
+	/// fn raw_ex() -> Result<(), Error> {
+	///     let ctx = ctx!(); // create a context
+	///     let mut sh = hashset!()?; // create a hashset
+	///     hashset_set_raw!(ctx, sh); // set raw mode
+	///
+	///     // generate our own hash manually
+	///     let mut hasher = DefaultHasher::new();
+	///     (b"hi").hash(&mut hasher);
+	///     let hash = hasher.finish();
+	///
+	///     // insert
+	///     sh.insert_raw(ctx, b"hi", usize!(hash))?;
+	///     assert!(sh.contains_raw(ctx, b"hi", usize!(hash))?);
+	///     sh.remove_raw(ctx, b"hi", usize!(hash))?;
+	///     // call contains_raw to lookup our entry which is no longer in the set
+	///     assert!(!sh.contains_raw(ctx, b"hi", usize!(hash))?);
+	///
+	///
+	///     Ok(())
+	/// }
 	fn remove_raw(&mut self, ctx: &mut Context, key: &[u8], hash: usize) -> Result<bool, Error>;
+
+	/// Returns an iterator for iterating through raw data in this [`crate::StaticHashset`].
+	/// This is distinct from the iterator that is implemented as [`crate::StaticHashset`]'s
+	/// [`std::iter::IntoIterator`] trait which returns the serialized and not raw data.
+	/// An understanding of the structure of the raw data in the [`crate::StaticHashset`]'s
+	/// slabs is necessary to use this function.
+	///
+	/// # Examples
+	///
+	///```
+	/// use bmw_err::*;
+	/// use bmw_util::{hashset, hashset_set_raw, ctx};
+	/// use bmw_log::*;
+	///
+	/// info!();
+	///
+	/// fn test() -> Result<(), Error> {
+	///     // create a context
+	///     let ctx = ctx!();
+	///     // create a hashset
+	///     let mut hashset = hashset!()?;
+	///     // need to do a empty insert so that the types can be inferred. From here on we use raw
+	///     // operations. The hashset_set_raw macro handles this.
+	///     hashset_set_raw!(ctx, hashset);
+	///     let key = [0u8, 1u8, 123u8];
+	///     let hash = 123usize;
+	///     hashset.insert_raw(ctx, &key, hash)?;
+	///
+	///     let key = [1u8, 1u8, 125u8];
+	///     let hash = 125usize;
+	///     hashset.insert_raw(ctx, &key, hash)?;
+	///
+	///     let mut count = 0;
+	///     for slab in hashset.iter_raw(ctx) {
+	///         info!("slab={:?}", slab.get())?;
+	///         count += 1;
+	///     }
+	///
+	///     assert_eq!(count, 3);
+	///
+	///     Ok(())
+	/// }
+	///```
 	fn iter_raw<'b>(&'b self, ctx: &mut Context) -> RawHashsetIterator<'b>;
+
+	/// Return the current size of this [`crate::StaticHashset`].
 	fn size(&self, ctx: &mut Context) -> usize;
+
+	/// Return the slab id of the first entry in this [`crate::StaticHashset`].
+	/// note: this function is mostly used internally by iterators.
 	fn first_entry(&self, ctx: &mut Context) -> usize;
+
+	/// Return this [`crate::Slab`] associated with this id.
+	/// note: this function is mostly used internally by iterators.
 	fn slab<'b>(&'b self, ctx: &mut Context, id: usize) -> Result<Slab<'b>, Error>;
+
+	/// Return the key value associated with this slab id in serialized form.
 	fn read_k(&self, ctx: &mut Context, slab_id: usize) -> Result<K, Error>;
+
+	/// Return an immutable reference to the underlying array backing this
+	/// [`crate::StaticHashset`].
+	/// note: this function is mostly used internally by iterators.
 	fn get_array(&self, ctx: &mut Context) -> &Vec<usize>;
+
+	/// Clear all elements in this [`crate::StaticHashset`] and free any slabs
+	/// that were associated with this set.
 	fn clear(&mut self, ctx: &mut Context) -> Result<(), Error>;
 }
+
+/// TODO: not implemented
 pub trait StaticQueue<V>
 where
 	V: Serializable,
@@ -402,6 +823,7 @@ where
 	fn peek(&self) -> Result<Option<&V>, Error>;
 }
 
+/// TODO: not implemented
 pub trait StaticStack<V>
 where
 	V: Serializable,
@@ -411,6 +833,7 @@ where
 	fn peek(&self) -> Result<Option<V>, Error>;
 }
 
+/// TODO: not implemented
 pub trait StaticList<'a, V>
 where
 	V: Serializable,
@@ -422,14 +845,17 @@ where
 	fn pop_raw(&mut self) -> Result<Slab, Error>;
 }
 
+/// TODO: not implemented
 pub trait Array<V>
 where
 	V: Serializable,
 {
 }
 
+/// TODO: not implemented
 pub trait BitVec {}
 
+/// TODO: not implemented
 pub trait ThreadPool {
 	fn execute<F>(&self, f: F) -> Result<(), Error>
 	where
@@ -632,6 +1058,7 @@ pub trait SlabAllocator {
 	fn init(&mut self, config: SlabAllocatorConfig) -> Result<(), Error>;
 }
 
+/// TODO: not implemented
 pub trait Match {
 	fn start(&self) -> usize;
 	fn end(&self) -> usize;
@@ -641,6 +1068,7 @@ pub trait Match {
 	fn set_id(&mut self, id: u128) -> Result<(), Error>;
 }
 
+/// TODO: not implemented
 pub trait Pattern {
 	fn regex(&self) -> String;
 	fn is_case_sensitive(&self) -> bool;
@@ -648,6 +1076,7 @@ pub trait Pattern {
 	fn id(&self) -> u128;
 }
 
+/// TODO: not implemented
 pub trait SuffixTree {
 	fn add_pattern(&mut self, pattern: &dyn Pattern) -> Result<(), Error>;
 	fn run_matches(
@@ -657,6 +1086,7 @@ pub trait SuffixTree {
 	) -> Result<usize, Error>;
 }
 
+/// Writer trait used to serializing data.
 pub trait Writer {
 	fn write_u8(&mut self, n: u8) -> Result<(), Error> {
 		self.write_fixed_bytes(&[n])
@@ -717,6 +1147,7 @@ pub trait Writer {
 	}
 }
 
+/// Reader trait used for deserializing data.
 pub trait Reader {
 	fn read_u8(&mut self) -> Result<u8, Error>;
 	fn read_i8(&mut self) -> Result<i8, Error>;
@@ -743,10 +1174,17 @@ pub trait Reader {
 	}
 }
 
+/// This is the trait used by all data structures to serialize and deserialize data.
+/// Anthing stored in them must implement this trait. Commonly needed implementations
+/// are built in the ser module in this crate. These include Vec, String, integer types among
+/// other things.
 pub trait Serializable
 where
 	Self: Sized,
 {
+	/// read data from the reader and build the underlying type represented by that
+	/// data.
 	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error>;
+	/// write data to the writer representing the underlying type.
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error>;
 }
