@@ -587,6 +587,7 @@ where
 		self.free_tail(slab_id)?;
 		self.entry_array[entry] = SLOT_DELETED;
 		self.size = self.size.saturating_sub(1);
+
 		Ok(true)
 	}
 
@@ -815,8 +816,7 @@ impl StaticHashImpl {
 		self.read_value(slab_id, k, _v)?;
 		let mut cursor = Cursor::new(k);
 		cursor.set_position(0);
-		context.buf1.clear();
-		let mut reader1 = BinReader::new(&mut cursor, &mut context.buf1);
+		let mut reader1 = BinReader::new(&mut cursor);
 		let k = K::read(&mut reader1)?;
 		Ok(k)
 	}
@@ -834,13 +834,13 @@ impl StaticHashImpl {
 		let mut cursor = Cursor::new(k);
 		cursor.set_position(0);
 		context.buf1.clear();
-		let mut reader1 = BinReader::new(&mut cursor, &mut context.buf1);
+		let mut reader1 = BinReader::new(&mut cursor);
 		let k = K::read(&mut reader1)?;
 
 		let mut cursor = Cursor::new(v);
 		cursor.set_position(0);
 		context.buf1.clear();
-		let mut reader2 = BinReader::new(&mut cursor, &mut context.buf1);
+		let mut reader2 = BinReader::new(&mut cursor);
 		let v = V::read(&mut reader2)?;
 		Ok((k, v))
 	}
@@ -2414,7 +2414,7 @@ mod test {
 
 		// one slab
 		{
-			let slabs = slab_allocator!(1, 64)?;
+			let slabs = slab_allocator!(64, 1)?;
 			let mut hashtable = hashtable!(100, 1.0, slabs)?;
 
 			// overhead is 16 bytes for the iterator list, 8 bytes for the key_len, 8 bytes
@@ -2438,7 +2438,7 @@ mod test {
 
 		// two slabs
 		{
-			let slabs = slab_allocator!(2, 64)?;
+			let slabs = slab_allocator!(64, 2)?;
 			let mut hashtable = hashtable!(100, 1.0, slabs)?;
 
 			// overhead is 16 bytes for the iterator list, 8 bytes for the key_len, 8 bytes
@@ -2465,7 +2465,7 @@ mod test {
 
 		// three slabs
 		{
-			let slabs = slab_allocator!(3, 64)?;
+			let slabs = slab_allocator!(64, 3)?;
 			let mut hashtable = hashtable!(100, 1.0, slabs)?;
 
 			// overhead is 16 bytes for the iterator list, 8 bytes for the key_len, 8 bytes

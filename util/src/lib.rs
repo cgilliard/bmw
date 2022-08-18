@@ -171,7 +171,7 @@
 //!         count += 1;
 //!     }
 //!
-//!     assert_eq!(count, 9);
+//!     assert_eq!(count, 10);
 //!
 //!     // create a hash with a non-default maximum load capacity.
 //!     let mut hash2 = hashtable!(10, 0.5)?;
@@ -199,6 +199,7 @@
 //!```
 
 mod macros;
+mod misc;
 mod ser;
 mod slabs;
 mod static_hash;
@@ -208,8 +209,9 @@ mod types;
 pub use crate::ser::{deserialize, serialize, BinReader, BinWriter};
 pub use crate::slabs::{Slab, SlabAllocatorBuilder, SlabMut, GLOBAL_SLAB_ALLOCATOR};
 pub use crate::static_hash::{StaticHashsetBuilder, StaticHashtableBuilder};
+pub use crate::static_list::StaticListBuilder;
 pub use crate::types::{
 	Context, Reader, Serializable, SlabAllocator, SlabAllocatorConfig, StaticHashset,
-	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, StaticList, StaticQueue,
-	ThreadPool, Writer,
+	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig,
+	StaticQueue, ThreadPool, Writer,
 };

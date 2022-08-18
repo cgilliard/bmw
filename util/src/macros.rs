@@ -44,7 +44,7 @@
 ///     let ctx = ctx!();
 ///
 ///     // initialize the slab allocator for this thread with 25_000 128 byte entries
-///     init_slab_allocator!(128, 25_000);
+///     init_slab_allocator!(25_000, 128);
 ///
 ///     // The hashtable will use this default thread local slab allocator
 ///     let mut hashtable = hashtable!()?;
@@ -64,11 +64,14 @@ macro_rules! init_slab_allocator {
 	($slab_size:expr, $slab_count:expr) => {{
 		bmw_util::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
 			unsafe {
-				f.get().as_mut().unwrap().init(SlabAllocatorConfig {
-					slab_count: $slab_count,
-					slab_size: $slab_size,
-					..Default::default()
-				})?;
+				f.get()
+					.as_mut()
+					.unwrap()
+					.init(bmw_util::SlabAllocatorConfig {
+						slab_count: $slab_count,
+						slab_size: $slab_size,
+						..Default::default()
+					})?;
 				Ok(())
 			}
 		})?;
@@ -133,9 +136,9 @@ macro_rules! slab_allocator {
 			)),
 		}
 	}};
-	($slab_count:expr) => {{
+	($slab_size:expr) => {{
 		let config = bmw_util::SlabAllocatorConfig {
-			slab_count: $slab_count,
+			slab_size: $slab_size,
 			..Default::default()
 		};
 		let mut slabs = bmw_util::SlabAllocatorBuilder::build();
@@ -147,7 +150,7 @@ macro_rules! slab_allocator {
 			)),
 		}
 	}};
-	($slab_count:expr, $slab_size:expr) => {{
+	($slab_size:expr, $slab_count:expr) => {{
 		let config = bmw_util::SlabAllocatorConfig {
 			slab_count: $slab_count,
 			slab_size: $slab_size,
@@ -193,11 +196,11 @@ macro_rules! slab_allocator {
 ///     let ctx = ctx!();
 ///
 ///     // initialize the default global thread local slab allocator for this thread.
-///     init_slab_allocator!(1_000_000, 64);
+///     init_slab_allocator!(64, 1_000_000);
 ///
 ///     // intialize an additional slab allocator to be used by hashtabl4 below.
 ///     // The other hashtables will share the default global thread local slab allocator.
-///     let slabs = slab_allocator!(100_000, 256)?;
+///     let slabs = slab_allocator!(256, 100_000)?;
 ///
 ///     // all default values
 ///     let mut hashtable1 = hashtable!()?;
@@ -276,11 +279,11 @@ macro_rules! hashtable {
 ///
 /// fn main() -> Result<(), Error> {
 ///     // initialize the default global thread local slab allocator for this thread.
-///     init_slab_allocator!(1_000_000, 64);
+///     init_slab_allocator!(64, 1_000_000);
 ///
 ///     // intialize an additional slab allocator to be used by hashtabl4 below.
 ///     // The other hashsets will share the default global thread local slab allocator.
-///     let slabs = slab_allocator!(100_000, 256)?;
+///     let slabs = slab_allocator!(256, 100_000)?;
 ///
 ///     // all default values
 ///     let mut hashset1 = hashset!()?;
@@ -432,6 +435,19 @@ macro_rules! hashset_set_raw {
 	}};
 }
 
+#[macro_export]
+macro_rules! list {
+	() => {{
+		bmw_util::StaticListBuilder::build(bmw_util::StaticListConfig::default(), None)?
+	}};
+	($slab_allocator:expr) => {{
+		bmw_util::StaticListBuilder::build(
+			bmw_util::StaticListConfig::default(),
+			Some($slab_allocator),
+		)
+	}};
+}
+
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
@@ -459,7 +475,7 @@ mod test {
 		}
 		assert!(hash.insert(ctx, &100, &100).is_err());
 
-		let slabs = slab_allocator!(10)?;
+		let slabs = slab_allocator!(1024, 10)?;
 		let mut hash = hashtable!(100, 0.85, slabs)?;
 		for i in 0..10 {
 			hash.insert(ctx, &i, &100)?;
@@ -488,13 +504,40 @@ mod test {
 		}
 		assert!(hash.insert(ctx, &100).is_err());
 
-		let slabs = slab_allocator!(10)?;
+		let slabs = slab_allocator!(1024, 10)?;
 		let mut hash = hashset!(100, 0.85, slabs)?;
 		for i in 0..10 {
 			hash.insert(ctx, &i)?;
 		}
 		assert!(hash.insert(ctx, &100).is_err());
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_list_macro() -> Result<(), Error> {
+		let mut list = list!();
+		list.push(&1)?;
+		for x in &list {
+			info!("x={}", x)?;
+		}
+		assert_eq!(list.pop()?, Some(1));
+
+		let slabs = slab_allocator!(48, 10)?;
+		let mut list = list!(slabs)?;
+		list.push(&"str1".to_string())?;
+		list.push(&"another string".to_string())?;
+		list.push(&"".to_string())?;
+		list.push(&"hi".to_string())?;
+		list.push(&"hi".to_string())?;
+
+		let mut count = 0;
+		for x in &list {
+			info!("x={:?}", x)?;
+			count += 1;
+		}
+
+		assert_eq!(count, 5);
 		Ok(())
 	}
 }

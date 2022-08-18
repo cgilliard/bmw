@@ -21,6 +21,7 @@ use crate::slabs::Slab;
 use crate::slabs::SlabMut;
 use crate::static_hash::RawHashsetIterator;
 use crate::static_hash::RawHashtableIterator;
+use crate::static_list::StaticListIterator;
 
 const STANDARD_BUF_CAPACITY: usize = 1024;
 
@@ -833,16 +834,22 @@ where
 	fn peek(&self) -> Result<Option<V>, Error>;
 }
 
-/// TODO: not implemented
-pub trait StaticList<'a, V>
+#[derive(Debug, Clone)]
+pub struct StaticListConfig {}
+
+pub trait StaticList<V>
 where
 	V: Serializable,
 {
+	fn config(&self) -> StaticListConfig;
 	fn push(&mut self, value: &V) -> Result<(), Error>;
 	fn pop(&mut self) -> Result<Option<V>, Error>;
-	fn push_front(&mut self, value: V) -> Result<(), Error>;
+	fn push_front(&mut self, value: &V) -> Result<(), Error>;
 	fn pop_front(&mut self) -> Result<Option<V>, Error>;
-	fn pop_raw(&mut self) -> Result<Slab, Error>;
+	fn iter<'a>(&'a self) -> StaticListIterator<'a, V>;
+	fn iter_rev<'a>(&'a self) -> StaticListIterator<'a, V>;
+	fn size(&self) -> usize;
+	fn clear(&mut self) -> Result<(), Error>;
 }
 
 /// TODO: not implemented
@@ -1053,6 +1060,9 @@ pub trait SlabAllocator {
 	/// Returns the configured `slab_size` for this [`crate::SlabAllocator`].
 	fn slab_size(&self) -> Result<usize, Error>;
 
+	/// Returns the configured `slab_count` for this [`crate::SlabAllocator`].
+	fn slab_count(&self) -> Result<usize, Error>;
+
 	/// Initializes the [`crate::SlabAllocator`] with the given `config`. See
 	/// [`crate::SlabAllocatorConfig`] for further details.
 	fn init(&mut self, config: SlabAllocatorConfig) -> Result<(), Error>;
@@ -1159,9 +1169,8 @@ pub trait Reader {
 	fn read_i128(&mut self) -> Result<i128, Error>;
 	fn read_i32(&mut self) -> Result<i32, Error>;
 	fn read_i64(&mut self) -> Result<i64, Error>;
+	fn read_fixed_bytes(&mut self, buf: &mut [u8]) -> Result<(), Error>;
 	fn read_usize(&mut self) -> Result<usize, Error>;
-	fn read_bytes_len_prefix<'a>(&'a mut self) -> Result<&'a Vec<u8>, Error>;
-	fn read_fixed_bytes<'a>(&'a mut self, length: usize) -> Result<&'a Vec<u8>, Error>;
 	fn expect_u8(&mut self, val: u8) -> Result<u8, Error>;
 
 	fn read_empty_bytes(&mut self, length: usize) -> Result<(), Error> {

@@ -98,7 +98,7 @@ impl<'a> Slab<'a> {
 impl SlabAllocator for SlabAllocatorImpl {
 	fn allocate<'a>(&'a mut self) -> Result<SlabMut<'a>, Error> {
 		if self.config.is_none() {
-			return Err(err!(ErrKind::IllegalState, "not initialied"));
+			return Err(err!(ErrKind::IllegalState, "not initialized"));
 		}
 		let config = self.config.as_ref().unwrap();
 		debug!("allocate:self.config={:?}", config)?;
@@ -144,13 +144,13 @@ impl SlabAllocator for SlabAllocatorImpl {
 			}
 			None => Err(err!(
 				ErrKind::IllegalState,
-				"slab allocator has not been initialied"
+				"slab allocator has not been initialized"
 			)),
 		}
 	}
 	fn get<'a>(&'a self, id: usize) -> Result<Slab<'a>, Error> {
 		if self.config.is_none() {
-			return Err(err!(ErrKind::IllegalState, "not initialied"));
+			return Err(err!(ErrKind::IllegalState, "not initialized"));
 		}
 		let config = self.config.as_ref().unwrap();
 		if id >= config.slab_count {
@@ -164,7 +164,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 	}
 	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMut<'a>, Error> {
 		if self.config.is_none() {
-			return Err(err!(ErrKind::IllegalState, "not initialied"));
+			return Err(err!(ErrKind::IllegalState, "not initialized"));
 		}
 		let config = self.config.as_ref().unwrap();
 		if id >= config.slab_count {
@@ -179,7 +179,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 
 	fn free_count(&self) -> Result<usize, Error> {
 		if self.config.is_none() {
-			return Err(err!(ErrKind::IllegalState, "not initialied"));
+			return Err(err!(ErrKind::IllegalState, "not initialized"));
 		}
 		let config = self.config.as_ref().unwrap();
 		debug!("free_count:self.config={:?}", config)?;
@@ -192,15 +192,27 @@ impl SlabAllocator for SlabAllocatorImpl {
 			Some(config) => Ok(config.slab_size),
 			None => Err(err!(
 				ErrKind::IllegalState,
-				"slab allocator has not been initialied"
+				"slab allocator has not been initialized"
 			)),
 		}
 	}
+
+	fn slab_count(&self) -> Result<usize, Error> {
+		debug!("slab_size:self.config={:?}", self.config)?;
+		match &self.config {
+			Some(config) => Ok(config.slab_count),
+			None => Err(err!(
+				ErrKind::IllegalState,
+				"slab allocator has not been initialized"
+			)),
+		}
+	}
+
 	fn init(&mut self, config: SlabAllocatorConfig) -> Result<(), Error> {
 		match &self.config {
 			Some(_) => Err(err!(
 				ErrKind::IllegalState,
-				"slab allocator has already been initialied"
+				"slab allocator has already been initialized"
 			)),
 			None => {
 				if config.slab_size < 48 {

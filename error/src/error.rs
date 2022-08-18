@@ -69,6 +69,9 @@ pub enum ErrorKind {
 	/// Simulated Error used in testing
 	#[fail(display = "simulated test error: {}", _0)]
 	Test(String),
+	/// Overflow error
+	#[fail(display = "overflow error: {}", _0)]
+	Overflow(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
@@ -101,6 +104,8 @@ pub enum ErrKind {
 	Misc,
 	/// Application is in an illegal state.
 	IllegalState,
+	/// Overflow error
+	Overflow,
 	/// A simulated error used in tests
 	Test,
 }
