@@ -851,6 +851,7 @@ where
 	fn iter_rev<'a>(&'a self) -> StaticListIterator<'a, V>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
+	fn append(&mut self, list: &Box<dyn StaticList<V>>) -> Result<(), Error>;
 	fn head(&self) -> usize;
 	fn tail(&self) -> usize;
 	fn slab(&self, slab_id: usize) -> Result<Slab, Error>;
@@ -863,7 +864,7 @@ where
 
 pub trait SortableList<V>: StaticList<V>
 where
-	V: Serializable + Ord + Debug,
+	V: Serializable + Ord,
 {
 	fn sort(&mut self) -> Result<(), Error>;
 }

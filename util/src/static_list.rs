@@ -253,6 +253,10 @@ where
 		self.clear_impl()
 	}
 
+	fn append(&mut self, list: &Box<dyn StaticList<V>>) -> Result<(), Error> {
+		self.append_impl(list)
+	}
+
 	fn head(&self) -> usize {
 		self.head
 	}
@@ -292,7 +296,7 @@ where
 
 impl<V> SortableList<V> for dyn StaticList<V>
 where
-	V: Serializable + Ord + Debug,
+	V: Serializable + Ord,
 {
 	fn sort(&mut self) -> Result<(), Error> {
 		sort_impl(self)
@@ -301,7 +305,7 @@ where
 
 fn sort_impl<V>(list: &mut dyn StaticList<V>) -> Result<(), Error>
 where
-	V: Serializable + Ord + Debug,
+	V: Serializable + Ord,
 {
 	let mut group_size = 2;
 	let list_size = list.size();
@@ -386,7 +390,7 @@ fn merge_list<V>(
 	read_value_sum: &mut usize,
 ) -> Result<usize, Error>
 where
-	V: Serializable + Ord + Debug,
+	V: Serializable + Ord,
 {
 	let hops = group_size / 2;
 	let mut ptr1_hops = 0;
@@ -415,7 +419,6 @@ where
 		*read_value_sum += now.elapsed().as_nanos() as usize;
 
 		if v1.cmp(&v2) == Ordering::Greater {
-			debug!("merge swap at {} {} {:?} {:?}", ptr1, ptr2, v1, v2)?;
 			let ptr2next = backward(list, ptr2)?;
 			list.merge(ptr1, ptr2)?;
 			if first {
@@ -426,7 +429,6 @@ where
 
 			ptr2_hops += 1;
 		} else {
-			debug!("merge no-op at {} {} {:?} {:?}", ptr1, ptr2, v1, v2)?;
 			first = false;
 			ptr1 = backward(list, ptr1)?;
 			ptr1_hops += 1;
@@ -695,6 +697,16 @@ impl StaticListImpl {
 			self.tail = slice_to_usize(&next2[0..ptr_size])?;
 		}
 
+		Ok(())
+	}
+
+	fn append_impl<V>(&mut self, list: &Box<dyn StaticList<V>>) -> Result<(), Error>
+	where
+		V: Serializable,
+	{
+		for x in list {
+			self.push(&x)?;
+		}
 		Ok(())
 	}
 
@@ -1717,6 +1729,14 @@ mod test {
 			assert_eq!(x, vec[i]);
 		}
 		assert_eq!(i, 0);
+		Ok(())
+	}
+
+	#[test]
+	fn test_append_list() -> Result<(), Error> {
+		let mut list1 = list![1, 2, 3, 4];
+		list1.append(&list![4, 5, 6, 7])?;
+		assert_eq!(&list1, &list![1, 2, 3, 4, 4, 5, 6, 7]);
 		Ok(())
 	}
 }
