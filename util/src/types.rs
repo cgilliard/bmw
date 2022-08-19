@@ -17,6 +17,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 
+use crate::ser::SlabReader;
 use crate::slabs::Slab;
 use crate::slabs::SlabMut;
 use crate::static_hash::RawHashsetIterator;
@@ -850,6 +851,21 @@ where
 	fn iter_rev<'a>(&'a self) -> StaticListIterator<'a, V>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
+	fn head(&self) -> usize;
+	fn tail(&self) -> usize;
+	fn slab(&self, slab_id: usize) -> Result<Slab, Error>;
+	fn swap(&mut self, slab_id1: usize, slab_id2: usize) -> Result<(), Error>;
+	fn merge(&mut self, ptr1: usize, ptr2: usize) -> Result<(), Error>;
+	fn ptr_size(&self) -> usize;
+	fn get_reader(&mut self, slab_id: usize) -> Result<SlabReader, Error>;
+	fn max_value(&self) -> usize;
+}
+
+pub trait SortableList<V>: StaticList<V>
+where
+	V: Serializable + Ord + Debug,
+{
+	fn sort(&mut self) -> Result<(), Error>;
 }
 
 /// TODO: not implemented

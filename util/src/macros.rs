@@ -446,6 +446,15 @@ macro_rules! list {
 			Some($slab_allocator),
 		)
 	}};
+        ( $( $x:expr ),* ) => {
+        {
+            let mut temp_list = bmw_util::StaticListBuilder::build(bmw_util::StaticListConfig::default(), None)?;
+            $(
+                temp_list.push(&$x)?;
+            )*
+            temp_list
+        }
+        };
 }
 
 #[cfg(test)]
@@ -538,6 +547,27 @@ mod test {
 		}
 
 		assert_eq!(count, 5);
+		Ok(())
+	}
+
+	#[test]
+	fn test_list_braces() -> Result<(), Error> {
+		let list = list![1, 2, 3];
+		let mut i = 0;
+		for x in &list {
+			info!("list[{}]={}", i, x)?;
+			i += 1;
+			assert_eq!(x, i);
+		}
+		assert_eq!(i, 3);
+
+		let list = list!["ok".to_string(), "abc".to_string(), "def".to_string()];
+		i = 0;
+		for x in &list {
+			info!("list[{}]={}", i, x)?;
+			i += 1;
+		}
+
 		Ok(())
 	}
 }

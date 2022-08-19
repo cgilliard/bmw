@@ -59,11 +59,13 @@
 //!
 //! If enabled color coding is included as well.
 
+mod lock;
 mod log;
 mod macros;
 mod types;
 
 pub use crate::log::LogBuilder;
 
+pub use crate::lock::{Lock, LockBuilder, RwLockReadGuardWrapper, RwLockWriteGuardWrapper};
 pub use crate::macros::STATIC_LOG;
 pub use crate::types::{Log, LogConfig, LogConfigOption, LogConfigOptionName, LogLevel};

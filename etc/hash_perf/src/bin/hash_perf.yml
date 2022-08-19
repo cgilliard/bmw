@@ -60,3 +60,7 @@ args:
         long: get_count
         takes_value: true
         value_name: get_count
+    - test_list:
+        help: test performance of StaticList vs Vec
+        long: test_list
+        takes_value: false

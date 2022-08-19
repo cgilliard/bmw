@@ -211,7 +211,7 @@ pub use crate::slabs::{Slab, SlabAllocatorBuilder, SlabMut, GLOBAL_SLAB_ALLOCATO
 pub use crate::static_hash::{StaticHashsetBuilder, StaticHashtableBuilder};
 pub use crate::static_list::StaticListBuilder;
 pub use crate::types::{
-	Context, Reader, Serializable, SlabAllocator, SlabAllocatorConfig, StaticHashset,
+	Context, Reader, Serializable, SlabAllocator, SlabAllocatorConfig, SortableList, StaticHashset,
 	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig,
 	StaticQueue, ThreadPool, Writer,
 };

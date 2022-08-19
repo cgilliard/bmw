@@ -637,10 +637,10 @@ impl StaticHashImpl {
 						Err(_e) => {
 							let th = thread::current();
 							let n = th.name().unwrap_or("unknown");
-							warn!(
+							let _ = warn!(
 								"Slab allocator was not initialized for thread '{}'. {}",
 								n, "Initializing with default values.",
-							)?;
+							);
 							slabs.init(SlabAllocatorConfig::default())?;
 							slabs.slab_size()?
 						}

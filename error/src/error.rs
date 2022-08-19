@@ -17,6 +17,7 @@ use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
 use std::num::{ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
+use std::sync::{PoisonError, RwLockReadGuard, RwLockWriteGuard};
 
 /// Base Error struct which is used throughout bmw.
 #[derive(Debug, Fail)]
@@ -181,9 +182,24 @@ impl From<ParseIntError> for Error {
 
 impl From<Utf8Error> for Error {
 	fn from(e: Utf8Error) -> Error {
-		println!("x");
 		Error {
 			inner: Context::new(ErrorKind::Utf8(format!("Utf8 error: {}", e))),
+		}
+	}
+}
+
+impl<T> From<PoisonError<RwLockWriteGuard<'_, T>>> for Error {
+	fn from(e: PoisonError<RwLockWriteGuard<'_, T>>) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Poison(format!("Poison error: {}", e))),
+		}
+	}
+}
+
+impl<T> From<PoisonError<RwLockReadGuard<'_, T>>> for Error {
+	fn from(e: PoisonError<RwLockReadGuard<'_, T>>) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Poison(format!("Poison error: {}", e))),
 		}
 	}
 }

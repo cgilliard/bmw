@@ -14,6 +14,8 @@
 
 use bmw_err::Error;
 use bmw_log::*;
+use bmw_util::Context;
+use bmw_util::*;
 use bmw_util::{
 	SlabAllocatorBuilder, SlabAllocatorConfig, StaticHashtableBuilder, StaticHashtableConfig,
 };
@@ -54,6 +56,40 @@ unsafe impl GlobalAlloc for MonAllocator {
 #[global_allocator]
 static GLOBAL: MonAllocator = MonAllocator;
 
+fn do_test_list() -> Result<(), Error> {
+	init_slab_allocator!(48, 131072);
+
+	let mut list = list![];
+	let mut vec = vec![];
+	for _ in 0..131072 {
+		let r = rand::random::<i32>();
+		list.push(&r)?;
+		vec.push(r);
+	}
+	let now = Instant::now();
+	list.sort()?;
+	let elapsed = now.elapsed();
+	info!("list sort took {:?}", elapsed)?;
+
+	let now = Instant::now();
+	vec.sort();
+	let elapsed = now.elapsed();
+	info!("vec sort took {:?}", elapsed)?;
+
+	let mut i = 0;
+	for x in &list {
+		assert_eq!(x, vec[i]);
+		i += 1;
+	}
+	assert_eq!(i, vec.len());
+	for x in list.iter_rev() {
+		i -= 1;
+		assert_eq!(x, vec[i]);
+	}
+	assert_eq!(i, 0);
+	Ok(())
+}
+
 fn main() -> Result<(), Error> {
 	log_init!(LogConfig {
 		show_bt: bmw_log::LogConfigOption::ShowBt(false),
@@ -66,6 +102,12 @@ fn main() -> Result<(), Error> {
 		.version(built_info::PKG_VERSION)
 		.get_matches();
 
+	let test_list = args.is_present("test_list");
+
+	if test_list {
+		do_test_list()?;
+		return Ok(());
+	}
 	let count = match args.is_present("count") {
 		true => args.value_of("count").unwrap().parse()?,
 		false => 1_000,
@@ -131,17 +173,18 @@ fn main() -> Result<(), Error> {
 					keys.push(key);
 					values.push(value);
 				}
+				let mut context = Context::new();
 				for i in 0..count {
 					let mut hasher = DefaultHasher::new();
 					keys[i].hash(&mut hasher);
 					let hash = hasher.finish() as usize;
-					sh.insert_raw(&keys[i], hash, &values[i])?;
+					sh.insert_raw(&mut context, &keys[i], hash, &values[i])?;
 					if !no_gets {
 						for _ in 0..get_count {
 							let mut hasher = DefaultHasher::new();
 							keys[i].hash(&mut hasher);
 							let hash = hasher.finish() as usize;
-							sh.get_raw(&keys[i], hash)?;
+							sh.get_raw(&mut context, &keys[i], hash)?;
 						}
 					}
 				}
