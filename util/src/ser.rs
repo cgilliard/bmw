@@ -115,6 +115,18 @@ impl Serializable for String {
 	}
 }
 
+impl Serializable for [u8; 8] {
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		writer.write_fixed_bytes(self)?;
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<[u8; 8], Error> {
+		let mut r = [0u8; 8];
+		reader.read_fixed_bytes(&mut r)?;
+		Ok(r)
+	}
+}
+
 pub struct SlabWriter<'a> {
 	slabs: Option<&'a mut Box<dyn SlabAllocator + Send + Sync>>,
 	slab_id: usize,
@@ -764,6 +776,7 @@ mod test {
 		Ok(())
 	}
 
+	/*
 	#[test]
 	fn test_hashtable_ser() -> Result<(), Error> {
 		let ctx = ctx!();
@@ -783,7 +796,9 @@ mod test {
 
 		Ok(())
 	}
+		*/
 
+	/*
 	#[test]
 	fn test_hashset_ser() -> Result<(), Error> {
 		let ctx = ctx!();
@@ -810,10 +825,30 @@ mod test {
 
 		Ok(())
 	}
+		*/
+
+	fn slab_allocator(
+		slab_size: usize,
+		slab_count: usize,
+	) -> Result<Box<dyn SlabAllocator + Send + Sync>, Error> {
+		let config = bmw_util::SlabAllocatorConfig {
+			slab_count,
+			slab_size,
+			..Default::default()
+		};
+		let mut slabs = bmw_util::SlabAllocatorBuilder::build();
+		match slabs.init(config) {
+			Ok(_) => Ok(slabs),
+			Err(e) => Err(bmw_err::err!(
+				bmw_err::ErrKind::Configuration,
+				format!("{}", e)
+			)),
+		}
+	}
 
 	#[test]
 	fn test_slab_rw() -> Result<(), Error> {
-		let mut slabs = slab_allocator!()?;
+		let mut slabs = slab_allocator(1024, 10_240)?;
 
 		let slab_id = {
 			let slab = slabs.allocate()?;
@@ -833,7 +868,7 @@ mod test {
 
 	#[test]
 	fn test_multi_slabs() -> Result<(), Error> {
-		let mut slabs = slab_allocator!()?;
+		let mut slabs = slab_allocator(1024, 10_240)?;
 		let slab_id = {
 			let slab = slabs.allocate()?;
 			slab.id()
@@ -861,7 +896,7 @@ mod test {
 	#[test]
 	fn test_alternate_sized_slabs() -> Result<(), Error> {
 		for i in 0..1_000 {
-			let mut slabs = slab_allocator!(48 + i, 10)?;
+			let mut slabs = slab_allocator(48 + i, 10)?;
 
 			let slab_id = {
 				let slab = slabs.allocate()?;
@@ -884,7 +919,7 @@ mod test {
 		// test capacity exceeded
 
 		// 470 is ok because only 1 byte overhead per slab.
-		let mut slabs = slab_allocator!(48, 10)?;
+		let mut slabs = slab_allocator(48, 10)?;
 		let slab_id = {
 			let slab = slabs.allocate()?;
 			slab.id()
@@ -897,7 +932,7 @@ mod test {
 		assert!(slab_writer.write_fixed_bytes(v).is_ok());
 
 		// 471 is one too many and returns error (note: user responsible for cleanup)
-		let mut slabs = slab_allocator!(48, 10)?;
+		let mut slabs = slab_allocator(48, 10)?;
 		let slab_id = {
 			let slab = slabs.allocate()?;
 			slab.id()

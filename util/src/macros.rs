@@ -166,7 +166,7 @@ macro_rules! slab_allocator {
 		}
 	}};
 }
-
+/*
 /// The [`crate::hashtable`] macro is used to instantiate a [`crate::StaticHashtable`]. If no
 /// parameters are specified, default values of `max_entries` = 1_000_000 and `max_load_factor` =
 /// 0.75 are used. If one parameter is specified, it will be use for `max_entries`. If two
@@ -218,7 +218,7 @@ macro_rules! slab_allocator {
 ///     hashtable2.insert(ctx, &2, &100)?;
 ///     hashtable3.insert(ctx, &3, &100)?;
 ///     hashtable4.insert(ctx, &4, &100)?;
-///     
+///
 ///
 ///     Ok(())
 /// }
@@ -304,7 +304,7 @@ macro_rules! hashtable {
 ///     hashset2.insert(ctx, &2)?;
 ///     hashset3.insert(ctx, &3)?;
 ///     hashset4.insert(ctx, &4)?;
-///     
+///
 ///
 ///     Ok(())
 /// }
@@ -434,7 +434,8 @@ macro_rules! hashset_set_raw {
 		let _ = $hashset.insert($ctx, &());
 	}};
 }
-
+*/
+/*
 #[macro_export]
 macro_rules! list {
 	() => {{
@@ -446,16 +447,17 @@ macro_rules! list {
 			Some($slab_allocator),
 		)
 	}};
-        ( $( $x:expr ),* ) => {
-        {
-            let mut temp_list = bmw_util::StaticListBuilder::build(bmw_util::StaticListConfig::default(), None)?;
-            $(
-                temp_list.push(&$x)?;
-            )*
-            temp_list
-        }
-        };
+		( $( $x:expr ),* ) => {
+		{
+			let mut temp_list = bmw_util::StaticListBuilder::build(bmw_util::StaticListConfig::default(), None)?;
+			$(
+				temp_list.push(&$x)?;
+			)*
+			temp_list
+		}
+		};
 }
+*/
 
 #[cfg(test)]
 mod test {
@@ -465,6 +467,7 @@ mod test {
 
 	debug!();
 
+	/*
 	#[test]
 	fn test_hashtable_macro() -> Result<(), Error> {
 		let ctx = ctx!();
@@ -493,35 +496,37 @@ mod test {
 
 		Ok(())
 	}
+		*/
+	/*
+		#[test]
+		fn test_hashset_macro() -> Result<(), Error> {
+			let ctx = ctx!();
+			let mut hash = hashset!()?;
+			hash.insert(ctx, &1)?;
+			assert!(hash.contains(ctx, &1)?);
 
-	#[test]
-	fn test_hashset_macro() -> Result<(), Error> {
-		let ctx = ctx!();
-		let mut hash = hashset!()?;
-		hash.insert(ctx, &1)?;
-		assert!(hash.contains(ctx, &1)?);
+			let mut hash = hashset!(10)?;
+			for i in 0..10 {
+				hash.insert(ctx, &i)?;
+			}
+			assert!(hash.insert(ctx, &100).is_err());
 
-		let mut hash = hashset!(10)?;
-		for i in 0..10 {
-			hash.insert(ctx, &i)?;
+			let mut hash = hashset!(10, 0.85)?;
+			for i in 0..10 {
+				hash.insert(ctx, &i)?;
+			}
+			assert!(hash.insert(ctx, &100).is_err());
+
+			let slabs = slab_allocator!(1024, 10)?;
+			let mut hash = hashset!(100, 0.85, slabs)?;
+			for i in 0..10 {
+				hash.insert(ctx, &i)?;
+			}
+			assert!(hash.insert(ctx, &100).is_err());
+
+			Ok(())
 		}
-		assert!(hash.insert(ctx, &100).is_err());
-
-		let mut hash = hashset!(10, 0.85)?;
-		for i in 0..10 {
-			hash.insert(ctx, &i)?;
-		}
-		assert!(hash.insert(ctx, &100).is_err());
-
-		let slabs = slab_allocator!(1024, 10)?;
-		let mut hash = hashset!(100, 0.85, slabs)?;
-		for i in 0..10 {
-			hash.insert(ctx, &i)?;
-		}
-		assert!(hash.insert(ctx, &100).is_err());
-
-		Ok(())
-	}
+	*/
 
 	#[test]
 	fn test_list_macro() -> Result<(), Error> {

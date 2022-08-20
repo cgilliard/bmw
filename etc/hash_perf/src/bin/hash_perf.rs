@@ -59,34 +59,65 @@ static GLOBAL: MonAllocator = MonAllocator;
 fn do_test_list() -> Result<(), Error> {
 	init_slab_allocator!(48, 131072);
 
+	{
+		let mut list = list![];
+		let mut vec = vec![];
+		for _ in 0..131072 {
+			let r = rand::random::<i32>();
+			list.push(&r)?;
+			vec.push(r);
+		}
+		let now = Instant::now();
+		list.sort()?;
+		let elapsed = now.elapsed();
+		info!("list sort took {:?}", elapsed)?;
+
+		let now = Instant::now();
+		vec.sort();
+		let elapsed = now.elapsed();
+		info!("vec sort took {:?}", elapsed)?;
+
+		let mut i = 0;
+		for x in &list {
+			assert_eq!(x, vec[i]);
+			i += 1;
+		}
+		assert_eq!(i, vec.len());
+		for x in list.iter_rev() {
+			i -= 1;
+			assert_eq!(x, vec[i]);
+		}
+		assert_eq!(i, 0);
+	}
+
 	let mut list = list![];
-	let mut vec = vec![];
-	for _ in 0..131072 {
-		let r = rand::random::<i32>();
-		list.push(&r)?;
-		vec.push(r);
-	}
+	list.push(&1)?;
+	let vec: Vec<i32> = vec![0i32];
+
+	let mut nlist = list![];
 	let now = Instant::now();
-	list.sort()?;
+	for _ in 0..10_000 {
+		//let mut nlist = list![];
+		nlist.append(&list)?;
+		nlist.clear()?;
+	}
 	let elapsed = now.elapsed();
-	info!("list sort took {:?}", elapsed)?;
+	info!(
+		"List append={}ms",
+		elapsed.as_nanos() as f64 / 1_000_000 as f64
+	)?;
 
 	let now = Instant::now();
-	vec.sort();
+	for _ in 0..10_000 {
+		let mut nvec: Vec<i32> = vec![];
+		nvec.extend(&vec);
+	}
 	let elapsed = now.elapsed();
-	info!("vec sort took {:?}", elapsed)?;
+	info!(
+		"Vec append={}ms",
+		elapsed.as_nanos() as f64 / 1_000_000 as f64
+	)?;
 
-	let mut i = 0;
-	for x in &list {
-		assert_eq!(x, vec[i]);
-		i += 1;
-	}
-	assert_eq!(i, vec.len());
-	for x in list.iter_rev() {
-		i -= 1;
-		assert_eq!(x, vec[i]);
-	}
-	assert_eq!(i, 0);
 	Ok(())
 }
 
@@ -161,7 +192,7 @@ fn main() -> Result<(), Error> {
 				};
 				let mut slabs = SlabAllocatorBuilder::build();
 				slabs.init(sconf)?;
-				let mut sh = StaticHashtableBuilder::build::<(), ()>(shconfig, Some(slabs))?;
+				let mut sh = StaticHashtableBuilder::build(shconfig, Some(slabs))?;
 				//let mut sh = StaticHashtableBuilder::build::<(), ()>(shconfig, None)?;
 
 				let mut keys = vec![];
@@ -175,16 +206,10 @@ fn main() -> Result<(), Error> {
 				}
 				let mut context = Context::new();
 				for i in 0..count {
-					let mut hasher = DefaultHasher::new();
-					keys[i].hash(&mut hasher);
-					let hash = hasher.finish() as usize;
-					sh.insert_raw(&mut context, &keys[i], hash, &values[i])?;
+					sh.insert(&keys[i], &values[i])?;
 					if !no_gets {
 						for _ in 0..get_count {
-							let mut hasher = DefaultHasher::new();
-							keys[i].hash(&mut hasher);
-							let hash = hasher.finish() as usize;
-							sh.get_raw(&mut context, &keys[i], hash)?;
+							assert_eq!(sh.get(&keys[i])?, Some(values[i]));
 						}
 					}
 				}

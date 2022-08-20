@@ -198,20 +198,18 @@
 //! }
 //!```
 
-mod macros;
+//mod macros;
 mod misc;
 mod ser;
 mod slabs;
 mod static_hash;
-mod static_list;
+//mod static_list;
 mod types;
 
 pub use crate::ser::{deserialize, serialize, BinReader, BinWriter};
 pub use crate::slabs::{Slab, SlabAllocatorBuilder, SlabMut, GLOBAL_SLAB_ALLOCATOR};
-pub use crate::static_hash::{StaticHashsetBuilder, StaticHashtableBuilder};
-pub use crate::static_list::StaticListBuilder;
 pub use crate::types::{
-	Context, Reader, Serializable, SlabAllocator, SlabAllocatorConfig, SortableList, StaticHashset,
+	Reader, Serializable, SlabAllocator, SlabAllocatorConfig, SortableList, StaticBuilder,
 	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig,
 	StaticQueue, ThreadPool, Writer,
 };

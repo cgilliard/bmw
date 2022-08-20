@@ -284,6 +284,10 @@ impl SlabAllocatorBuilder {
 	pub fn build() -> Box<dyn SlabAllocator + Send + Sync> {
 		Box::new(SlabAllocatorImpl::new())
 	}
+
+	pub fn build_impl() -> impl SlabAllocator {
+		SlabAllocatorImpl::new()
+	}
 }
 
 #[cfg(test)]
