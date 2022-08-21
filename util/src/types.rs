@@ -142,7 +142,7 @@ where
 	fn peek(&self) -> Result<Option<V>, Error>;
 }
 
-pub trait StaticList<V>
+pub trait StaticList<V>: PartialEq + Debug
 where
 	V: Serializable,
 {
@@ -243,10 +243,11 @@ pub trait SlabAllocator {
 	///```
 	/// use bmw_err::*;
 	/// use bmw_util::slab_allocator;
+	/// use bmw_util::ConfigOption::{SlabSize, SlabCount};
 	///
 	/// fn main() -> Result<(), Error> {
 	///     // instantiate a slab allocator with a slab count of 1,000.
-	///     let mut slabs = slab_allocator!(1_000, 1_000)?;
+	///     let mut slabs = slab_allocator!(SlabSize(1_000), SlabCount(1_000))?;
 	///
 	///     // assert that there are 1,000 free slabs.
 	///     assert_eq!(slabs.free_count()?, 1_000);
@@ -288,12 +289,13 @@ pub trait SlabAllocator {
 	/// use bmw_err::*;
 	/// use bmw_log::*;
 	/// use bmw_util::slab_allocator;
+	/// use bmw_util::ConfigOption::{SlabSize,SlabCount};
 	///
 	/// info!();
 	///
 	/// fn main() -> Result<(), Error> {
 	///     // instantiate a slab allocator with a slab count of 1,000.
-	///     let mut slabs = slab_allocator!(1_000, 1_000)?;
+	///     let mut slabs = slab_allocator!(SlabCount(1_000), SlabSize(1_000))?;
 	///
 	///     // assert that there are 1,000 free slabs.
 	///     assert_eq!(slabs.free_count()?, 1_000);
@@ -334,12 +336,13 @@ pub trait SlabAllocator {
 	/// use bmw_err::*;
 	/// use bmw_log::*;
 	/// use bmw_util::slab_allocator;
+	/// use bmw_util::ConfigOption::{SlabSize, SlabCount};
 	///
 	/// info!();
 	///
 	/// fn main() -> Result<(), Error> {
 	///     // instantiate a slab allocator with a slab count of 1,000.
-	///     let mut slabs = slab_allocator!(1_000, 1_000)?;
+	///     let mut slabs = slab_allocator!(SlabSize(1_000), SlabCount(1_000))?;
 	///
 	///     // assert that there are 1,000 free slabs.
 	///     assert_eq!(slabs.free_count()?, 1_000);

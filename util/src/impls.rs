@@ -22,6 +22,7 @@ use crate::{
 use bmw_err::*;
 use bmw_log::*;
 use std::collections::hash_map::DefaultHasher;
+use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::thread;
@@ -158,6 +159,18 @@ impl Default for StaticHashsetConfig {
 impl Default for StaticListConfig {
 	fn default() -> Self {
 		Self {}
+	}
+}
+
+impl PartialEq for StaticImpl {
+	fn eq(&self, _: &Self) -> bool {
+		false
+	}
+}
+
+impl Debug for StaticImpl {
+	fn fmt(&self, _: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+		Ok(())
 	}
 }
 

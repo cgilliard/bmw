@@ -21,8 +21,8 @@ mod types;
 pub use crate::ser::{deserialize, serialize, BinReader, BinWriter, SlabReader, SlabWriter};
 pub use crate::slabs::{Slab, SlabAllocatorBuilder, SlabMut, GLOBAL_SLAB_ALLOCATOR};
 pub use crate::types::{
-	HashsetIterator, HashtableIterator, ListIterator, Reader, Serializable, SlabAllocator,
-	SlabAllocatorConfig, SortableList, StaticBuilder, StaticHashset, StaticHashsetConfig,
-	StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig, StaticQueue, ThreadPool,
-	Writer,
+	ConfigOption, HashsetIterator, HashtableIterator, ListIterator, Reader, Serializable,
+	SlabAllocator, SlabAllocatorConfig, SortableList, StaticBuilder, StaticHashset,
+	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig,
+	StaticQueue, ThreadPool, Writer,
 };
