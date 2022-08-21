@@ -290,7 +290,10 @@ macro_rules! list {
 mod test {
 	use crate as bmw_util;
 	use crate::{StaticHashset, StaticHashtable, StaticList};
+	use bmw_log::*;
 	use bmw_util::ConfigOption::*;
+
+	info!();
 
 	#[test]
 	fn test_slab_allocator_macro() -> Result<(), bmw_err::Error> {
@@ -343,7 +346,12 @@ mod test {
 		let mut list1 = list!['1', '2', '3'];
 		let list2 = list!['a', 'b', 'c'];
 		list1.append(&list2)?;
-		//assert_eq!(list1, list!['a', 'b', 'c', '1', '2', '3']);
+		info!("list={:?}", list1)?;
+		assert_eq!(list1, list!['a', 'b', 'c', '1', '2', '3']);
+		assert_ne!(list1, list!['a', 'b', 'c', '1', '2']);
+
+		let list3 = list![1, 2, 3, 4, 5];
+		info!("list={:?}", list3)?;
 		Ok(())
 	}
 }

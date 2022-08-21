@@ -107,8 +107,11 @@ where
 	}
 }
 
-impl<'a, K, V> HashtableIterator<'a, K, V> {
-	fn new(hashtable: &'a StaticImpl, cur: usize) -> Self {
+impl<'a, K, V> HashtableIterator<'a, K, V>
+where
+	K: Serializable,
+{
+	fn new(hashtable: &'a StaticImpl<K>, cur: usize) -> Self {
 		Self {
 			hashtable,
 			cur,
@@ -117,8 +120,11 @@ impl<'a, K, V> HashtableIterator<'a, K, V> {
 	}
 }
 
-impl<'a, K> HashsetIterator<'a, K> {
-	fn new(hashset: &'a StaticImpl, cur: usize) -> Self {
+impl<'a, K> HashsetIterator<'a, K>
+where
+	K: Serializable,
+{
+	fn new(hashset: &'a StaticImpl<K>, cur: usize) -> Self {
 		Self {
 			hashset,
 			cur,
@@ -127,8 +133,11 @@ impl<'a, K> HashsetIterator<'a, K> {
 	}
 }
 
-impl<'a, V> ListIterator<'a, V> {
-	fn new(list: &'a StaticImpl, cur: usize, direction: Direction) -> Self {
+impl<'a, V> ListIterator<'a, V>
+where
+	V: Serializable,
+{
+	fn new(list: &'a StaticImpl<V>, cur: usize, direction: Direction) -> Self {
 		Self {
 			list,
 			cur,
@@ -162,19 +171,57 @@ impl Default for StaticListConfig {
 	}
 }
 
-impl PartialEq for StaticImpl {
-	fn eq(&self, _: &Self) -> bool {
-		false
+impl<K> PartialEq for StaticImpl<K>
+where
+	K: Serializable + PartialEq,
+{
+	fn eq(&self, rhs: &Self) -> bool {
+		if self.size != rhs.size {
+			false
+		} else {
+			let mut itt1 = ListIterator::new(self, self.head, Direction::Forward);
+			let mut itt2 = ListIterator::new(rhs, self.head, Direction::Forward);
+			loop {
+				let next1 = itt1.next();
+				let next2 = itt2.next();
+				if next1 != next2 {
+					return false;
+				}
+				if next1 == None {
+					break;
+				}
+			}
+
+			true
+		}
 	}
 }
 
-impl Debug for StaticImpl {
-	fn fmt(&self, _: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl<K> Debug for StaticImpl<K>
+where
+	K: Serializable + Debug,
+{
+	fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+		let itt = ListIterator::new(self, self.head, Direction::Forward);
+		write!(f, "[")?;
+		let mut i = 0;
+		for x in itt {
+			if i == 0 {
+				write!(f, "{:?}", x)?;
+			} else {
+				write!(f, ", {:?}", x)?;
+			}
+			i += 1;
+		}
+		write!(f, "]")?;
 		Ok(())
 	}
 }
 
-impl StaticImpl {
+impl<K> StaticImpl<K>
+where
+	K: Serializable,
+{
 	fn new(
 		hashtable_config: Option<StaticHashtableConfig>,
 		hashset_config: Option<StaticHashsetConfig>,
@@ -260,15 +307,15 @@ impl StaticImpl {
 			size: 0,
 			head: max_value,
 			tail: max_value,
+			_phantom_data: PhantomData,
 		})
 	}
 
-	fn get_next<K, V>(
+	fn get_next<V>(
 		&self,
 		cur: &mut usize,
 	) -> Result<Option<<HashtableIterator<K, V> as Iterator>::Item>, Error>
 	where
-		K: Serializable,
 		V: Serializable,
 	{
 		match self.get_next_slot(cur, Direction::Backward)? {
@@ -353,19 +400,9 @@ impl StaticImpl {
 		Ok(())
 	}
 
-	fn entry_hash<K: Hash>(&self, key: &K) -> usize {
-		let mut hasher = DefaultHasher::new();
-		key.hash(&mut hasher);
-		let hash = hasher.finish() as usize;
-		hash % match &self.entry_array {
-			Some(entry_array) => entry_array.len(),
-			None => 1,
-		}
-	}
-
-	fn get_impl<K>(&self, key: &K) -> Result<Option<(usize, SlabReader)>, Error>
+	fn get_impl(&self, key: &K, hash: usize) -> Result<Option<(usize, SlabReader)>, Error>
 	where
-		K: Serializable + Hash + PartialEq,
+		K: Serializable + PartialEq,
 	{
 		let entry_array_len = match self.entry_array.as_ref() {
 			Some(e) => e.len(),
@@ -376,7 +413,11 @@ impl StaticImpl {
 				));
 			}
 		};
-		let mut entry = self.entry_hash(key);
+		let mut entry = hash
+			% match &self.entry_array {
+				Some(entry_array) => entry_array.len(),
+				None => 1,
+			};
 
 		let mut i = 0;
 		loop {
@@ -391,7 +432,7 @@ impl StaticImpl {
 
 			// does the current key match ours?
 			if self.lookup_entry(entry) != SLOT_DELETED {
-				match self.read_key::<K>(self.lookup_entry(entry))? {
+				match self.read_key(self.lookup_entry(entry))? {
 					Some((k, reader)) => {
 						if &k == key {
 							return Ok(Some((entry, reader)));
@@ -406,7 +447,12 @@ impl StaticImpl {
 		}
 	}
 
-	fn insert_hash_impl<K, V>(&mut self, key: Option<&K>, value: Option<&V>) -> Result<(), Error>
+	fn insert_hash_impl<V>(
+		&mut self,
+		key: Option<&K>,
+		value: Option<&V>,
+		hash: usize,
+	) -> Result<(), Error>
 	where
 		K: Serializable + Hash + PartialEq,
 		V: Serializable,
@@ -418,7 +464,11 @@ impl StaticImpl {
 
 		let entry = match key {
 			Some(key) => {
-				let mut entry = self.entry_hash(key);
+				let mut entry = hash
+					% match &self.entry_array {
+						Some(entry_array) => entry_array.len(),
+						None => 1,
+					};
 
 				// check the load factor
 				if (self.size + 1) as f64 > self.max_load_factor * entry_array_len as f64 {
@@ -438,7 +488,7 @@ impl StaticImpl {
 					}
 
 					// does the current key match ours?
-					match self.read_key::<K>(entry_value)? {
+					match self.read_key(entry_value)? {
 						Some((k, _reader)) => {
 							if &k == key {
 								self.size = self.size.saturating_sub(1);
@@ -461,14 +511,13 @@ impl StaticImpl {
 		self.insert_impl(key, value, Some(entry))
 	}
 
-	fn insert_impl<K, V>(
+	fn insert_impl<V>(
 		&mut self,
 		key: Option<&K>,
 		value: Option<&V>,
 		entry: Option<usize>,
 	) -> Result<(), Error>
 	where
-		K: Serializable,
 		V: Serializable,
 	{
 		let ptr_size = self.ptr_size;
@@ -573,10 +622,7 @@ impl StaticImpl {
 		Ok(())
 	}
 
-	fn read_key<K>(&self, slab_id: usize) -> Result<Option<(K, SlabReader)>, Error>
-	where
-		K: Serializable + Hash + PartialEq,
-	{
+	fn read_key(&self, slab_id: usize) -> Result<Option<(K, SlabReader)>, Error> {
 		let ptr_size = self.ptr_size;
 		let mut skip = [0u8; 16];
 		// get a reader based on requested slab_id
@@ -755,11 +801,15 @@ impl StaticImpl {
 			size: self.size,
 			head: self.head,
 			tail: self.tail,
+			_phantom_data: PhantomData,
 		}
 	}
 }
 
-impl Drop for StaticImpl {
+impl<K> Drop for StaticImpl<K>
+where
+	K: Serializable,
+{
 	fn drop(&mut self) {
 		match self.clear_impl() {
 			Ok(_) => {}
@@ -770,22 +820,31 @@ impl Drop for StaticImpl {
 	}
 }
 
-impl<K, V> StaticHashtable<K, V> for StaticImpl
+impl<K, V> StaticHashtable<K, V> for StaticImpl<K>
 where
 	K: Serializable + Hash + PartialEq,
 	V: Serializable,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error> {
-		self.insert_hash_impl(Some(key), Some(value))
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		self.insert_hash_impl(Some(key), Some(value), hash)
 	}
 	fn get(&self, key: &K) -> Result<Option<V>, Error> {
-		match self.get_impl(key)? {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		match self.get_impl(key, hash)? {
 			Some((_entry, mut reader)) => Ok(Some(V::read(&mut reader)?)),
 			None => Ok(None),
 		}
 	}
 	fn remove(&mut self, key: &K) -> Result<Option<V>, Error> {
-		match self.get_impl(key)? {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		match self.get_impl(key, hash)? {
 			Some((entry, mut reader)) => {
 				let v = V::read(&mut reader)?;
 				self.remove_impl(entry)?;
@@ -810,21 +869,30 @@ where
 	}
 }
 
-impl<K> StaticHashset<K> for StaticImpl
+impl<K> StaticHashset<K> for StaticImpl<K>
 where
 	K: Serializable + Hash + PartialEq,
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error> {
-		self.insert_hash_impl::<K, K>(Some(key), None)
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		self.insert_hash_impl::<K>(Some(key), None, hash)
 	}
 	fn contains(&self, key: &K) -> Result<bool, Error> {
-		match self.get_impl(key)? {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		match self.get_impl(key, hash)? {
 			Some(_) => Ok(true),
 			None => Ok(false),
 		}
 	}
 	fn remove(&mut self, key: &K) -> Result<bool, Error> {
-		match self.get_impl(key)? {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		match self.get_impl(key, hash)? {
 			Some((entry, _reader)) => {
 				self.remove_impl(entry)?;
 				Ok(true)
@@ -848,12 +916,12 @@ where
 	}
 }
 
-impl<V> StaticList<V> for StaticImpl
+impl<V> StaticList<V> for StaticImpl<V>
 where
-	V: Serializable,
+	V: Serializable + Debug + PartialEq,
 {
 	fn push(&mut self, value: V) -> Result<(), Error> {
-		self.insert_impl::<V, V>(Some(&value), None, None)
+		self.insert_impl::<V>(Some(&value), None, None)
 	}
 
 	fn iter<'a>(&'a self) -> ListIterator<'a, V> {
@@ -906,7 +974,7 @@ impl StaticBuilder {
 		slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
 	) -> Result<impl StaticList<V>, Error>
 	where
-		V: Serializable,
+		V: Serializable + Debug + PartialEq,
 	{
 		StaticImpl::new(None, None, Some(config), slabs)
 	}

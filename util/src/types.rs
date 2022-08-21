@@ -513,26 +513,38 @@ where
 
 pub struct StaticBuilder {}
 
-pub struct HashtableIterator<'a, K, V> {
-	pub(crate) hashtable: &'a StaticImpl,
+pub struct HashtableIterator<'a, K, V>
+where
+	K: Serializable,
+{
+	pub(crate) hashtable: &'a StaticImpl<K>,
 	pub(crate) cur: usize,
 	pub(crate) _phantom_data: PhantomData<(K, V)>,
 }
 
-pub struct HashsetIterator<'a, K> {
-	pub(crate) hashset: &'a StaticImpl,
+pub struct HashsetIterator<'a, K>
+where
+	K: Serializable,
+{
+	pub(crate) hashset: &'a StaticImpl<K>,
 	pub(crate) cur: usize,
 	pub(crate) _phantom_data: PhantomData<K>,
 }
 
-pub struct ListIterator<'a, V> {
-	pub(crate) list: &'a StaticImpl,
+pub struct ListIterator<'a, V>
+where
+	V: Serializable,
+{
+	pub(crate) list: &'a StaticImpl<V>,
 	pub(crate) cur: usize,
 	pub(crate) direction: Direction,
 	pub(crate) _phantom_data: PhantomData<V>,
 }
 
-pub(crate) struct StaticImpl {
+pub(crate) struct StaticImpl<K>
+where
+	K: Serializable,
+{
 	pub(crate) slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
 	pub(crate) max_value: usize,
 	pub(crate) bytes_per_slab: usize,
@@ -543,6 +555,7 @@ pub(crate) struct StaticImpl {
 	pub(crate) head: usize,
 	pub(crate) tail: usize,
 	pub(crate) max_load_factor: f64,
+	pub(crate) _phantom_data: PhantomData<K>,
 }
 
 #[derive(Clone, Copy)]
