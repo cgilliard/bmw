@@ -11,8 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::misc::{set_max, slice_to_usize, usize_to_slice};
 use crate::{SlabAllocator, SlabAllocatorConfig};
-use bmw_err::{err, try_into, ErrKind, Error};
+use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::cell::UnsafeCell;
 
@@ -53,6 +54,8 @@ struct SlabAllocatorImpl {
 	data: Vec<u8>,
 	first_free: usize,
 	free_count: usize,
+	ptr_size: usize,
+	max_value: usize,
 }
 
 impl Default for SlabAllocatorConfig {
@@ -102,19 +105,23 @@ impl SlabAllocator for SlabAllocatorImpl {
 		}
 		let config = self.config.as_ref().unwrap();
 		debug!("allocate:self.config={:?}", config)?;
-		if self.first_free == usize::MAX {
+		if self.first_free == self.max_value {
 			return Err(err!(ErrKind::CapacityExceeded, "no more slabs available"));
 		}
 
 		let id = self.first_free;
-		let offset = (8 + config.slab_size) * id;
-		self.first_free = usize::from_be_bytes(try_into!(self.data[offset..offset + 8])?);
+		let offset = (self.ptr_size + config.slab_size) * id;
+		self.first_free = slice_to_usize(&self.data[offset..offset + self.ptr_size])?;
 		debug!("new firstfree={}", self.first_free)?;
-		let offset = offset + 8;
-		// mark it as not free we use usize::MAX - 1 because usize::MAX is used to
+		let offset = offset + self.ptr_size;
+		// mark it as not free we use max_value - 1 because max_value is used to
 		// terminate the free list
-		self.data[(8 + config.slab_size) * id..(8 + config.slab_size) * id + 8]
-			.clone_from_slice(&(usize::MAX - 1).to_be_bytes());
+		let mut invalid_ptr = [0u8; 8];
+		usize_to_slice(self.max_value - 1, &mut invalid_ptr[0..self.ptr_size])?;
+
+		self.data[(self.ptr_size + config.slab_size) * id
+			..(self.ptr_size + config.slab_size) * id + self.ptr_size]
+			.clone_from_slice(&invalid_ptr[0..self.ptr_size]);
 		let data = &mut self.data[offset..offset + config.slab_size as usize];
 		self.free_count = self.free_count.saturating_sub(1);
 
@@ -128,23 +135,32 @@ impl SlabAllocator for SlabAllocatorImpl {
 					let fmt = format!("slab.id = {}, total slabs = {}", id, config.slab_count);
 					return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 				}
-				let offset = (8 + config.slab_size) * id;
+				let offset = (self.ptr_size + config.slab_size) * id;
 				debug!(
 					"cur data = {:?},first_free={}",
-					&self.data[offset..offset + 8],
+					&self.data[offset..offset + self.ptr_size],
 					self.first_free
 				)?;
 				// check that it's currently allocated
-				if self.data[offset..offset + 8] != (usize::MAX - 1).to_be_bytes() {
+				let slab_entry = slice_to_usize(&self.data[offset..offset + self.ptr_size])?;
+
+				if slab_entry != self.max_value - 1 {
+					//if true {
 					debug!("double free")?;
 					// double free error
 					let fmt = format!("slab.id = {} has been freed when not allocated", id);
 					return Err(err!(ErrKind::IllegalState, fmt));
 				}
 
+				let mut first_free_slice = [0u8; 8];
+				usize_to_slice(self.first_free, &mut first_free_slice[0..self.ptr_size])?;
 				debug!("free:self.config={:?},id={}", config, id)?;
-				self.data[offset..offset + 8].clone_from_slice(&self.first_free.to_be_bytes());
-				debug!("set data offset to {:?}", &self.data[offset..offset + 8])?;
+				self.data[offset..offset + self.ptr_size]
+					.clone_from_slice(&first_free_slice[0..self.ptr_size]);
+				debug!(
+					"set data offset to {:?}",
+					&self.data[offset..offset + self.ptr_size]
+				)?;
 				self.first_free = id;
 				debug!("update firstfree to {}", self.first_free)?;
 				self.free_count += 1;
@@ -166,7 +182,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 		}
 		debug!("get:self.config={:?},id={}", config, id)?;
-		let offset = 8 + ((8 + config.slab_size) * id);
+		let offset = self.ptr_size + ((self.ptr_size + config.slab_size) * id);
 		let data = &self.data[offset..offset + config.slab_size];
 		Ok(Slab { data, id })
 	}
@@ -180,7 +196,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 			return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 		}
 		debug!("get_mut:self.config={:?},id={}", config, id)?;
-		let offset = 8 + ((8 + config.slab_size) * id);
+		let offset = self.ptr_size + ((self.ptr_size + config.slab_size) * id);
 		let data = &mut self.data[offset..offset + config.slab_size as usize];
 		Ok(SlabMut { data, id })
 	}
@@ -236,8 +252,28 @@ impl SlabAllocator for SlabAllocatorImpl {
 					));
 				}
 				let mut data = vec![];
-				data.resize(config.slab_count * (config.slab_size + 8), 0u8);
-				Self::build_free_list(&mut data, config.slab_count, config.slab_size)?;
+				self.ptr_size = 0;
+				let mut x = config.slab_count + 2; // two more,
+								   // one for termination
+								   // pointer and one for free status
+				loop {
+					if x == 0 {
+						break;
+					}
+					x >>= 8;
+					self.ptr_size += 1;
+				}
+				let mut ptr = [0u8; 8];
+				set_max(&mut ptr[0..self.ptr_size]);
+				self.max_value = slice_to_usize(&ptr[0..self.ptr_size])?;
+				data.resize(config.slab_count * (config.slab_size + self.ptr_size), 0u8);
+				Self::build_free_list(
+					&mut data,
+					config.slab_count,
+					config.slab_size,
+					self.ptr_size,
+					self.max_value,
+				)?;
 				self.data = data;
 				self.free_count = config.slab_count;
 				self.config = Some(config);
@@ -255,6 +291,8 @@ impl SlabAllocatorImpl {
 			free_count: 0,
 			data: vec![],
 			first_free: 0,
+			ptr_size: 8,
+			max_value: 0,
 		}
 	}
 
@@ -262,16 +300,19 @@ impl SlabAllocatorImpl {
 		data: &mut Vec<u8>,
 		slab_count: usize,
 		slab_size: usize,
+		ptr_size: usize,
+		max_value: usize,
 	) -> Result<(), Error> {
 		for i in 0..slab_count {
-			let next_bytes = if i < slab_count - 1 {
-				(i + 1).to_be_bytes()
+			let mut next_bytes = [0u8; 8];
+			if i < slab_count - 1 {
+				usize_to_slice(i + 1, &mut next_bytes[0..ptr_size])?;
 			} else {
-				usize::MAX.to_be_bytes()
-			};
+				usize_to_slice(max_value, &mut next_bytes[0..ptr_size])?;
+			}
 
-			let offset_next = i * (8 + slab_size);
-			data[offset_next..offset_next + 8].clone_from_slice(&next_bytes);
+			let offset_next = i * (ptr_size + slab_size);
+			data[offset_next..offset_next + ptr_size].clone_from_slice(&next_bytes[0..ptr_size]);
 		}
 		Ok(())
 	}

@@ -339,7 +339,7 @@ where
 		};
 		debug!("slot={}", slot)?;
 
-		let mut ptrs = [0u8; 8];
+		let mut ptrs = [0u8; 16];
 		let ptr_size = self.ptr_size;
 		let mut reader = self.get_reader(slot)?;
 
@@ -527,18 +527,16 @@ where
 			Some(entry) => entry,
 			None => slab_id,
 		};
-		let mut prev = [0u8; 8];
-		let mut next = [0u8; 8];
+		let mut ptrs = [0u8; 16];
 		debug!("slab_id={}", slab_id)?;
 		// update head/tail pointers
-		usize_to_slice(SLOT_EMPTY, &mut next[0..ptr_size])?;
-		usize_to_slice(tail, &mut prev[0..ptr_size])?;
+		usize_to_slice(SLOT_EMPTY, &mut ptrs[0..ptr_size])?;
+		usize_to_slice(tail, &mut ptrs[ptr_size..ptr_size * 2])?;
 		debug!(
 			"updating slab id {} with next = {}, prev = {}",
 			slab_id, max_value, tail
 		)?;
-		writer.write_fixed_bytes(&next[0..ptr_size])?;
-		writer.write_fixed_bytes(&prev[0..ptr_size])?;
+		writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
 
 		match key {
 			Some(key) => match key.write(&mut writer) {
@@ -577,12 +575,10 @@ where
 					if entry_array[self.tail] < max_value {
 						let entry_value = self.lookup_entry(self.tail);
 						let mut reader = self.get_reader(entry_value)?;
-						reader.read_fixed_bytes(&mut next[0..ptr_size])?;
-						reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
+						reader.read_fixed_bytes(&mut ptrs[0..ptr_size * 2])?;
 						let mut writer = self.get_writer_id(entry_value)?;
-						usize_to_slice(entry, &mut next[0..ptr_size])?;
-						writer.write_fixed_bytes(&next[0..ptr_size])?;
-						writer.write_fixed_bytes(&prev[0..ptr_size])?;
+						usize_to_slice(entry, &mut ptrs[0..ptr_size])?;
+						writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
 					}
 				}
 			}
@@ -590,12 +586,10 @@ where
 				// for list based structures we use the slab_id directly
 				if self.tail < max_value {
 					let mut reader = self.get_reader(self.tail)?;
-					reader.read_fixed_bytes(&mut next[0..ptr_size])?;
-					reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
+					reader.read_fixed_bytes(&mut ptrs[0..ptr_size * 2])?;
 					let mut writer = self.get_writer_id(self.tail)?;
-					usize_to_slice(entry, &mut next[0..ptr_size])?;
-					writer.write_fixed_bytes(&next[0..ptr_size])?;
-					writer.write_fixed_bytes(&prev[0..ptr_size])?;
+					usize_to_slice(entry, &mut ptrs[0..ptr_size])?;
+					writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
 				}
 			}
 		}
@@ -1208,7 +1202,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_list() -> Result<(), Error> {
+	fn test_list1() -> Result<(), Error> {
 		let mut list = StaticBuilder::build_list(StaticListConfig::default(), None)?;
 		list.push(1)?;
 		list.push(2)?;
