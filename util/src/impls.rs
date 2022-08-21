@@ -12,14 +12,12 @@
 // limitations under the License.
 
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
-use crate::ser::{SlabReader, SlabWriter};
-use crate::types::{
-	HashsetIterator, HashtableIterator, Reader, StaticBuilder, StaticHashset, StaticListConfig,
-	StaticListIterator, Writer,
-};
+use crate::types::{Direction, StaticImpl};
 use crate::{
-	Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, StaticHashsetConfig,
-	StaticHashtable, StaticHashtableConfig, StaticList, GLOBAL_SLAB_ALLOCATOR,
+	HashsetIterator, HashtableIterator, ListIterator, Reader, Serializable, Slab, SlabAllocator,
+	SlabAllocatorConfig, SlabMut, SlabReader, SlabWriter, StaticBuilder, StaticHashset,
+	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig,
+	Writer, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::*;
 use bmw_log::*;
@@ -32,19 +30,6 @@ const SLOT_EMPTY: usize = usize::MAX;
 const SLOT_DELETED: usize = usize::MAX - 1;
 
 info!();
-
-pub(crate) struct StaticHashImpl {
-	slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
-	max_value: usize,
-	bytes_per_slab: usize,
-	slab_size: usize,
-	ptr_size: usize,
-	entry_array: Vec<usize>,
-	size: usize,
-	head: usize,
-	tail: usize,
-	max_load_factor: f64,
-}
 
 impl<'a, K, V> Iterator for HashtableIterator<'a, K, V>
 where
@@ -69,7 +54,10 @@ where
 {
 	type Item = K;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
-		match self.hashset.get_next_slot(&mut self.cur) {
+		match self
+			.hashset
+			.get_next_slot(&mut self.cur, Direction::Backward)
+		{
 			Ok(reader) => match reader {
 				Some(mut reader) => match K::read(&mut reader) {
 					Ok(k) => Some(k),
@@ -89,8 +77,37 @@ where
 	}
 }
 
+impl<'a, V> Iterator for ListIterator<'a, V>
+where
+	V: Serializable,
+{
+	type Item = V;
+	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+		if self.list.size == 0 {
+			return None;
+		}
+		match self.list.get_next_slot(&mut self.cur, self.direction) {
+			Ok(reader) => match reader {
+				Some(mut reader) => match V::read(&mut reader) {
+					Ok(v) => Some(v),
+					Err(e) => {
+						let _ = warn!("deserialization generated error: {}", e);
+						None
+					}
+				},
+				None => None,
+			},
+
+			Err(e) => {
+				let _ = error!("get_next generated unexpected error: {}", e);
+				None
+			}
+		}
+	}
+}
+
 impl<'a, K, V> HashtableIterator<'a, K, V> {
-	fn new(hashtable: &'a StaticHashImpl, cur: usize) -> Self {
+	fn new(hashtable: &'a StaticImpl, cur: usize) -> Self {
 		Self {
 			hashtable,
 			cur,
@@ -100,10 +117,21 @@ impl<'a, K, V> HashtableIterator<'a, K, V> {
 }
 
 impl<'a, K> HashsetIterator<'a, K> {
-	fn new(hashset: &'a StaticHashImpl, cur: usize) -> Self {
+	fn new(hashset: &'a StaticImpl, cur: usize) -> Self {
 		Self {
 			hashset,
 			cur,
+			_phantom_data: PhantomData,
+		}
+	}
+}
+
+impl<'a, V> ListIterator<'a, V> {
+	fn new(list: &'a StaticImpl, cur: usize, direction: Direction) -> Self {
+		Self {
+			list,
+			cur,
+			direction,
 			_phantom_data: PhantomData,
 		}
 	}
@@ -127,14 +155,20 @@ impl Default for StaticHashsetConfig {
 	}
 }
 
-impl StaticHashImpl {
+impl Default for StaticListConfig {
+	fn default() -> Self {
+		Self {}
+	}
+}
+
+impl StaticImpl {
 	fn new(
 		hashtable_config: Option<StaticHashtableConfig>,
 		hashset_config: Option<StaticHashsetConfig>,
 		list_config: Option<StaticListConfig>,
 		slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
 	) -> Result<Self, Error> {
-		let (slab_size, _slab_count) = match slabs.as_ref() {
+		let (slab_size, slab_count) = match slabs.as_ref() {
 			Some(slabs) => ((slabs.slab_size()?, slabs.slab_count()?)),
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(usize, usize), Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
@@ -160,28 +194,42 @@ impl StaticHashImpl {
 			Some(config) => (config.max_entries, config.max_load_factor),
 			None => match hashset_config {
 				Some(config) => (config.max_entries, config.max_load_factor),
-				None => {
-					return Err(err!(
-						ErrKind::Configuration,
-						"must specify either Hashtable or Hashset config"
-					));
-				}
+				None => (0, 1.0),
 			},
 		};
-		let mut entry_array = vec![];
-		let size: usize = (max_entries as f64 / max_load_factor).ceil() as usize;
-		debug!("entry array init to size = {}", size)?;
-		entry_array.resize(size, SLOT_EMPTY);
 
-		let mut x = entry_array.len() + 2; // two more, one for deleted and one for empty
-		let mut ptr_size = 0;
-		loop {
-			if x == 0 {
-				break;
+		let (entry_array, ptr_size) = match list_config {
+			Some(_) => {
+				let mut x = slab_count;
+				let mut ptr_size = 0;
+				loop {
+					if x == 0 {
+						break;
+					}
+					x >>= 8;
+					ptr_size += 1;
+				}
+
+				(None, ptr_size)
 			}
-			x >>= 8;
-			ptr_size += 1;
-		}
+			None => {
+				let mut entry_array = vec![];
+				let size: usize = (max_entries as f64 / max_load_factor).ceil() as usize;
+				debug!("entry array init to size = {}", size)?;
+				entry_array.resize(size, SLOT_EMPTY);
+
+				let mut x = entry_array.len() + 2; // two more, one for deleted and one for empty
+				let mut ptr_size = 0;
+				loop {
+					if x == 0 {
+						break;
+					}
+					x >>= 8;
+					ptr_size += 1;
+				}
+				(Some(entry_array), ptr_size)
+			}
+		};
 		let mut ptr = [0u8; 8];
 		set_max(&mut ptr[0..ptr_size]);
 		let max_value = slice_to_usize(&ptr[0..ptr_size])?;
@@ -190,15 +238,15 @@ impl StaticHashImpl {
 
 		Ok(Self {
 			slabs,
+			entry_array,
 			bytes_per_slab,
 			max_value,
 			slab_size,
 			ptr_size,
-			entry_array,
 			max_load_factor,
 			size: 0,
-			head: 0,
-			tail: 0,
+			head: max_value,
+			tail: max_value,
 		})
 	}
 
@@ -210,60 +258,79 @@ impl StaticHashImpl {
 		K: Serializable,
 		V: Serializable,
 	{
-		match self.get_next_slot(cur)? {
+		match self.get_next_slot(cur, Direction::Backward)? {
 			Some(mut reader) => Ok(Some((K::read(&mut reader)?, V::read(&mut reader)?))),
 			None => Ok(None),
 		}
 	}
 
-	fn get_next_slot(&self, cur: &mut usize) -> Result<Option<SlabReader>, Error> {
+	fn get_next_slot(
+		&self,
+		cur: &mut usize,
+		direction: Direction,
+	) -> Result<Option<SlabReader>, Error> {
 		debug!("cur={}", *cur)?;
-		if *cur == SLOT_EMPTY || *cur == SLOT_DELETED {
+		if *cur >= self.max_value {
 			return Ok(None);
 		}
-		let slot = self.entry_array[*cur];
+		let slot = match &self.entry_array {
+			Some(entry_array) => entry_array[*cur],
+			None => *cur,
+		};
 		debug!("slot={}", slot)?;
-		if slot >= self.max_value {
-			debug!("max val")?;
-			return Ok(None);
-		}
 
 		let mut prev = [0u8; 8];
 		let mut next = [0u8; 8];
 		let ptr_size = self.ptr_size;
 		let mut reader = self.get_reader(slot)?;
 
-		// read both pointers, we only use the second ptr_size bytes
+		// read both pointers
 
 		reader.read_fixed_bytes(&mut next[0..ptr_size])?;
 		reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
 
-		*cur = slice_to_usize(&prev[0..ptr_size])?;
-		debug!(
-			"ncur={}, next was {}",
-			*cur,
-			slice_to_usize(&next[0..ptr_size])?
-		)?;
+		*cur = match direction {
+			Direction::Backward => slice_to_usize(&prev[0..ptr_size])?,
+			Direction::Forward => slice_to_usize(&next[0..ptr_size])?,
+		};
+		debug!("read cur = {}", cur)?;
 		Ok(Some(reader))
 	}
 
 	fn clear_impl(&mut self) -> Result<(), Error> {
 		let mut cur = self.tail;
+		debug!("cur={}", cur)?;
 		loop {
 			if cur == SLOT_EMPTY || cur == SLOT_DELETED {
 				break;
 			}
+
+			if self.entry_array.is_none() && cur >= self.max_value {
+				break;
+			}
 			debug!("clear impl cur={}", cur)?;
-			if self.entry_array[cur] < self.max_value {
-				self.free_chain(self.entry_array[cur])?;
+
+			if cur < self.max_value {
+				let entry = self.lookup_entry(cur);
+				self.free_chain(entry)?;
+			} else {
+				break;
 			}
 
 			let last_cur = cur;
-			if self.get_next_slot(&mut cur)?.is_none() {
-				self.entry_array[last_cur] = SLOT_EMPTY;
-				break;
+			let next_slot_is_none = self.get_next_slot(&mut cur, Direction::Backward)?.is_none();
+			match self.entry_array.as_mut() {
+				Some(entry_array) => {
+					if next_slot_is_none {
+						debug!("setting entry_array[{}]={}", last_cur, SLOT_EMPTY)?;
+						entry_array[last_cur] = SLOT_EMPTY;
+						break;
+					}
+					debug!("setting entry_array[{}]={}", last_cur, SLOT_EMPTY)?;
+					entry_array[last_cur] = SLOT_EMPTY
+				}
+				None => {}
 			}
-			self.entry_array[last_cur] = SLOT_EMPTY;
 		}
 		debug!("set size to 0")?;
 		self.size = 0;
@@ -277,30 +344,41 @@ impl StaticHashImpl {
 		let mut hasher = DefaultHasher::new();
 		key.hash(&mut hasher);
 		let hash = hasher.finish() as usize;
-		hash % self.entry_array.len()
+		hash % match &self.entry_array {
+			Some(entry_array) => entry_array.len(),
+			None => 1,
+		}
 	}
 
 	fn get_impl<K>(&self, key: &K) -> Result<Option<(usize, SlabReader)>, Error>
 	where
 		K: Serializable + Hash + PartialEq,
 	{
+		let entry_array_len = match self.entry_array.as_ref() {
+			Some(e) => e.len(),
+			None => {
+				return Err(err!(
+					ErrKind::IllegalState,
+					"get_impl called with no entry array"
+				));
+			}
+		};
 		let mut entry = self.entry_hash(key);
-		let entry_array_len = self.entry_array.len();
 
 		let mut i = 0;
 		loop {
 			if i >= entry_array_len {
-				let msg = "StaticHashImpl: Capacity exceeded";
+				let msg = "StaticImpl: Capacity exceeded";
 				return Err(err!(ErrKind::CapacityExceeded, msg));
 			}
-			if self.entry_array[entry] == SLOT_EMPTY {
+			if self.lookup_entry(entry) == SLOT_EMPTY {
 				debug!("slot empty at {}", entry)?;
 				return Ok(None);
 			}
 
 			// does the current key match ours?
-			if self.entry_array[entry] != SLOT_DELETED {
-				match self.read_key::<K>(self.entry_array[entry])? {
+			if self.lookup_entry(entry) != SLOT_DELETED {
+				match self.read_key::<K>(self.lookup_entry(entry))? {
 					Some((k, reader)) => {
 						if &k == key {
 							return Ok(Some((entry, reader)));
@@ -315,51 +393,81 @@ impl StaticHashImpl {
 		}
 	}
 
-	fn insert_impl<K, V>(&mut self, key: &K, value: Option<&V>) -> Result<(), Error>
+	fn insert_hash_impl<K, V>(&mut self, key: Option<&K>, value: Option<&V>) -> Result<(), Error>
 	where
 		K: Serializable + Hash + PartialEq,
 		V: Serializable,
 	{
-		let mut entry = self.entry_hash(key);
-		let entry_array_len = self.entry_array.len();
-		let max_value = self.max_value;
-		let ptr_size = self.ptr_size;
-		let tail = self.tail;
+		let entry_array_len = match self.entry_array.as_ref() {
+			Some(e) => e.len(),
+			None => 0,
+		};
 
-		// check the load factor
-		if (self.size + 1) as f64 > self.max_load_factor * entry_array_len as f64 {
-			let fmt = format!("load factor ({}) exceeded", self.max_load_factor);
-			return Err(err!(ErrKind::CapacityExceeded, fmt));
-		}
+		let entry = match key {
+			Some(key) => {
+				let mut entry = self.entry_hash(key);
 
-		let mut i = 0;
-		loop {
-			if i >= entry_array_len {
-				let msg = "StaticHashImpl: Capacity exceeded";
-				return Err(err!(ErrKind::CapacityExceeded, msg));
-			}
-			if self.entry_array[entry] == SLOT_EMPTY || self.entry_array[entry] == SLOT_DELETED {
-				break;
-			}
+				// check the load factor
+				if (self.size + 1) as f64 > self.max_load_factor * entry_array_len as f64 {
+					let fmt = format!("load factor ({}) exceeded", self.max_load_factor);
+					return Err(err!(ErrKind::CapacityExceeded, fmt));
+				}
 
-			// does the current key match ours?
-			match self.read_key::<K>(self.entry_array[entry])? {
-				Some((k, _reader)) => {
-					if &k == key {
-						self.size = self.size.saturating_sub(1);
-						self.free_chain(self.entry_array[entry])?;
+				let mut i = 0;
+				loop {
+					if i >= entry_array_len {
+						let msg = "StaticImpl: Capacity exceeded";
+						return Err(err!(ErrKind::CapacityExceeded, msg));
+					}
+					let entry_value = self.lookup_entry(entry);
+					if entry_value == SLOT_EMPTY || entry_value == SLOT_DELETED {
 						break;
 					}
+
+					// does the current key match ours?
+					match self.read_key::<K>(entry_value)? {
+						Some((k, _reader)) => {
+							if &k == key {
+								self.size = self.size.saturating_sub(1);
+								self.free_chain(entry_value)?;
+								break;
+							}
+						}
+						None => {}
+					}
+
+					entry = (entry + 1) % entry_array_len;
+					i += 1;
 				}
-				None => {}
+
+				entry
 			}
+			None => 0,
+		};
 
-			entry = (entry + 1) % entry_array_len;
-			i += 1;
-		}
+		self.insert_impl(key, value, Some(entry))
+	}
 
+	fn insert_impl<K, V>(
+		&mut self,
+		key: Option<&K>,
+		value: Option<&V>,
+		entry: Option<usize>,
+	) -> Result<(), Error>
+	where
+		K: Serializable,
+		V: Serializable,
+	{
+		let ptr_size = self.ptr_size;
+		let max_value = self.max_value;
+		let tail = self.tail;
 		let (slab_id, mut writer) = self.get_writer()?;
-		let ptr_size = ptr_size;
+
+		// for lists we use the slab_id as the entry
+		let entry = match entry {
+			Some(entry) => entry,
+			None => slab_id,
+		};
 		let mut prev = [0u8; 8];
 		let mut next = [0u8; 8];
 		debug!("slab_id={}", slab_id)?;
@@ -373,16 +481,19 @@ impl StaticHashImpl {
 		writer.write_fixed_bytes(&next[0..ptr_size])?;
 		writer.write_fixed_bytes(&prev[0..ptr_size])?;
 
-		match key.write(&mut writer) {
-			Ok(_) => {}
-			Err(e) => {
-				warn!("writing key generated error: {}", e)?;
-				self.free_chain(slab_id)?;
-				return Err(err!(
-					ErrKind::CapacityExceeded,
-					format!("writing key generated error: {}", e)
-				));
-			}
+		match key {
+			Some(key) => match key.write(&mut writer) {
+				Ok(_) => {}
+				Err(e) => {
+					warn!("writing key generated error: {}", e)?;
+					self.free_chain(slab_id)?;
+					return Err(err!(
+						ErrKind::CapacityExceeded,
+						format!("writing key generated error: {}", e)
+					));
+				}
+			},
+			None => {}
 		}
 
 		match value {
@@ -400,15 +511,33 @@ impl StaticHashImpl {
 			None => {}
 		}
 
-		if self.tail < max_value {
-			if self.entry_array[self.tail] < max_value {
-				let mut reader = self.get_reader(self.entry_array[self.tail])?;
-				reader.read_fixed_bytes(&mut next[0..ptr_size])?;
-				reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
-				let mut writer = self.get_writer_id(self.entry_array[self.tail])?;
-				usize_to_slice(entry, &mut next[0..ptr_size])?;
-				writer.write_fixed_bytes(&next[0..ptr_size])?;
-				writer.write_fixed_bytes(&prev[0..ptr_size])?;
+		match self.entry_array.as_mut() {
+			Some(entry_array) => {
+				// for hash based structures we use the entry index
+				if self.tail < max_value {
+					if entry_array[self.tail] < max_value {
+						let entry_value = self.lookup_entry(self.tail);
+						let mut reader = self.get_reader(entry_value)?;
+						reader.read_fixed_bytes(&mut next[0..ptr_size])?;
+						reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
+						let mut writer = self.get_writer_id(entry_value)?;
+						usize_to_slice(entry, &mut next[0..ptr_size])?;
+						writer.write_fixed_bytes(&next[0..ptr_size])?;
+						writer.write_fixed_bytes(&prev[0..ptr_size])?;
+					}
+				}
+			}
+			None => {
+				// for list based structures we use the slab_id directly
+				if self.tail < max_value {
+					let mut reader = self.get_reader(self.tail)?;
+					reader.read_fixed_bytes(&mut next[0..ptr_size])?;
+					reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
+					let mut writer = self.get_writer_id(self.tail)?;
+					usize_to_slice(entry, &mut next[0..ptr_size])?;
+					writer.write_fixed_bytes(&next[0..ptr_size])?;
+					writer.write_fixed_bytes(&prev[0..ptr_size])?;
+				}
 			}
 		}
 
@@ -418,7 +547,13 @@ impl StaticHashImpl {
 			self.head = entry;
 		}
 
-		self.entry_array[entry] = slab_id;
+		match self.entry_array.as_mut() {
+			Some(entry_array) => {
+				debug!("setting entry_array[{}]={}", entry, slab_id)?;
+				entry_array[entry] = slab_id;
+			}
+			None => {}
+		}
 
 		self.size += 1;
 
@@ -520,9 +655,15 @@ impl StaticHashImpl {
 		}
 		Ok(())
 	}
+	fn lookup_entry(&self, entry: usize) -> usize {
+		match self.entry_array.as_ref() {
+			Some(entry_array) => entry_array[entry],
+			None => entry,
+		}
+	}
 
 	fn free_iter_list(&mut self, entry: usize) -> Result<(), Error> {
-		let slab_id = self.entry_array[entry];
+		let slab_id = self.lookup_entry(entry);
 		let mut next = [0u8; 8];
 		let mut prev = [0u8; 8];
 		let ptr_size = self.ptr_size;
@@ -542,7 +683,7 @@ impl StaticHashImpl {
 		}
 
 		if next_usize_entry < self.max_value {
-			let next_usize = self.entry_array[next_usize_entry];
+			let next_usize = self.lookup_entry(next_usize_entry);
 			if next_usize < self.max_value {
 				let mut next = [0u8; 8];
 				let mut prev = [0u8; 8];
@@ -557,7 +698,7 @@ impl StaticHashImpl {
 		}
 
 		if prev_usize_entry < self.max_value {
-			let prev_usize = self.entry_array[prev_usize_entry];
+			let prev_usize = self.lookup_entry(prev_usize_entry);
 			if prev_usize < self.max_value {
 				let mut next = [0u8; 8];
 				let mut prev = [0u8; 8];
@@ -573,13 +714,17 @@ impl StaticHashImpl {
 
 		Ok(())
 	}
-
 	fn remove_impl(&mut self, entry: usize) -> Result<(), Error> {
 		debug!("remove impl {}", entry)?;
 		self.free_iter_list(entry)?;
-		self.free_chain(self.entry_array[entry])?;
-
-		self.entry_array[entry] = SLOT_DELETED;
+		self.free_chain(self.lookup_entry(entry))?;
+		match self.entry_array.as_mut() {
+			Some(entry_array) => {
+				debug!("setting entry_array[{}]={}", entry, SLOT_DELETED)?;
+				entry_array[entry] = SLOT_DELETED
+			}
+			None => {}
+		}
 		self.size = self.size.saturating_sub(1);
 
 		Ok(())
@@ -601,7 +746,7 @@ impl StaticHashImpl {
 	}
 }
 
-impl Drop for StaticHashImpl {
+impl Drop for StaticImpl {
 	fn drop(&mut self) {
 		match self.clear_impl() {
 			Ok(_) => {}
@@ -612,13 +757,13 @@ impl Drop for StaticHashImpl {
 	}
 }
 
-impl<K, V> StaticHashtable<K, V> for StaticHashImpl
+impl<K, V> StaticHashtable<K, V> for StaticImpl
 where
 	K: Serializable + Hash + PartialEq,
 	V: Serializable,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error> {
-		self.insert_impl(key, Some(value))
+		self.insert_hash_impl(Some(key), Some(value))
 	}
 	fn get(&self, key: &K) -> Result<Option<V>, Error> {
 		match self.get_impl(key)? {
@@ -652,12 +797,12 @@ where
 	}
 }
 
-impl<K> StaticHashset<K> for StaticHashImpl
+impl<K> StaticHashset<K> for StaticImpl
 where
 	K: Serializable + Hash + PartialEq,
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error> {
-		self.insert_impl::<K, K>(key, None)
+		self.insert_hash_impl::<K, K>(Some(key), None)
 	}
 	fn contains(&self, key: &K) -> Result<bool, Error> {
 		match self.get_impl(key)? {
@@ -690,18 +835,19 @@ where
 	}
 }
 
-impl<V> StaticList<V> for StaticHashImpl
+impl<V> StaticList<V> for StaticImpl
 where
 	V: Serializable,
 {
-	fn push(&mut self, value: &V) -> Result<(), Error> {
-		todo!()
+	fn push(&mut self, value: V) -> Result<(), Error> {
+		self.insert_impl::<V, V>(Some(&value), None, None)
 	}
-	fn iter<'a>(&'a self) -> StaticListIterator<'a, V> {
-		todo!()
+
+	fn iter<'a>(&'a self) -> ListIterator<'a, V> {
+		ListIterator::new(self, self.head, Direction::Forward)
 	}
-	fn iter_rev<'a>(&'a self) -> StaticListIterator<'a, V> {
-		todo!()
+	fn iter_rev<'a>(&'a self) -> ListIterator<'a, V> {
+		ListIterator::new(self, self.tail, Direction::Backward)
 	}
 	fn size(&self) -> usize {
 		self.size
@@ -710,7 +856,10 @@ where
 		self.clear_impl()
 	}
 	fn append(&mut self, list: &impl StaticList<V>) -> Result<(), Error> {
-		todo!()
+		for x in list.iter() {
+			self.push(x)?;
+		}
+		Ok(())
 	}
 	fn copy(&self) -> Self {
 		self.copy_impl()
@@ -726,7 +875,7 @@ impl StaticBuilder {
 		K: Serializable + Hash + PartialEq,
 		V: Serializable,
 	{
-		StaticHashImpl::new(Some(config), None, None, slabs)
+		StaticImpl::new(Some(config), None, None, slabs)
 	}
 
 	pub fn build_hashset<K>(
@@ -736,7 +885,7 @@ impl StaticBuilder {
 	where
 		K: Serializable + Hash + PartialEq,
 	{
-		StaticHashImpl::new(None, Some(config), None, slabs)
+		StaticImpl::new(None, Some(config), None, slabs)
 	}
 
 	pub fn build_list<V>(
@@ -746,17 +895,17 @@ impl StaticBuilder {
 	where
 		V: Serializable,
 	{
-		StaticHashImpl::new(None, None, Some(config), slabs)
+		StaticImpl::new(None, None, Some(config), slabs)
 	}
 }
 
 #[cfg(test)]
 mod test {
-	use crate::static_hash::StaticBuilder;
-	use crate::types::StaticHashset;
+	use crate::impls::StaticBuilder;
+	use crate::types::{StaticHashset, StaticList};
 	use crate::StaticHashsetConfig;
 	use crate::GLOBAL_SLAB_ALLOCATOR;
-	use crate::{StaticHashtable, StaticHashtableConfig};
+	use crate::{StaticHashtable, StaticHashtableConfig, StaticListConfig};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
 	use bmw_log::*;
@@ -939,7 +1088,8 @@ mod test {
 
 	#[test]
 	fn test_hashset() -> Result<(), Error> {
-		let mut hashset = StaticBuilder::build_hashset(StaticHashsetConfig::default(), None)?;
+		let mut hashset =
+			StaticBuilder::build_hashset::<i32>(StaticHashsetConfig::default(), None)?;
 		hashset.insert(&1)?;
 		hashset.insert(&2)?;
 		hashset.insert(&3)?;
@@ -976,6 +1126,65 @@ mod test {
 		}
 		assert_eq!(i, 2);
 		assert_eq!(size, i);
+		Ok(())
+	}
+
+	#[test]
+	fn test_list() -> Result<(), Error> {
+		let mut list = StaticBuilder::build_list(StaticListConfig::default(), None)?;
+		list.push(1)?;
+		list.push(2)?;
+		list.push(3)?;
+		list.push(4)?;
+		list.push(5)?;
+		list.push(6)?;
+
+		let mut i = 0;
+		for x in list.iter() {
+			info!("valuetest_fwd={}", x)?;
+			i += 1;
+			if i > 10 {
+				break;
+			}
+		}
+
+		let mut i = 0;
+		for x in list.iter_rev() {
+			info!("valuetest_rev={}", x)?;
+			i += 1;
+			if i > 10 {
+				break;
+			}
+		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_append() -> Result<(), Error> {
+		let mut list = StaticBuilder::build_list(StaticListConfig::default(), None)?;
+		list.push(1)?;
+		list.push(2)?;
+		list.push(3)?;
+		list.push(4)?;
+		list.push(5)?;
+		list.push(6)?;
+
+		let mut list2 = StaticBuilder::build_list(StaticListConfig::default(), None)?;
+		list2.push(7)?;
+		list2.push(8)?;
+		list2.push(9)?;
+
+		list.append(&list2)?;
+
+		let mut i = 0;
+		for x in list.iter() {
+			i += 1;
+			assert_eq!(x, i);
+		}
+
+		assert_eq!(i, 9);
+
 		Ok(())
 	}
 }

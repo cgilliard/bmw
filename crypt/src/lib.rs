@@ -14,18 +14,9 @@
 
 use bmw_err::*;
 use bmw_log::*;
-use bmw_util::*;
 
 info!();
 
 pub fn test() -> Result<(), Error> {
-	info!("test")?;
-	let ctx = ctx!();
-	let mut hash = hashtable!()?;
-	hash.insert(ctx, &1, &"ok".to_string())?;
-	hash.insert(ctx, &3, &"hithere".to_string())?;
-	for (k, v) in &hash {
-		info!("k={},v={}", k, v)?;
-	}
 	Ok(())
 }

@@ -11,7 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::static_hash::StaticHashImpl;
+use crate::slabs::Slab;
+use crate::slabs::SlabMut;
 use bmw_err::*;
 use bmw_log::*;
 use std::fmt::Debug;
@@ -19,50 +20,14 @@ use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use crate::slabs::Slab;
-use crate::slabs::SlabMut;
-
 info!();
 
-pub struct StaticBuilder {}
-
-pub struct HashtableIterator<'a, K, V> {
-	pub(crate) hashtable: &'a StaticHashImpl,
-	pub(crate) cur: usize,
-	pub(crate) _phantom_data: PhantomData<(K, V)>,
+pub enum ConfigOption {
+	MaxEntries(usize),
+	MaxLoadFactor(f64),
+	SlabSize(usize),
+	SlabCount(usize),
 }
-
-pub struct HashsetIterator<'a, K> {
-	pub(crate) hashset: &'a StaticHashImpl,
-	pub(crate) cur: usize,
-	pub(crate) _phantom_data: PhantomData<K>,
-}
-
-pub struct StaticListIterator<'a, V> {
-	pub(crate) list: &'a StaticHashImpl,
-	pub(crate) cur: usize,
-	pub(crate) _phantom_data: PhantomData<V>,
-}
-
-/// A context which is used in many of the methods in this crate. The reason for using
-/// the context is to avoid creating new Vectors, and other structures that require heap
-/// allocations at run time. Instead the context may be created at startup and used
-/// throughout the lifecycle of the application. The [`crate::Context`] struct may be
-/// conveniently built through the [`crate::ctx`] macro.
-///
-/// # Examples
-///
-///```
-/// use bmw_util::{ctx, hashtable};
-/// use bmw_err::Error;
-///
-/// fn main() -> Result<(), Error> {
-///     let ctx = ctx!(); // create a context
-///     let mut h = hashtable!()?; // create a hashtable
-///     h.insert(ctx, &1, &2)?; // use the context in most of the functions
-///     Ok(())
-/// }
-///```
 
 /// The configuration struct for a [`StaticHashtable`]. This struct is passed
 /// into the [`crate::StaticHashtableBuilder::build`] function. The [`std::default::Default`]
@@ -81,34 +46,6 @@ pub struct StaticHashtableConfig {
 	pub max_load_factor: f64,
 }
 
-/*
-impl Serializable for StaticHashtableConfig {
-	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
-		let max_entries = reader.read_usize()?;
-		let max_load_factor = f64::read(reader)?;
-		let debug_get_slab_error = match reader.read_u8()? {
-			0 => false,
-			_ => true,
-		};
-		let ret = Self {
-			max_entries,
-			max_load_factor,
-			debug_get_slab_error,
-		};
-		Ok(ret)
-	}
-	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-		writer.write_usize(self.max_entries)?;
-		f64::write(&self.max_load_factor, writer)?;
-		writer.write_u8(match self.debug_get_slab_error {
-			true => 1,
-			false => 0,
-		})?;
-		Ok(())
-	}
-}
-*/
-
 /// The configuration struct for a [`StaticHashset`]. This struct is passed
 /// into the [`crate::StaticHashsetBuilder::build`] function. The [`std::default::Default`]
 /// trait is implemented for this trait.
@@ -125,6 +62,22 @@ pub struct StaticHashsetConfig {
 	pub max_load_factor: f64,
 }
 
+/// Slab Allocator configuration struct. This struct is the input to the
+/// [`crate::SlabAllocator::init`] function. The two parameters are `slab_size`
+/// which is the size of the slabs in bytes allocated by this
+/// [`crate::SlabAllocator`] and `slab_count` which is the number of slabs
+/// that can be allocated by this [`crate::SlabAllocator`].
+#[derive(Debug)]
+pub struct SlabAllocatorConfig {
+	/// The size, in bytes, of a slab
+	pub slab_size: usize,
+	/// The number of slabs that this slab allocator can allocate
+	pub slab_count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct StaticListConfig {}
+
 impl Serializable for StaticHashsetConfig {
 	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
 		let max_entries = reader.read_usize()?;
@@ -140,19 +93,6 @@ impl Serializable for StaticHashsetConfig {
 		f64::write(&self.max_load_factor, writer)?;
 		Ok(())
 	}
-}
-
-/// Slab Allocator configuration struct. This struct is the input to the
-/// [`crate::SlabAllocator::init`] function. The two parameters are `slab_size`
-/// which is the size of the slabs in bytes allocated by this
-/// [`crate::SlabAllocator`] and `slab_count` which is the number of slabs
-/// that can be allocated by this [`crate::SlabAllocator`].
-#[derive(Debug)]
-pub struct SlabAllocatorConfig {
-	/// The size, in bytes, of a slab
-	pub slab_size: usize,
-	/// The number of slabs that this slab allocator can allocate
-	pub slab_count: usize,
 }
 
 pub trait StaticHashtable<K, V>
@@ -197,21 +137,18 @@ pub trait StaticStack<V>
 where
 	V: Serializable,
 {
-	fn push(&mut self, value: &V) -> Result<(), Error>;
+	fn push(&mut self, value: V) -> Result<(), Error>;
 	fn pop(&mut self) -> Result<Option<V>, Error>;
 	fn peek(&self) -> Result<Option<V>, Error>;
 }
-
-#[derive(Debug, Clone)]
-pub struct StaticListConfig {}
 
 pub trait StaticList<V>
 where
 	V: Serializable,
 {
-	fn push(&mut self, value: &V) -> Result<(), Error>;
-	fn iter<'a>(&'a self) -> StaticListIterator<'a, V>;
-	fn iter_rev<'a>(&'a self) -> StaticListIterator<'a, V>;
+	fn push(&mut self, value: V) -> Result<(), Error>;
+	fn iter<'a>(&'a self) -> ListIterator<'a, V>;
+	fn iter_rev<'a>(&'a self) -> ListIterator<'a, V>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
 	fn append(&mut self, list: &impl StaticList<V>) -> Result<(), Error>;
@@ -569,4 +506,44 @@ where
 	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error>;
 	/// write data to the writer representing the underlying type.
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error>;
+}
+
+pub struct StaticBuilder {}
+
+pub struct HashtableIterator<'a, K, V> {
+	pub(crate) hashtable: &'a StaticImpl,
+	pub(crate) cur: usize,
+	pub(crate) _phantom_data: PhantomData<(K, V)>,
+}
+
+pub struct HashsetIterator<'a, K> {
+	pub(crate) hashset: &'a StaticImpl,
+	pub(crate) cur: usize,
+	pub(crate) _phantom_data: PhantomData<K>,
+}
+
+pub struct ListIterator<'a, V> {
+	pub(crate) list: &'a StaticImpl,
+	pub(crate) cur: usize,
+	pub(crate) direction: Direction,
+	pub(crate) _phantom_data: PhantomData<V>,
+}
+
+pub(crate) struct StaticImpl {
+	pub(crate) slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
+	pub(crate) max_value: usize,
+	pub(crate) bytes_per_slab: usize,
+	pub(crate) slab_size: usize,
+	pub(crate) ptr_size: usize,
+	pub(crate) entry_array: Option<Vec<usize>>,
+	pub(crate) size: usize,
+	pub(crate) head: usize,
+	pub(crate) tail: usize,
+	pub(crate) max_load_factor: f64,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Direction {
+	Forward,
+	Backward,
 }

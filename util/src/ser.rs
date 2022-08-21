@@ -61,6 +61,15 @@ impl Serializable for f64 {
 	}
 }
 
+impl Serializable for char {
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		writer.write_u8(*self as u8)
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		Ok(reader.read_u8()? as char)
+	}
+}
+
 impl Serializable for () {
 	fn write<W: Writer>(&self, _writer: &mut W) -> Result<(), Error> {
 		Ok(())
