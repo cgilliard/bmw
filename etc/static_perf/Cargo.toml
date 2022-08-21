@@ -1,0 +1,28 @@
+[package]
+name = "static_perf"
+version = "0.0.2-beta1"
+edition = "2018"
+description = "Utility to test performance of static_hash and other data structurs"
+license = "Apache-2.0"
+repository = "https://github.com/37miners/bmw"
+readme = "README.md"
+exclude = ["**/*.bmw", "**/*.bmw"]
+build = "src/build/build.rs"
+
+[[bin]]
+name = "static_perf"
+
+[dependencies]
+bmw_deps = { path = "../../deps" }
+bmw_log = { path = "../../log" }
+bmw_util = { path = "../../util" }
+bmw_err = { path = "../../error" }
+
+clap = { version = "2.33", features = ["yaml"] }
+rand = "0.6.0"
+num-format = "0.4.0"
+colored = "2.0.0"
+sysinfo = "0.23.5"
+
+[build-dependencies]
+built = { version = "0.4", features = ["git2"]}
