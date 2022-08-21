@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::misc::set_max;
 use crate::misc::{is_max, slice_to_usize, usize_to_slice};
 use crate::{
 	Reader, Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, Writer,
@@ -142,6 +143,7 @@ pub struct SlabWriter<'a> {
 	offset: usize,
 	slab_size: usize,
 	bytes_per_slab: usize,
+	max_value: usize,
 }
 
 impl<'a> SlabWriter<'a> {
@@ -181,6 +183,10 @@ impl<'a> SlabWriter<'a> {
 			slab_ptr_size += 1;
 		}
 
+		let mut ptr = [0u8; 8];
+		set_max(&mut ptr[0..slab_ptr_size]);
+		let max_value = slice_to_usize(&ptr[0..slab_ptr_size])?;
+
 		let bytes_per_slab = slab_size.saturating_sub(slab_ptr_size);
 
 		if bytes_per_slab == 0 {
@@ -195,6 +201,7 @@ impl<'a> SlabWriter<'a> {
 			offset: 0,
 			slab_size,
 			bytes_per_slab,
+			max_value,
 		})
 	}
 
@@ -216,6 +223,40 @@ impl<'a> SlabWriter<'a> {
 				slabs.get_mut(id)
 			}),
 		}
+	}
+
+	fn free(&mut self, slab_id: usize) -> Result<(), Error> {
+		match &mut self.slabs {
+			Some(slabs) => slabs.free(slab_id),
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
+				let slabs = unsafe { f.get().as_mut().unwrap() };
+				slabs.free(slab_id)
+			}),
+		}
+	}
+
+	pub fn seek(&mut self, slab_id: usize, offset: usize) -> Result<(), Error> {
+		self.slab_id = slab_id;
+		self.offset = offset;
+		Ok(())
+	}
+
+	fn free_chain(&mut self, slab_id: usize) -> Result<(), Error> {
+		debug!("free chain on slab = {}", slab_id)?;
+		let bytes_per_slab = self.bytes_per_slab;
+		let slab_size = self.slab_size;
+		let mut next_bytes = slab_id;
+
+		loop {
+			let slab = self.get_mut(next_bytes)?;
+			let id = slab.id();
+			next_bytes = slice_to_usize(&slab.get()[bytes_per_slab..slab_size])?;
+			self.free(id)?;
+			if next_bytes >= self.max_value {
+				break;
+			}
+		}
+		Ok(())
 	}
 }
 
@@ -252,7 +293,14 @@ impl<'a> Writer for SlabWriter<'a> {
 				}
 				false => {
 					let nslab_id = {
-						let nslab = self.allocate()?;
+						let nslab = match self.allocate() {
+							Ok(nslab) => nslab,
+							Err(e) => {
+								// clean up chain.
+								self.free_chain(slab_id)?;
+								return Err(e);
+							}
+						};
 						nslab.id()
 					};
 					alloc = true;
@@ -300,7 +348,7 @@ impl<'a> Writer for SlabWriter<'a> {
 			bytes_offset += wlen;
 
 			if alloc {
-				// we're done, write 0xFF to set the next pointer so that we know it's
+				// write 0xFF to set the next pointer so that we know it's
 				// empty
 				for i in bytes_per_slab..slab_size {
 					slab_mut[i] = 0xFF;
@@ -635,6 +683,7 @@ pub fn deserialize<T: Serializable, R: Read>(source: &mut R) -> Result<T, Error>
 mod test {
 	use crate as bmw_util;
 	use crate::ser::{SlabReader, SlabWriter};
+	use crate::ConfigOption::*;
 	use crate::*;
 	use bmw_deps::rand;
 	use bmw_err::*;
@@ -952,6 +1001,40 @@ mod test {
 			v[i] = (i % 256) as u8;
 		}
 		assert!(slab_writer.write_fixed_bytes(v).is_err());
+
+		Ok(())
+	}
+
+	#[test]
+	fn slab_writer_out_of_slabs() -> Result<(), Error> {
+		init_slab_allocator!(SlabSize(100), SlabCount(1))?;
+		let free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+		})?;
+		info!("free_count={}", free_count1)?;
+
+		{
+			let slabid = {
+				let mut slab = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
+					let slabs = unsafe { f.get().as_mut().unwrap() };
+					slabs.allocate()
+				})?;
+				let slab_mut = slab.get_mut();
+				slab_mut[99] = 0xFF; // set next to 0xFF
+				slab.id()
+			};
+			let mut writer = SlabWriter::new(None, slabid)?;
+			let mut v = vec![];
+			for _ in 0..200 {
+				v.push(1);
+			}
+			assert!(writer.write_fixed_bytes(v).is_err());
+		}
+		let free_count2 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+		})?;
+		info!("free_count={}", free_count2)?;
+		assert_eq!(free_count1, free_count2);
 
 		Ok(())
 	}

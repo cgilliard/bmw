@@ -339,19 +339,16 @@ where
 		};
 		debug!("slot={}", slot)?;
 
-		let mut prev = [0u8; 8];
-		let mut next = [0u8; 8];
+		let mut ptrs = [0u8; 8];
 		let ptr_size = self.ptr_size;
 		let mut reader = self.get_reader(slot)?;
 
 		// read both pointers
-
-		reader.read_fixed_bytes(&mut next[0..ptr_size])?;
-		reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
+		reader.read_fixed_bytes(&mut ptrs[0..ptr_size * 2])?;
 
 		*cur = match direction {
-			Direction::Backward => slice_to_usize(&prev[0..ptr_size])?,
-			Direction::Forward => slice_to_usize(&next[0..ptr_size])?,
+			Direction::Backward => slice_to_usize(&ptrs[ptr_size..ptr_size * 2])?,
+			Direction::Forward => slice_to_usize(&ptrs[0..ptr_size])?,
 		};
 		debug!("read cur = {}", cur)?;
 		Ok(Some(reader))

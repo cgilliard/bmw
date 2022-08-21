@@ -109,17 +109,19 @@ impl SlabAllocator for SlabAllocatorImpl {
 		let id = self.first_free;
 		let offset = (8 + config.slab_size) * id;
 		self.first_free = usize::from_be_bytes(try_into!(self.data[offset..offset + 8])?);
-
+		debug!("new firstfree={}", self.first_free)?;
 		let offset = offset + 8;
-		// mark it as not free
+		// mark it as not free we use usize::MAX - 1 because usize::MAX is used to
+		// terminate the free list
 		self.data[(8 + config.slab_size) * id..(8 + config.slab_size) * id + 8]
-			.clone_from_slice(&usize::MAX.to_be_bytes());
+			.clone_from_slice(&(usize::MAX - 1).to_be_bytes());
 		let data = &mut self.data[offset..offset + config.slab_size as usize];
 		self.free_count = self.free_count.saturating_sub(1);
 
 		Ok(SlabMut { data, id })
 	}
 	fn free(&mut self, id: usize) -> Result<(), Error> {
+		debug!("slabs free id ={}", id)?;
 		match &self.config {
 			Some(config) => {
 				if id >= config.slab_count {
@@ -127,18 +129,24 @@ impl SlabAllocator for SlabAllocatorImpl {
 					return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 				}
 				let offset = (8 + config.slab_size) * id;
-
+				debug!(
+					"cur data = {:?},first_free={}",
+					&self.data[offset..offset + 8],
+					self.first_free
+				)?;
 				// check that it's currently allocated
-				if self.data[offset..offset + 8] != [255, 255, 255, 255, 255, 255, 255, 255] {
+				if self.data[offset..offset + 8] != (usize::MAX - 1).to_be_bytes() {
+					debug!("double free")?;
 					// double free error
 					let fmt = format!("slab.id = {} has been freed when not allocated", id);
 					return Err(err!(ErrKind::IllegalState, fmt));
 				}
 
 				debug!("free:self.config={:?},id={}", config, id)?;
-
 				self.data[offset..offset + 8].clone_from_slice(&self.first_free.to_be_bytes());
+				debug!("set data offset to {:?}", &self.data[offset..offset + 8])?;
 				self.first_free = id;
+				debug!("update firstfree to {}", self.first_free)?;
 				self.free_count += 1;
 				Ok(())
 			}

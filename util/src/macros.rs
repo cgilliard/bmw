@@ -11,82 +11,72 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Macro to initialize the global slab allocator. It is important to note that
-/// this macro only affects the thread in which it is executed in and must be called
-/// separately in each thread that you wish to initialize the global slab allocator
-/// in. Also, the data structures, like [`crate::StaticHashtable`] and
-/// [`crate::StaticHashset`], will initialized this slab allocator with default values
-/// if this macro is not called first. Therefore, it makes sense to call this very soon
-/// after starting a thread that will use it. The slab allocator is initialized with
-/// `slab_size` and `slab_count` parameters respecitvely. `slab_size` is the size in bytes
-/// of slabs. The default value is 1_024 bytes. `slab_count` is the number of slabs to
-/// initialize. The default value is 10_240. The defaults will be used if this macro is
-/// not called.
-///
-/// # Errors
-///
-/// [`init_slab_allocator`] returns a Ok(()) on success or returns an [`bmw_err::Error`]
-/// if an error occurs.
-///
-/// * [`bmw_err::ErrorKind::IllegalArgument`] if the `slab_size` is less than 48 bytes or
-/// if `slab_count` is equal to 0.
-///
-/// * [`bmw_err::ErrorKind::IllegalState`] if the thread local global slab allocator for this
-/// thread has already been initialized.
-///
-/// # Examples
-///```
-///```
-///
-/// See [`crate::slab_allocator`] for details on how to create a new slab allocator as opposed
-/// to the global thread local slab allocator.
-///
 #[macro_export]
 macro_rules! init_slab_allocator {
-	($slab_size:expr, $slab_count:expr) => {{
-		bmw_util::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
-			unsafe {
-				f.get()
-					.as_mut()
-					.unwrap()
-					.init(bmw_util::SlabAllocatorConfig {
-						slab_count: $slab_count,
-						slab_size: $slab_size,
-						..Default::default()
-					})?;
-				Ok(())
-			}
-		})?;
-	}};
+( $( $config:expr ),* ) => {{
+            let mut config = bmw_util::SlabAllocatorConfig::default();
+            let mut error: Option<String> = None;
+            let mut slab_size_specified = false;
+            let mut slab_count_specified = false;
+
+            // compiler sees macro as not used if it's not used in one part of the code
+            // these lines make the warnings go away
+            if config.slab_size == 0 { config.slab_size = 0; }
+            if slab_count_specified { slab_count_specified = false; }
+            if slab_size_specified { slab_size_specified = false; }
+            if slab_count_specified {}
+            if slab_size_specified {}
+            if error.is_some() { error = None; }
+
+            $(
+                match $config {
+                    bmw_util::ConfigOption::SlabSize(slab_size) => {
+                        config.slab_size = slab_size;
+
+                        if slab_size_specified {
+                            error = Some("SlabSize was specified more than once!".to_string());
+                        }
+                        slab_size_specified = true;
+                        if slab_size_specified {}
+
+                    },
+                    bmw_util::ConfigOption::SlabCount(slab_count) => {
+                        config.slab_count = slab_count;
+
+                        if slab_count_specified {
+                            error = Some("SlabCount was specified more than once!".to_string());
+                        }
+
+                        slab_count_specified = true;
+                        if slab_count_specified {}
+                    },
+                    bmw_util::ConfigOption::MaxEntries(_) => {
+                        error = Some("Invalid configuration MaxEntries is not allowed for slab_allocator!".to_string());
+
+                    }
+                    bmw_util::ConfigOption::MaxLoadFactor(_) => {
+                         error = Some("Invalid configuration MaxLoadFactor is not allowed for slab_allocator!".to_string());
+                    }
+                }
+            )*
+            match error {
+                Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
+                None => {
+                        bmw_util::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
+                        unsafe {
+                                f.get()
+                                        .as_mut()
+                                        .unwrap()
+                                        .init(config)?;
+                                Ok(())
+                        }
+                        })
+                }
+            }
+        }
+    }
 }
 
-/// The [`crate::slab_allocator`] macro allows for creation of a slab allocator that may be used
-/// by the data structures in this crate. If no parameters are specified, the default values of
-/// `slab_size` equal to 1_024 and `slab_count` of 10_240 are used. If one paramater is specifed,
-/// it is used as `slab_count` and the default is used for `slab_size`. If two parameters are
-/// specified, it is used as `slab_count` and `slab_size` respectively. The `slab_count` is
-/// the total number of slabs in this slab allocator. It is important to note that additional
-/// slabs may not be added after startup. `The slab_size` is the size in bytes of the slabs
-/// in this instance.
-///
-/// # Errors
-///
-/// [`crate::slab_allocator`] returns a [`crate::SlabAllocator`] on success. On error,
-/// a [`bmw_err::Error`] is returned.
-///
-/// * [`bmw_err::ErrorKind::IllegalArgument`] if the `slab_size` is less than 48 bytes or
-/// if `slab_count` is equal to 0.
-///
-/// * [`bmw_err::ErrorKind::IllegalState`] if the thread local global slab allocator for this
-/// thread has already been initialized.
-///
-/// # Examples
-///
-///```
-///```
-///
-/// Note: the slab allocator returned by this macro is distinct from the global thread
-/// local slab allocator that is initialized by the [`crate::init_slab_allocator`] macro.
 #[macro_export]
 macro_rules! slab_allocator {
 ( $( $config:expr ),* ) => {{
@@ -138,11 +128,12 @@ macro_rules! slab_allocator {
             )*
             match error {
                 Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
-                None => {slabs.init(config)?;
-                    Ok(slabs)},
+                None => {
+                        slabs.init(config)?;
+                        Ok(slabs)},
+                }
             }
-        }
-    }
+      }
 }
 
 #[macro_export]
