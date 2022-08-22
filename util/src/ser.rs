@@ -1129,6 +1129,13 @@ mod test {
 				v.push(1);
 			}
 			assert!(writer.write_fixed_bytes(v).is_err());
+
+			// user responsible for freeing the chain
+			GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
+				let slabs = unsafe { f.get().as_mut().unwrap() };
+				slabs.free(slabid)?;
+				Ok(())
+			})?;
 		}
 		let free_count2 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
