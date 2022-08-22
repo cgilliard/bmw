@@ -266,11 +266,41 @@ where
 		};
 
 		let (max_entries, max_load_factor) = match hashtable_config {
-			Some(config) => (config.max_entries, config.max_load_factor),
-			None => match hashset_config {
-				Some(config) => (config.max_entries, config.max_load_factor),
-				None => (0, 1.0),
-			},
+			Some(config) => {
+				if config.max_entries == 0 {
+					return Err(err!(
+						ErrKind::Configuration,
+						"MaxEntries must be greater than 0"
+					));
+				}
+				if config.max_load_factor <= 0.0 || config.max_load_factor > 1.0 {
+					return Err(err!(
+						ErrKind::Configuration,
+						"MaxLoadFactor must be greater than 0 and less than or equal to 1.0"
+					));
+				}
+				(config.max_entries, config.max_load_factor)
+			}
+			None => {
+				match hashset_config {
+					Some(config) => {
+						if config.max_entries == 0 {
+							return Err(err!(
+								ErrKind::Configuration,
+								"MaxEntries must be greater than 0"
+							));
+						}
+						if config.max_load_factor <= 0.0 || config.max_load_factor > 1.0 {
+							return Err(err!(
+																ErrKind::Configuration,
+																"MaxLoadFactor must be greater than 0 and less than or equal to 1.0"));
+						}
+
+						(config.max_entries, config.max_load_factor)
+					}
+					None => (0, 1.0), // for lists it's ignored
+				}
+			}
 		};
 
 		let (entry_array, ptr_size) = match list_config {
@@ -284,7 +314,6 @@ where
 					x >>= 8;
 					ptr_size += 1;
 				}
-
 				(None, ptr_size)
 			}
 			None => {
@@ -292,7 +321,6 @@ where
 				let size: usize = (max_entries as f64 / max_load_factor).ceil() as usize;
 				debug!("entry array init to size = {}", size)?;
 				entry_array.resize(size, SLOT_EMPTY);
-
 				let mut x = entry_array.len() + 2; // two more, one for deleted and one for empty
 				let mut ptr_size = 0;
 				loop {
@@ -302,6 +330,7 @@ where
 					x >>= 8;
 					ptr_size += 1;
 				}
+				debug!("ptr_size={}", ptr_size)?;
 				(Some(entry_array), ptr_size)
 			}
 		};
@@ -310,6 +339,12 @@ where
 		let max_value = slice_to_usize(&ptr[0..ptr_size])?;
 
 		let bytes_per_slab = slab_size.saturating_sub(ptr_size);
+		if slab_size < ptr_size * 4 {
+			return Err(err!(
+				ErrKind::Configuration,
+				format!("SlabSize is too small. Must be at least {}", ptr_size * 4)
+			));
+		}
 
 		let slab_reader = SlabReader::new(slabs.clone(), 0)?;
 		let slab_writer = SlabWriter::new(slabs.clone(), 0)?;
@@ -382,7 +417,6 @@ where
 
 	fn clear_impl(&mut self) -> Result<(), Error> {
 		let mut cur = self.tail;
-		debug!("cur={}", cur)?;
 		loop {
 			if cur == SLOT_EMPTY || cur == SLOT_DELETED {
 				break;
@@ -420,6 +454,12 @@ where
 		self.size = 0;
 		self.tail = SLOT_EMPTY;
 		self.head = SLOT_EMPTY;
+
+		// clear the entry array to get rid of SLOT_DELETED
+		if self.entry_array.is_some() {
+			let len = self.entry_array.as_ref().unwrap().len();
+			self.entry_array = Some(vec![0; len]);
+		}
 
 		Ok(())
 	}
@@ -565,7 +605,7 @@ where
 			slab_id, max_value, tail
 		)?;
 		self.slab_writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
-
+		debug!("key write")?;
 		match key {
 			Some(key) => match key.write(&mut self.slab_writer) {
 				Ok(_) => {}
@@ -580,7 +620,6 @@ where
 			},
 			None => {}
 		}
-
 		match value {
 			Some(value) => match value.write(&mut self.slab_writer) {
 				Ok(_) => {}
@@ -686,13 +725,12 @@ where
 	}
 
 	fn free_chain(&mut self, slab_id: usize) -> Result<(), Error> {
-		debug!("free chain on slab = {}", slab_id)?;
 		let bytes_per_slab = self.bytes_per_slab;
 		let slab_size = self.slab_size;
-		let next_bytes = slab_id;
+		let mut next_bytes = slab_id.clone();
 		loop {
-			let id = next_bytes;
-			let next_bytes = match &self.slabs {
+			let id = next_bytes.clone();
+			next_bytes = match &self.slabs {
 				Some(slabs) => {
 					let slabs: Ref<_> = slabs.borrow();
 					let slab = slabs.get(next_bytes)?;
@@ -703,10 +741,11 @@ where
 					let slab = slabs.get(next_bytes)?;
 					slice_to_usize(&slab.get()[bytes_per_slab..slab_size])
 				}),
-			}?;
+			}?
+			.clone();
 
-			debug!("free id = {}, next_bytes={}", id, next_bytes)?;
 			self.free(id)?;
+
 			if next_bytes >= self.max_value {
 				break;
 			}
@@ -981,21 +1020,31 @@ impl StaticBuilder {
 
 #[cfg(test)]
 mod test {
+	use crate as bmw_util;
 	use crate::impls::StaticBuilder;
 	use crate::types::{StaticHashset, StaticList};
-	use crate::StaticHashsetConfig;
-	use crate::GLOBAL_SLAB_ALLOCATOR;
-	use crate::{StaticHashtable, StaticHashtableConfig, StaticListConfig};
+	use crate::ConfigOption::SlabSize;
+	use crate::{
+		slab_allocator, SlabAllocatorBuilder, SlabAllocatorConfig, StaticHashsetConfig,
+		StaticHashtable, StaticHashtableConfig, StaticListConfig, GLOBAL_SLAB_ALLOCATOR,
+	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
 	use bmw_log::*;
+	use std::cell::RefMut;
 	use std::collections::HashMap;
 
 	info!();
 
 	#[test]
 	fn test_static_hashtable() -> Result<(), Error> {
-		let mut hashtable = StaticBuilder::build_hashtable(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = StaticBuilder::build_hashtable(
+			StaticHashtableConfig {
+				max_entries: 100,
+				..Default::default()
+			},
+			None,
+		)?;
 		hashtable.insert(&1, &2)?;
 		let v = hashtable.get(&1)?;
 		assert_eq!(v.unwrap(), 2);
@@ -1266,6 +1315,65 @@ mod test {
 
 		assert_eq!(i, 9);
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_small_slabs() -> Result<(), Error> {
+		let slabs = slab_allocator!(SlabSize(8))?;
+		let mut table = StaticBuilder::build_hashtable(
+			StaticHashtableConfig {
+				max_entries: 100,
+				..Default::default()
+			},
+			Some(slabs),
+		)?;
+
+		table.insert(&1u8, &1u8)?;
+		table.insert(&2u8, &2u8)?;
+
+		let mut count = 0;
+		for (k, v) in table.iter() {
+			match k {
+				1u8 => assert_eq!(v, 1u8),
+				2u8 => assert_eq!(v, 2u8),
+				_ => assert!(false),
+			}
+			count += 1;
+		}
+
+		assert_eq!(count, 2);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_small_config() -> Result<(), Error> {
+		let slab_size = 12;
+		let slabs = SlabAllocatorBuilder::build_ref();
+		let config = SlabAllocatorConfig {
+			slab_size,
+			slab_count: 1,
+			..Default::default()
+		};
+		{
+			let mut slabs: RefMut<_> = slabs.borrow_mut();
+			slabs.init(config)?;
+		}
+
+		{
+			let config = StaticHashtableConfig {
+				max_entries: 1,
+				..Default::default()
+			};
+			let mut h = StaticBuilder::build_hashtable(config, Some(slabs.clone()))?;
+
+			info!("insert 1")?;
+			assert!(h.insert(&2u64, &1u64).is_err());
+			info!("insert 2")?;
+			let mut h = StaticBuilder::build_hashtable(config, Some(slabs.clone()))?;
+			assert!(h.insert(&2u32, &1u32).is_ok());
+		}
 		Ok(())
 	}
 }

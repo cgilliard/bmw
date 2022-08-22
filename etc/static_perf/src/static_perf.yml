@@ -13,3 +13,9 @@ args:
         long: itt
         takes_value: true
         value_name: itt
+    - slab_size:
+        help: slab_size
+        short: s
+        long: slab_size
+        takes_value: true
+        value_name: slab_size

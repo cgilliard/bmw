@@ -22,7 +22,6 @@ use bmw_log::*;
 use std::cell::{Ref, RefCell, RefMut};
 use std::io::{Read, Write};
 use std::rc::Rc;
-use std::str::from_utf8;
 use std::thread;
 
 info!();
@@ -118,12 +117,12 @@ impl Serializable for String {
 		Ok(())
 	}
 	fn read<R: Reader>(reader: &mut R) -> Result<String, Error> {
+		let mut ret = String::new();
 		let len = reader.read_usize()?;
-		let mut v = Vec::with_capacity(len);
 		for _ in 0..len {
-			v.push(reader.read_u8()?);
+			ret.push(reader.read_u8()? as char);
 		}
-		Ok(from_utf8(&v)?.to_string())
+		Ok(ret)
 	}
 }
 
@@ -146,7 +145,6 @@ pub struct SlabWriter {
 	offset: usize,
 	slab_size: usize,
 	bytes_per_slab: usize,
-	max_value: usize,
 }
 
 impl SlabWriter {
@@ -189,10 +187,6 @@ impl SlabWriter {
 			slab_ptr_size += 1;
 		}
 
-		let mut ptr = [0u8; 8];
-		set_max(&mut ptr[0..slab_ptr_size]);
-		let max_value = slice_to_usize(&ptr[0..slab_ptr_size])?;
-
 		let bytes_per_slab = slab_size.saturating_sub(slab_ptr_size);
 
 		if bytes_per_slab == 0 {
@@ -207,86 +201,12 @@ impl SlabWriter {
 			offset: 0,
 			slab_size,
 			bytes_per_slab,
-			max_value,
 		})
-	}
-
-	/*
-	fn allocate(&mut self) -> Result<SlabMut, Error> {
-		match &mut self.slabs {
-			Some(slabs) => {
-				let mut slabs: RefMut<_> = slabs.borrow_mut();
-				slabs.allocate()
-			}
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
-				let slabs = unsafe { f.get().as_mut().unwrap() };
-				slabs.allocate()
-			}),
-		}
-	}*/
-
-	fn get_next_id(&self, id: usize) -> Result<usize, Error> {
-		let bytes_per_slab = self.bytes_per_slab;
-		let slab_size = self.slab_size;
-		match &self.slabs {
-			Some(slabs) => {
-				let slabs: Ref<_> = slabs.borrow();
-				let slab = slabs.get(id)?;
-				Ok(slice_to_usize(&slab.get()[bytes_per_slab..slab_size])?)
-			}
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
-				let slabs = unsafe { f.get().as_mut().unwrap() };
-				let slab = slabs.get(id)?;
-				Ok(slice_to_usize(&slab.get()[bytes_per_slab..slab_size])?)
-			}),
-		}
-	}
-
-	/*
-	fn get_mut(&mut self, id: usize) -> Result<SlabMut, Error> {
-		match &mut self.slabs {
-			Some(slabs) => {
-				let mut slabs: RefMut<_> = slabs.borrow_mut();
-				slabs.get_mut(id)
-			}
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
-				let slabs = unsafe { f.get().as_mut().unwrap() };
-				slabs.get_mut(id)
-			}),
-		}
-	}
-		*/
-
-	fn free(&mut self, slab_id: usize) -> Result<(), Error> {
-		match &mut self.slabs {
-			Some(slabs) => {
-				let mut slabs: RefMut<_> = slabs.borrow_mut();
-				slabs.free(slab_id)
-			}
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
-				let slabs = unsafe { f.get().as_mut().unwrap() };
-				slabs.free(slab_id)
-			}),
-		}
 	}
 
 	pub fn seek(&mut self, slab_id: usize, offset: usize) -> Result<(), Error> {
 		self.slab_id = slab_id;
 		self.offset = offset;
-		Ok(())
-	}
-
-	fn free_chain(&mut self, mut slab_id: usize) -> Result<(), Error> {
-		debug!("free chain on slab = {}", slab_id)?;
-
-		loop {
-			let to_free = slab_id;
-			slab_id = self.get_next_id(slab_id)?;
-			self.free(to_free)?;
-			if slab_id >= self.max_value {
-				break;
-			}
-		}
 		Ok(())
 	}
 
@@ -300,12 +220,12 @@ impl SlabWriter {
 		bytes_per_slab: usize,
 	) -> Result<(), Error> {
 		debug!(
-			"=================process slab mut: {}, offset={}, writing wlen={}, bytes_len={},wlen={}",
+			"process slab mut: {}, offset={}, writing wlen={}, bytes_len={},wlen={}",
 			slab_mut.id(),
 			self_offset,
 			wlen,
-                        bytes.len(),
-                        wlen,
+			bytes.len(),
+			wlen,
 		)?;
 		let slab_mut = slab_mut.get_mut();
 		slab_mut[self_offset..self_offset + wlen].clone_from_slice(bytes);
@@ -323,7 +243,7 @@ impl Writer for SlabWriter {
 	fn write_fixed_bytes<T: AsRef<[u8]>>(&mut self, bytes: T) -> Result<(), Error> {
 		let bytes = bytes.as_ref();
 		let bytes_len = bytes.len();
-
+		debug!("write blen={}", bytes_len)?;
 		if bytes_len == 0 {
 			return Ok(());
 		}
@@ -359,6 +279,7 @@ impl Writer for SlabWriter {
 
 					match &mut self.slabs {
 						Some(slabs) => {
+							debug!("write from existing slab {}", wlen)?;
 							let mut slabs: RefMut<_> = slabs.borrow_mut();
 							let mut slab_mut = slabs.get_mut(self.slab_id)?;
 							Self::process_slab_mut(
@@ -399,7 +320,7 @@ impl Writer for SlabWriter {
 							} else {
 								buffer_rem
 							};
-							debug!("wlen={}", wlen)?;
+							debug!("allocate wlen={}", wlen)?;
 							match slabs.allocate() {
 								Ok(mut slab) => {
 									debug!(
@@ -456,7 +377,6 @@ impl Writer for SlabWriter {
 					};
 					match error {
 						Some(e) => {
-							self.free_chain(slab_id)?;
 							return Err(e);
 						}
 						None => {}

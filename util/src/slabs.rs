@@ -241,10 +241,10 @@ impl SlabAllocator for SlabAllocatorImpl {
 				"slab allocator has already been initialized"
 			)),
 			None => {
-				if config.slab_size < 48 {
+				if config.slab_size < 8 {
 					return Err(err!(
 						ErrKind::IllegalArgument,
-						"slab_size must be at least 48 bytes"
+						"slab_size must be at least 8 bytes"
 					));
 				}
 				if config.slab_count == 0 {
@@ -477,7 +477,7 @@ mod test {
 
 		assert!(SlabAllocatorBuilder::build()
 			.init(SlabAllocatorConfig {
-				slab_size: 47,
+				slab_size: 7,
 				..SlabAllocatorConfig::default()
 			})
 			.is_err());

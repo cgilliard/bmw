@@ -30,13 +30,18 @@ fn main() -> Result<(), Error> {
 	let global = args.is_present("global");
 	let itt = match args.is_present("itt") {
 		true => args.value_of("itt").unwrap().parse()?,
-		false => 10_000,
+		false => 1_000_000,
 	};
 
-	init_slab_allocator!(SlabSize(48), SlabCount(itt))?;
+	let slab_size = match args.is_present("slab_size") {
+		true => args.value_of("slab_size").unwrap().parse()?,
+		false => 48,
+	};
+
+	init_slab_allocator!(SlabSize(slab_size), SlabCount(itt))?;
 	let slabs = SlabAllocatorBuilder::build_ref();
 	let config = SlabAllocatorConfig {
-		slab_size: 48,
+		slab_size,
 		slab_count: itt,
 		..Default::default()
 	};
@@ -58,7 +63,7 @@ fn main() -> Result<(), Error> {
 
 		let now = Instant::now();
 		for i in 0..itt {
-			h.insert(&i, &i)?;
+			h.insert(&(i as usize), &(i as usize))?;
 		}
 		let elapsed = now.elapsed();
 		let x_micros = elapsed.as_micros();
