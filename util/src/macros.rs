@@ -80,7 +80,7 @@ macro_rules! init_slab_allocator {
 #[macro_export]
 macro_rules! slab_allocator {
 ( $( $config:expr ),* ) => {{
-            let mut slabs = bmw_util::SlabAllocatorBuilder::build();
+            let slabs = bmw_util::SlabAllocatorBuilder::build_ref();
             let mut config = bmw_util::SlabAllocatorConfig::default();
             let mut error: Option<String> = None;
             let mut slab_size_specified = false;
@@ -129,11 +129,14 @@ macro_rules! slab_allocator {
             match error {
                 Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
                 None => {
-                        slabs.init(config)?;
-                        Ok(slabs)},
-                }
+                        {
+                                let mut slabs: std::cell::RefMut<_> = slabs.borrow_mut();
+                                slabs.init(config)?;
+                        }
+                        Ok(slabs)
+                },
             }
-      }
+     }};
 }
 
 #[macro_export]
@@ -283,13 +286,17 @@ mod test {
 	use crate::{StaticHashset, StaticHashtable, StaticList};
 	use bmw_log::*;
 	use bmw_util::ConfigOption::*;
+	use std::cell::RefMut;
 
 	info!();
 
 	#[test]
 	fn test_slab_allocator_macro() -> Result<(), bmw_err::Error> {
-		let mut slabs = slab_allocator!()?;
-		let mut slabs2 = slab_allocator!(SlabSize(128), SlabCount(1))?;
+		let slabs = slab_allocator!()?;
+		let slabs2 = slab_allocator!(SlabSize(128), SlabCount(1))?;
+
+		let mut slabs: RefMut<_> = slabs.borrow_mut();
+		let mut slabs2: RefMut<_> = slabs2.borrow_mut();
 
 		let slab = slabs.allocate()?;
 		assert_eq!(

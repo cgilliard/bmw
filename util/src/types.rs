@@ -15,10 +15,12 @@ use crate::slabs::Slab;
 use crate::slabs::SlabMut;
 use bmw_err::*;
 use bmw_log::*;
+use std::cell::RefCell;
 use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 info!();
 
@@ -191,12 +193,16 @@ pub trait ThreadPool {
 ///```
 /// use bmw_err::*;
 /// use bmw_util::slab_allocator;
+/// use std::cell::{RefMut,Ref};
 ///
 /// fn main() -> Result<(), Error> {
 ///     // build a slab allocator, in this case with defaults
-///     let mut slabs = slab_allocator!()?;
+///     let slabs = slab_allocator!()?;
 ///
 ///     let id = {
+///         // slab allocator is stored in an Rc<RefCell>. This allows for it to be used by
+///         // multiple data structures at the same time.
+///         let mut slabs: RefMut<_> = slabs.borrow_mut();
 ///         // allocate a slab. [`crate::SlabAllocator::allocate`] returns [`crate::SlabMut`]
 ///         // which contains a mutable reference to the underlying data in the slab.
 ///         let mut slab = slabs.allocate()?;
@@ -209,6 +215,8 @@ pub trait ThreadPool {
 ///         id
 ///     };
 ///
+///     // borrow, this time with a Ref instead of refmut since it's an immutable call.
+///     let slabs: Ref<_> = slabs.borrow();
 ///     // now we can get an immutable reference to this slab
 ///     let slab = slabs.get(id)?;
 ///     assert_eq!(slab.get()[0], 101);
@@ -248,6 +256,9 @@ pub trait SlabAllocator {
 	/// fn main() -> Result<(), Error> {
 	///     // instantiate a slab allocator with a slab count of 1,000.
 	///     let mut slabs = slab_allocator!(SlabSize(1_000), SlabCount(1_000))?;
+	///
+	///     // borrow a mutable refernce
+	///     let mut slabs = slabs.borrow_mut();
 	///
 	///     // assert that there are 1,000 free slabs.
 	///     assert_eq!(slabs.free_count()?, 1_000);
@@ -296,6 +307,9 @@ pub trait SlabAllocator {
 	/// fn main() -> Result<(), Error> {
 	///     // instantiate a slab allocator with a slab count of 1,000.
 	///     let mut slabs = slab_allocator!(SlabCount(1_000), SlabSize(1_000))?;
+	///     
+	///     // borrow a mutable refernce
+	///     let mut slabs = slabs.borrow_mut();
 	///
 	///     // assert that there are 1,000 free slabs.
 	///     assert_eq!(slabs.free_count()?, 1_000);
@@ -343,6 +357,9 @@ pub trait SlabAllocator {
 	/// fn main() -> Result<(), Error> {
 	///     // instantiate a slab allocator with a slab count of 1,000.
 	///     let mut slabs = slab_allocator!(SlabSize(1_000), SlabCount(1_000))?;
+	///
+	///     // borrow a mutable refernce
+	///     let mut slabs = slabs.borrow_mut();
 	///
 	///     // assert that there are 1,000 free slabs.
 	///     assert_eq!(slabs.free_count()?, 1_000);
@@ -545,7 +562,7 @@ pub(crate) struct StaticImpl<K>
 where
 	K: Serializable,
 {
-	pub(crate) slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
+	pub(crate) slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	pub(crate) max_value: usize,
 	pub(crate) bytes_per_slab: usize,
 	pub(crate) slab_size: usize,

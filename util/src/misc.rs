@@ -55,7 +55,7 @@ pub fn slice_to_usize(slice: &[u8]) -> Result<usize, Error> {
 	Ok(ret)
 }
 
-pub fn is_max(slice: &[u8]) -> bool {
+pub fn _is_max(slice: &[u8]) -> bool {
 	for i in 0..slice.len() {
 		if slice[i] != 0xFF {
 			return false;

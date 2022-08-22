@@ -16,21 +16,58 @@ use crate::ConfigOption::*;
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
+use clap::{load_yaml, App};
+use std::cell::RefMut;
 use std::collections::HashMap;
 use std::time::Instant;
 
 info!();
 
 fn main() -> Result<(), Error> {
-	init_slab_allocator!(SlabSize(48), SlabCount(5000))?;
-	let mut h = hashtable!(MaxEntries(2000))?;
+	let yml = load_yaml!("static_perf.yml");
+	let args = App::from_yaml(yml).version("1.0").get_matches();
+
+	let global = args.is_present("global");
+	init_slab_allocator!(SlabSize(48), SlabCount(10_000))?;
+	let slabs = SlabAllocatorBuilder::build_ref();
+	let config = SlabAllocatorConfig {
+		slab_size: 48,
+		slab_count: 10_000,
+		..Default::default()
+	};
+	{
+		let mut slabs: RefMut<_> = slabs.borrow_mut();
+		slabs.init(config)?;
+	}
+
+	let slabs2 = SlabAllocatorBuilder::build_ref();
+	let config = SlabAllocatorConfig {
+		slab_size: 48,
+		slab_count: 10_000,
+		..Default::default()
+	};
+
+	{
+		let mut slabs2: RefMut<_> = slabs2.borrow_mut();
+		slabs2.init(config)?;
+	}
+
+	let mut h = if global {
+		hashtable!(MaxEntries(2000))?
+	} else {
+		let config = StaticHashtableConfig {
+			max_entries: 2_000,
+			..Default::default()
+		};
+		StaticBuilder::build_hashtable(config, Some(slabs2))?
+	};
 
 	let now = Instant::now();
 	for i in 0..1000 {
 		h.insert(&i, &i)?;
 	}
 	let elapsed = now.elapsed();
-	info!("hashtable elapsed={:?}", elapsed)?;
+	info!("hashtable insert elapsed={:?}", elapsed)?;
 
 	let now = Instant::now();
 	let mut h2 = HashMap::new();
@@ -42,37 +79,40 @@ fn main() -> Result<(), Error> {
 		h2.insert(&v[i], &v[i]);
 	}
 	let elapsed = now.elapsed();
-	info!("hashmap elapsed={:?}", elapsed)?;
+	info!("hashmap insert elapsed={:?}", elapsed)?;
 
 	let now = Instant::now();
 	for i in 0..1000 {
 		h.get(&v[i])?;
 	}
 	let elapsed = now.elapsed();
-	info!("hashtable elapsed={:?}", elapsed)?;
+	info!("hashtable get elapsed={:?}", elapsed)?;
 
 	let now = Instant::now();
 	for i in 0..1000 {
 		h2.get(&v[i]);
 	}
 	let elapsed = now.elapsed();
-	info!("hashmap elapsed={:?}", elapsed)?;
+	info!("hashmap get elapsed={:?}", elapsed)?;
 
+	let mut list = if !global {
+		StaticBuilder::build_list(StaticListConfig::default(), Some(slabs))?
+	} else {
+		list![]
+	};
 	let now = Instant::now();
-	let mut list = list![];
 	for i in 0..1000 {
 		list.push(i)?;
 	}
 	let elapsed = now.elapsed();
-	info!("list elapsed={:?}", elapsed)?;
-
+	info!("list insert = {:?}", elapsed)?;
 	let now = Instant::now();
 	let mut vec = vec![];
 	for i in 0..1000 {
 		vec.push(i);
 	}
 	let elapsed = now.elapsed();
-	info!("vec elapsed={:?}", elapsed)?;
+	info!("vec insert elapsed={:?}", elapsed)?;
 
 	let now = Instant::now();
 	for x in list.iter() {
@@ -91,6 +131,5 @@ fn main() -> Result<(), Error> {
 	}
 	let elapsed = now.elapsed();
 	info!("vec iter elapsed={:?}", elapsed)?;
-
 	Ok(())
 }

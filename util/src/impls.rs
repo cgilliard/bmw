@@ -14,17 +14,19 @@
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
 use crate::types::{Direction, StaticImpl};
 use crate::{
-	HashsetIterator, HashtableIterator, ListIterator, Reader, Serializable, Slab, SlabAllocator,
-	SlabAllocatorConfig, SlabMut, SlabReader, SlabWriter, StaticBuilder, StaticHashset,
-	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig,
-	Writer, GLOBAL_SLAB_ALLOCATOR,
+	HashsetIterator, HashtableIterator, ListIterator, Reader, Serializable, SlabAllocator,
+	SlabAllocatorConfig, SlabReader, SlabWriter, StaticBuilder, StaticHashset, StaticHashsetConfig,
+	StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig, Writer,
+	GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::*;
 use bmw_log::*;
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
+use std::rc::Rc;
 use std::thread;
 
 const SLOT_EMPTY: usize = usize::MAX;
@@ -226,10 +228,13 @@ where
 		hashtable_config: Option<StaticHashtableConfig>,
 		hashset_config: Option<StaticHashsetConfig>,
 		list_config: Option<StaticListConfig>,
-		slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
+		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<Self, Error> {
 		let (slab_size, slab_count) = match slabs.as_ref() {
-			Some(slabs) => ((slabs.slab_size()?, slabs.slab_count()?)),
+			Some(slabs) => {
+				let slabs: Ref<_> = slabs.borrow();
+				(slabs.slab_size()?, slabs.slab_count()?)
+			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(usize, usize), Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
 				let slab_size = match slabs.slab_size() {
@@ -632,16 +637,8 @@ where
 	}
 
 	fn get_writer(&mut self) -> Result<(usize, SlabWriter), Error> {
-		let bytes_per_slab = self.bytes_per_slab;
-		let slab_size = self.slab_size;
-		let mut slab = self.allocate()?;
-		// set next to 0xFF
-		let slab_mut = slab.get_mut();
-		for i in bytes_per_slab..slab_size {
-			slab_mut[i] = 0xFF;
-		}
+		let slab_id = self.allocate()?;
 
-		let slab_id = slab.id();
 		let slab_writer = match &mut self.slabs {
 			Some(slabs) => SlabWriter::new(Some(slabs), slab_id)?,
 			None => SlabWriter::new(None, slab_id)?,
@@ -658,29 +655,37 @@ where
 		})
 	}
 
-	fn allocate(&mut self) -> Result<SlabMut, Error> {
+	fn allocate(&mut self) -> Result<usize, Error> {
 		match &mut self.slabs {
-			Some(slabs) => slabs.allocate(),
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
+			Some(slabs) => {
+				let mut slabs: RefMut<_> = slabs.borrow_mut();
+				let mut slab = slabs.allocate()?;
+				let slab_mut = slab.get_mut();
+				// set next pointer to none
+				for i in self.bytes_per_slab..self.slab_size {
+					slab_mut[i] = 0xFF;
+				}
+				Ok(slab.id())
+			}
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
-				slabs.allocate()
-			}),
-		}
-	}
-
-	fn get_slab(&self, slab_id: usize) -> Result<Slab, Error> {
-		match &self.slabs {
-			Some(slabs) => slabs.get(slab_id),
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Slab, Error> {
-				let slabs = unsafe { f.get().as_mut().unwrap() };
-				slabs.get(slab_id)
+				let mut slab = slabs.allocate()?;
+				let slab_mut = slab.get_mut();
+				// set next pointer to none
+				for i in self.bytes_per_slab..self.slab_size {
+					slab_mut[i] = 0xFF;
+				}
+				Ok(slab.id())
 			}),
 		}
 	}
 
 	fn free(&mut self, slab_id: usize) -> Result<(), Error> {
 		match &mut self.slabs {
-			Some(slabs) => slabs.free(slab_id),
+			Some(slabs) => {
+				let mut slabs: RefMut<_> = slabs.borrow_mut();
+				slabs.free(slab_id)
+			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
 				slabs.free(slab_id)
@@ -692,11 +697,22 @@ where
 		debug!("free chain on slab = {}", slab_id)?;
 		let bytes_per_slab = self.bytes_per_slab;
 		let slab_size = self.slab_size;
-		let mut next_bytes = slab_id;
+		let next_bytes = slab_id;
 		loop {
-			let slab = self.get_slab(next_bytes)?;
-			let id = slab.id();
-			next_bytes = slice_to_usize(&slab.get()[bytes_per_slab..slab_size])?;
+			let id = next_bytes;
+			let next_bytes = match &self.slabs {
+				Some(slabs) => {
+					let slabs: Ref<_> = slabs.borrow();
+					let slab = slabs.get(next_bytes)?;
+					slice_to_usize(&slab.get()[bytes_per_slab..slab_size])
+				}
+				None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+					let slabs = unsafe { f.get().as_mut().unwrap() };
+					let slab = slabs.get(next_bytes)?;
+					slice_to_usize(&slab.get()[bytes_per_slab..slab_size])
+				}),
+			}?;
+
 			debug!("free id = {}, next_bytes={}", id, next_bytes)?;
 			self.free(id)?;
 			if next_bytes >= self.max_value {
@@ -941,7 +957,7 @@ where
 impl StaticBuilder {
 	pub fn build_hashtable<K, V>(
 		config: StaticHashtableConfig,
-		slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
+		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<impl StaticHashtable<K, V>, Error>
 	where
 		K: Serializable + Hash + PartialEq,
@@ -952,7 +968,7 @@ impl StaticBuilder {
 
 	pub fn build_hashset<K>(
 		config: StaticHashsetConfig,
-		slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
+		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<impl StaticHashset<K>, Error>
 	where
 		K: Serializable + Hash + PartialEq,
@@ -962,7 +978,7 @@ impl StaticBuilder {
 
 	pub fn build_list<V>(
 		config: StaticListConfig,
-		slabs: Option<Box<dyn SlabAllocator + Send + Sync>>,
+		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<impl StaticList<V>, Error>
 	where
 		V: Serializable + Debug + PartialEq,

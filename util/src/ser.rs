@@ -12,14 +12,16 @@
 // limitations under the License.
 
 use crate::misc::set_max;
-use crate::misc::{is_max, slice_to_usize, usize_to_slice};
+use crate::misc::{slice_to_usize, usize_to_slice};
 use crate::{
-	Reader, Serializable, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut, Writer,
+	Reader, Serializable, SlabAllocator, SlabAllocatorConfig, SlabMut, Writer,
 	GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
+use std::cell::{Ref, RefCell, RefMut};
 use std::io::{Read, Write};
+use std::rc::Rc;
 use std::str::from_utf8;
 use std::thread;
 
@@ -138,7 +140,7 @@ impl Serializable for [u8; 8] {
 }
 
 pub struct SlabWriter<'a> {
-	slabs: Option<&'a mut Box<dyn SlabAllocator + Send + Sync>>,
+	slabs: Option<&'a mut Rc<RefCell<dyn SlabAllocator>>>,
 	slab_id: usize,
 	offset: usize,
 	slab_size: usize,
@@ -148,12 +150,15 @@ pub struct SlabWriter<'a> {
 
 impl<'a> SlabWriter<'a> {
 	pub fn new(
-		slabs: Option<&'a mut Box<dyn SlabAllocator + Send + Sync>>,
+		slabs: Option<&'a mut Rc<RefCell<dyn SlabAllocator>>>,
 		slab_id: usize,
 	) -> Result<Self, Error> {
 		debug!("new with slab_id = {}", slab_id)?;
-		let (slab_size, slab_count) = match slabs.as_ref() {
-			Some(slabs) => ((slabs.slab_size()?, slabs.slab_count()?)),
+		let (slab_size, slab_count) = match slabs {
+			Some(ref slabs) => {
+				let slabs: Ref<_> = slabs.borrow();
+				(slabs.slab_size()?, slabs.slab_count()?)
+			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(usize, usize), Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
 				let slab_size = match slabs.slab_size() {
@@ -205,29 +210,58 @@ impl<'a> SlabWriter<'a> {
 		})
 	}
 
+	/*
 	fn allocate(&mut self) -> Result<SlabMut, Error> {
 		match &mut self.slabs {
-			Some(slabs) => slabs.allocate(),
+			Some(slabs) => {
+				let mut slabs: RefMut<_> = slabs.borrow_mut();
+				slabs.allocate()
+			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
 				slabs.allocate()
 			}),
 		}
+	}*/
+
+	fn get_next_id(&self, id: usize) -> Result<usize, Error> {
+		let bytes_per_slab = self.bytes_per_slab;
+		let slab_size = self.slab_size;
+		match &self.slabs {
+			Some(slabs) => {
+				let slabs: Ref<_> = slabs.borrow();
+				let slab = slabs.get(id)?;
+				Ok(slice_to_usize(&slab.get()[bytes_per_slab..slab_size])?)
+			}
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+				let slabs = unsafe { f.get().as_mut().unwrap() };
+				let slab = slabs.get(id)?;
+				Ok(slice_to_usize(&slab.get()[bytes_per_slab..slab_size])?)
+			}),
+		}
 	}
 
+	/*
 	fn get_mut(&mut self, id: usize) -> Result<SlabMut, Error> {
 		match &mut self.slabs {
-			Some(slabs) => slabs.get_mut(id),
+			Some(slabs) => {
+				let mut slabs: RefMut<_> = slabs.borrow_mut();
+				slabs.get_mut(id)
+			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
 				slabs.get_mut(id)
 			}),
 		}
 	}
+		*/
 
 	fn free(&mut self, slab_id: usize) -> Result<(), Error> {
 		match &mut self.slabs {
-			Some(slabs) => slabs.free(slab_id),
+			Some(slabs) => {
+				let mut slabs: RefMut<_> = slabs.borrow_mut();
+				slabs.free(slab_id)
+			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
 				slabs.free(slab_id)
@@ -241,19 +275,43 @@ impl<'a> SlabWriter<'a> {
 		Ok(())
 	}
 
-	fn free_chain(&mut self, slab_id: usize) -> Result<(), Error> {
+	fn free_chain(&mut self, mut slab_id: usize) -> Result<(), Error> {
 		debug!("free chain on slab = {}", slab_id)?;
-		let bytes_per_slab = self.bytes_per_slab;
-		let slab_size = self.slab_size;
-		let mut next_bytes = slab_id;
 
 		loop {
-			let slab = self.get_mut(next_bytes)?;
-			let id = slab.id();
-			next_bytes = slice_to_usize(&slab.get()[bytes_per_slab..slab_size])?;
-			self.free(id)?;
-			if next_bytes >= self.max_value {
+			let to_free = slab_id;
+			slab_id = self.get_next_id(slab_id)?;
+			self.free(to_free)?;
+			if slab_id >= self.max_value {
 				break;
+			}
+		}
+		Ok(())
+	}
+
+	fn process_slab_mut(
+		slab_mut: &mut SlabMut,
+		is_allocated: bool,
+		wlen: usize,
+		self_offset: usize,
+		bytes: &[u8],
+		slab_size: usize,
+		bytes_per_slab: usize,
+	) -> Result<(), Error> {
+		debug!(
+			"=================process slab mut: {}, offset={}, writing wlen={}, bytes_len={},wlen={}",
+			slab_mut.id(),
+			self_offset,
+			wlen,
+                        bytes.len(),
+                        wlen,
+		)?;
+		let slab_mut = slab_mut.get_mut();
+		slab_mut[self_offset..self_offset + wlen].clone_from_slice(bytes);
+
+		if is_allocated {
+			for i in bytes_per_slab..slab_size {
+				slab_mut[i] = 0xFF;
 			}
 		}
 		Ok(())
@@ -274,88 +332,157 @@ impl<'a> Writer for SlabWriter<'a> {
 		debug!("slab_id preloop = {}", slab_id)?;
 		let bytes_per_slab = self.bytes_per_slab;
 		let slab_size = self.slab_size;
-		let mut alloc;
-
 		loop {
 			// if we've already written all of it break
 			if bytes_offset >= bytes_len {
 				break;
 			}
 
-			// get slab, if cur slab has more room get it otherwise allocate
-			let self_offset;
-			let mut slab = match self.offset < bytes_per_slab {
-				true => {
-					debug!("x: slab_id = {}", slab_id)?;
-					self_offset = self.offset;
-					alloc = false;
-					self.get_mut(slab_id)?
-				}
-				false => {
-					let nslab_id = {
-						let nslab = match self.allocate() {
-							Ok(nslab) => nslab,
-							Err(e) => {
-								// clean up chain.
-								self.free_chain(slab_id)?;
-								return Err(e);
-							}
-						};
-						nslab.id()
-					};
-					alloc = true;
-
-					// update pointer to next
-					{
-						debug!(
-							"set next_bytes for slab = {}, pointing to {}",
-							self.slab_id, nslab_id
-						)?;
-						let mut prev = self.get_mut(self.slab_id)?;
-						let prev_id = prev.id();
-
-						let next_bytes = &mut prev.get_mut()[bytes_per_slab..slab_size];
-						usize_to_slice(nslab_id, next_bytes)?;
-						debug!("next_bytes = {:?},prev.id={}", next_bytes, prev_id)?;
-					}
-
-					self.offset = 0;
-					self_offset = 0;
-					debug!("setting self.slab_id = {}", nslab_id)?;
-					self.slab_id = nslab_id;
-					self.get_mut(self.slab_id)?
-				}
-			};
-			let nid = slab.id();
-
-			// how much is left in the buffer?
 			let buffer_rem = bytes_len - bytes_offset;
 
 			// we calculate the maximum we can write
-			let wlen = if buffer_rem > bytes_per_slab - self_offset {
-				bytes_per_slab - self_offset
+			let mut wlen = if buffer_rem > bytes_per_slab - self.offset {
+				bytes_per_slab - self.offset
 			} else {
 				buffer_rem
 			};
 
-			// write the data to the slab
-			let slab_mut = slab.get_mut();
-			debug!("writing wlen = {} bytes at offset = {}", wlen, self_offset)?;
+			// get slab, if cur slab has more room get it otherwise allocate
+			debug!(
+				"self.offset={},bytes_per_slab={}",
+				self.offset, bytes_per_slab
+			)?;
+			match self.offset < bytes_per_slab {
+				true => {
+					debug!("true: slab_id = {}", slab_id)?;
 
-			slab_mut[self_offset..self_offset + wlen]
-				.clone_from_slice(&bytes[bytes_offset..bytes_offset + wlen]);
-
-			bytes_offset += wlen;
-
-			if alloc {
-				// write 0xFF to set the next pointer so that we know it's
-				// empty
-				for i in bytes_per_slab..slab_size {
-					slab_mut[i] = 0xFF;
+					match &mut self.slabs {
+						Some(slabs) => {
+							let mut slabs: RefMut<_> = slabs.borrow_mut();
+							let mut slab_mut = slabs.get_mut(self.slab_id)?;
+							Self::process_slab_mut(
+								&mut slab_mut,
+								false,
+								wlen,
+								self.offset,
+								&bytes[bytes_offset..bytes_offset + wlen],
+								slab_size,
+								bytes_per_slab,
+							)?;
+						}
+						None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
+							let slabs = unsafe { f.get().as_mut().unwrap() };
+							let mut slab_mut = slabs.get_mut(self.slab_id)?;
+							Self::process_slab_mut(
+								&mut slab_mut,
+								false,
+								wlen,
+								self.offset,
+								&bytes[bytes_offset..bytes_offset + wlen],
+								slab_size,
+								bytes_per_slab,
+							)?;
+							Ok(())
+						})?,
+					}
 				}
-				debug!("setting slab {} to 0xFF", nid)?;
+				false => {
+					let self_slab_id = self.slab_id;
+					let mut error = None;
+					let nslab_id = match &mut self.slabs {
+						Some(slabs) => {
+							let mut slabs: RefMut<_> = slabs.borrow_mut();
+							self.offset = 0;
+							wlen = if buffer_rem > bytes_per_slab - self.offset {
+								bytes_per_slab - self.offset
+							} else {
+								buffer_rem
+							};
+							debug!("wlen={}", wlen)?;
+							match slabs.allocate() {
+								Ok(mut slab) => {
+									debug!(
+										"allocate slab id={},bytes_offset={}",
+										slab.id(),
+										bytes_offset
+									)?;
+									Self::process_slab_mut(
+										&mut slab,
+										true,
+										wlen,
+										0,
+										&bytes[bytes_offset..bytes_offset + wlen],
+										slab_size,
+										bytes_per_slab,
+									)?;
+									slab.id()
+								}
+								Err(e) => {
+									error = Some(e);
+									0
+								}
+							}
+						}
+						None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+							let slabs = unsafe { f.get().as_mut().unwrap() };
+							self.offset = 0;
+							wlen = if buffer_rem > bytes_per_slab - self.offset {
+								bytes_per_slab - self.offset
+							} else {
+								buffer_rem
+							};
+							debug!("wlen={}", wlen)?;
+							match slabs.allocate() {
+								Ok(mut slab) => {
+									debug!("allocate slab")?;
+									Self::process_slab_mut(
+										&mut slab,
+										true,
+										wlen,
+										0,
+										&bytes[bytes_offset..bytes_offset + wlen],
+										slab_size,
+										bytes_per_slab,
+									)?;
+									Ok(slab.id())
+								}
+								Err(e) => {
+									error = Some(e);
+									Ok(0)
+								}
+							}
+						})?,
+					};
+					match error {
+						Some(e) => {
+							self.free_chain(slab_id)?;
+							return Err(e);
+						}
+						None => {}
+					}
+
+					match &mut self.slabs {
+						Some(slabs) => {
+							let mut slabs: RefMut<_> = slabs.borrow_mut();
+							let mut slab = slabs.get_mut(self_slab_id)?;
+							let prev = &mut slab.get_mut()[bytes_per_slab..slab_size];
+							usize_to_slice(nslab_id, prev)?;
+						}
+						None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
+							let slabs = unsafe { f.get().as_mut().unwrap() };
+							let mut slab = slabs.get_mut(self_slab_id)?;
+							let prev = &mut slab.get_mut()[bytes_per_slab..slab_size];
+							usize_to_slice(nslab_id, prev)?;
+							Ok(())
+						})?,
+					}
+					debug!("setting self.slab_id = {}", nslab_id)?;
+					self.slab_id = nslab_id;
+				}
 			}
 
+			bytes_offset += wlen;
+			debug!("adding wlen = {} to self.offset = {}", wlen, self.offset)?;
 			self.offset += wlen;
 		}
 
@@ -367,20 +494,24 @@ impl<'a> Writer for SlabWriter<'a> {
 }
 
 pub struct SlabReader<'a> {
-	slabs: Option<&'a Box<dyn SlabAllocator + Send + Sync>>,
+	slabs: Option<&'a Rc<RefCell<dyn SlabAllocator>>>,
 	slab_id: usize,
 	offset: usize,
 	slab_size: usize,
 	bytes_per_slab: usize,
+	max_value: usize,
 }
 
 impl<'a> SlabReader<'a> {
 	pub fn new(
-		slabs: Option<&'a Box<dyn SlabAllocator + Send + Sync>>,
+		slabs: Option<&'a Rc<RefCell<dyn SlabAllocator>>>,
 		slab_id: usize,
 	) -> Result<Self, Error> {
 		let (slab_size, slab_count) = match slabs.as_ref() {
-			Some(slabs) => ((slabs.slab_size()?, slabs.slab_count()?)),
+			Some(slabs) => {
+				let slabs: Ref<_> = slabs.borrow();
+				(slabs.slab_size()?, slabs.slab_count()?)
+			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(usize, usize), Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
 				let slab_size = match slabs.slab_size() {
@@ -419,29 +550,63 @@ impl<'a> SlabReader<'a> {
 			));
 		}
 
+		let mut ptr = [0u8; 8];
+		set_max(&mut ptr[0..slab_ptr_size]);
+		let max_value = slice_to_usize(&ptr[0..slab_ptr_size])?;
+
 		Ok(Self {
 			slabs,
 			slab_id,
 			offset: 0,
 			slab_size,
 			bytes_per_slab,
+			max_value,
 		})
 	}
 
-	fn get(&self, id: usize) -> Result<Slab, Error> {
+	fn get_next_id(&self, id: usize) -> Result<usize, Error> {
+		let bytes_per_slab = self.bytes_per_slab;
+		let slab_size = self.slab_size;
 		match &self.slabs {
-			Some(slabs) => slabs.get(id),
-			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<Slab, Error> {
-				let slabs = unsafe { f.get().as_ref().unwrap() };
-				slabs.get(id)
+			Some(slabs) => {
+				let slabs: Ref<_> = slabs.borrow();
+				let slab = slabs.get(id)?;
+				Ok(slice_to_usize(&slab.get()[bytes_per_slab..slab_size])?)
+			}
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+				let slabs = unsafe { f.get().as_mut().unwrap() };
+				let slab = slabs.get(id)?;
+				Ok(slice_to_usize(&slab.get()[bytes_per_slab..slab_size])?)
 			}),
 		}
 	}
 
+	fn read_bytes(
+		&self,
+		id: usize,
+		offset: usize,
+		rlen: usize,
+		buf: &mut [u8],
+	) -> Result<(), Error> {
+		match &self.slabs {
+			Some(slabs) => {
+				let slabs: Ref<_> = slabs.borrow();
+				let slab = slabs.get(id)?;
+				buf.clone_from_slice(&slab.get()[offset..(offset + rlen)]);
+				Ok(())
+			}
+			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
+				let slabs = unsafe { f.get().as_ref().unwrap() };
+				let slab = slabs.get(id)?;
+				buf.clone_from_slice(&slab.get()[offset..(offset + rlen)]);
+				Ok(())
+			}),
+		}
+	}
 	pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Error> {
 		let mut buf_offset = 0;
 		let buf_len = buf.len();
-
+		debug!("buflen={}", buf_len)?;
 		loop {
 			if buf_offset >= buf_len {
 				break;
@@ -450,36 +615,30 @@ impl<'a> SlabReader<'a> {
 
 			if self.offset >= self.bytes_per_slab {
 				self.offset = 0;
-				debug!("offset was greater than bytes_per_slab setting to 0")?;
-				let slab = self.get(self.slab_id)?;
-				let next_bytes = &slab.get()[self.bytes_per_slab..self.slab_size];
-				if is_max(next_bytes) {
+				let next = self.get_next_id(self.slab_id)?;
+				if next >= self.max_value {
 					return Err(err!(ErrKind::IO, "failed to fill whole buffer"));
 				}
-				self.slab_id = slice_to_usize(next_bytes)?;
+				self.slab_id = next;
 			}
-
-			debug!("getting slab_id={}", self.slab_id)?;
-			let slab = self.get(self.slab_id)?;
 
 			let mut rlen = self.bytes_per_slab - self.offset;
 			if rlen > buf_rem {
 				rlen = buf_rem;
 			}
 
-			debug!(
-				"buf_offset={},rlen={},self.offset={},rlen+self.offset={},buf_rem={}",
-				buf_offset,
-				rlen,
+			debug!("read exact rln={}", rlen)?;
+
+			self.read_bytes(
+				self.slab_id,
 				self.offset,
-				(self.offset + rlen),
-				buf_rem
+				rlen,
+				&mut buf[buf_offset..buf_offset + rlen],
 			)?;
-			buf[buf_offset..buf_offset + rlen]
-				.clone_from_slice(&slab.get()[self.offset..(self.offset + rlen)]);
+			debug!("buf[first]={}", buf[buf_offset])?;
 			buf_offset += rlen;
+			debug!("buf_offset={}", buf_offset)?;
 			self.offset += rlen;
-			debug!("setting offset to {}", self.offset)?;
 		}
 
 		Ok(())
@@ -688,7 +847,9 @@ mod test {
 	use bmw_deps::rand;
 	use bmw_err::*;
 	use bmw_log::*;
+	use std::cell::{RefCell, RefMut};
 	use std::fmt::Debug;
+	use std::rc::Rc;
 
 	info!();
 
@@ -888,20 +1049,29 @@ mod test {
 	fn slab_allocator(
 		slab_size: usize,
 		slab_count: usize,
-	) -> Result<Box<dyn SlabAllocator + Send + Sync>, Error> {
+	) -> Result<Rc<RefCell<dyn SlabAllocator>>, Error> {
 		let config = bmw_util::SlabAllocatorConfig {
 			slab_count,
 			slab_size,
 			..Default::default()
 		};
-		let mut slabs = bmw_util::SlabAllocatorBuilder::build();
-		match slabs.init(config) {
-			Ok(_) => Ok(slabs),
-			Err(e) => Err(bmw_err::err!(
-				bmw_err::ErrKind::Configuration,
-				format!("{}", e)
-			)),
+		let slabs = bmw_util::SlabAllocatorBuilder::build_ref();
+
+		{
+			let mut slabs_refmut: RefMut<_> = slabs.borrow_mut();
+
+			match slabs_refmut.init(config) {
+				Ok(_) => {}
+				Err(e) => {
+					return Err(bmw_err::err!(
+						bmw_err::ErrKind::Configuration,
+						format!("{}", e)
+					))
+				}
+			}
 		}
+
+		Ok(slabs)
 	}
 
 	#[test]
@@ -909,6 +1079,7 @@ mod test {
 		let mut slabs = slab_allocator(1024, 10_240)?;
 
 		let slab_id = {
+			let mut slabs: RefMut<_> = slabs.borrow_mut();
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
@@ -928,16 +1099,15 @@ mod test {
 	fn test_multi_slabs() -> Result<(), Error> {
 		let mut slabs = slab_allocator(1024, 10_240)?;
 		let slab_id = {
+			let mut slabs: RefMut<_> = slabs.borrow_mut();
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
-
 		let mut slab_writer = SlabWriter::new(Some(&mut slabs), slab_id)?;
 		let r = 10_100;
 		for i in 0..r {
 			slab_writer.write_u128(i)?;
 		}
-
 		let mut slab_reader = SlabReader::new(Some(&mut slabs), slab_id)?;
 		for i in 0..r {
 			assert_eq!(slab_reader.read_u128()?, i);
@@ -953,10 +1123,11 @@ mod test {
 
 	#[test]
 	fn test_alternate_sized_slabs() -> Result<(), Error> {
-		for i in 0..1_000 {
+		for i in 0..1000 {
 			let mut slabs = slab_allocator(48 + i, 10)?;
 
 			let slab_id = {
+				let mut slabs: RefMut<_> = slabs.borrow_mut();
 				let slab = slabs.allocate()?;
 				slab.id()
 			};
@@ -973,12 +1144,12 @@ mod test {
 			slab_reader.read_fixed_bytes(&mut v_back)?;
 			assert_eq!(v, v_back);
 		}
-
 		// test capacity exceeded
 
 		// 470 is ok because only 1 byte overhead per slab.
 		let mut slabs = slab_allocator(48, 10)?;
 		let slab_id = {
+			let mut slabs: RefMut<_> = slabs.borrow_mut();
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
@@ -992,6 +1163,7 @@ mod test {
 		// 471 is one too many and returns error (note: user responsible for cleanup)
 		let mut slabs = slab_allocator(48, 10)?;
 		let slab_id = {
+			let mut slabs: RefMut<_> = slabs.borrow_mut();
 			let slab = slabs.allocate()?;
 			slab.id()
 		};

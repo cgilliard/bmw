@@ -15,7 +15,9 @@ use crate::misc::{set_max, slice_to_usize, usize_to_slice};
 use crate::{SlabAllocator, SlabAllocatorConfig};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
+use std::cell::RefCell;
 use std::cell::UnsafeCell;
+use std::rc::Rc;
 
 info!();
 
@@ -330,6 +332,10 @@ impl SlabAllocatorBuilder {
 
 	/// Build a slab allocator on the heap. This function is used by [`crate::slab_allocator`]
 	/// to create slab allocators for use with the other macros.
+	pub fn build_ref() -> Rc<RefCell<dyn SlabAllocator>> {
+		Rc::new(RefCell::new(SlabAllocatorImpl::new()))
+	}
+
 	pub fn build() -> Box<dyn SlabAllocator + Send + Sync> {
 		Box::new(SlabAllocatorImpl::new())
 	}
