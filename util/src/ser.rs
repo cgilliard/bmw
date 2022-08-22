@@ -237,10 +237,12 @@ impl SlabWriter {
 		}
 		Ok(())
 	}
-}
 
-impl Writer for SlabWriter {
-	fn write_fixed_bytes<T: AsRef<[u8]>>(&mut self, bytes: T) -> Result<(), Error> {
+	pub(crate) fn write_fixed_bytes_impl<T: AsRef<[u8]>>(
+		&mut self,
+		bytes: T,
+		mut slabs: Option<RefMut<dyn SlabAllocator>>,
+	) -> Result<(), Error> {
 		let bytes = bytes.as_ref();
 		let bytes_len = bytes.len();
 		debug!("write blen={}", bytes_len)?;
@@ -277,10 +279,9 @@ impl Writer for SlabWriter {
 				true => {
 					debug!("true: slab_id = {}", slab_id)?;
 
-					match &mut self.slabs {
+					match &mut slabs {
 						Some(slabs) => {
 							debug!("write from existing slab {}", wlen)?;
-							let mut slabs: RefMut<_> = slabs.borrow_mut();
 							let mut slab_mut = slabs.get_mut(self.slab_id)?;
 							Self::process_slab_mut(
 								&mut slab_mut,
@@ -311,16 +312,14 @@ impl Writer for SlabWriter {
 				false => {
 					let self_slab_id = self.slab_id;
 					let mut error = None;
-					let nslab_id = match &mut self.slabs {
-						Some(slabs) => {
-							let mut slabs: RefMut<_> = slabs.borrow_mut();
+					let nslab_id = match slabs {
+						Some(ref mut slabs) => {
 							self.offset = 0;
 							wlen = if buffer_rem > bytes_per_slab - self.offset {
 								bytes_per_slab - self.offset
 							} else {
 								buffer_rem
 							};
-							debug!("allocate wlen={}", wlen)?;
 							match slabs.allocate() {
 								Ok(mut slab) => {
 									debug!(
@@ -382,9 +381,8 @@ impl Writer for SlabWriter {
 						None => {}
 					}
 
-					match &mut self.slabs {
+					match &mut slabs {
 						Some(slabs) => {
-							let mut slabs: RefMut<_> = slabs.borrow_mut();
 							let mut slab = slabs.get_mut(self_slab_id)?;
 							let prev = &mut slab.get_mut()[bytes_per_slab..slab_size];
 							usize_to_slice(nslab_id, prev)?;
@@ -411,6 +409,19 @@ impl Writer for SlabWriter {
 			debug!("b[{}]={}", i, bytes.as_ref()[i])?;
 		}
 		Ok(())
+	}
+}
+
+impl Writer for SlabWriter {
+	fn write_fixed_bytes<'a, T: AsRef<[u8]>>(&mut self, bytes: T) -> Result<(), Error> {
+		match &self.slabs {
+			Some(slabs) => {
+				let slabs = slabs.clone();
+				let slabs: RefMut<_> = slabs.borrow_mut();
+				self.write_fixed_bytes_impl(bytes, Some(slabs))
+			}
+			None => self.write_fixed_bytes_impl(bytes, None),
+		}
 	}
 }
 

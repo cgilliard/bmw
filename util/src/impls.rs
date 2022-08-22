@@ -292,8 +292,9 @@ where
 						}
 						if config.max_load_factor <= 0.0 || config.max_load_factor > 1.0 {
 							return Err(err!(
-																ErrKind::Configuration,
-																"MaxLoadFactor must be greater than 0 and less than or equal to 1.0"));
+                                                                ErrKind::Configuration,
+                                                                "MaxLoadFactor must be greater than 0 and less than or equal to 1.0"
+                                                                ));
 						}
 
 						(config.max_entries, config.max_load_factor)
@@ -604,6 +605,7 @@ where
 			"updating slab id {} with next = {}, prev = {}",
 			slab_id, max_value, tail
 		)?;
+
 		self.slab_writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
 		debug!("key write")?;
 		match key {
@@ -1369,10 +1371,10 @@ mod test {
 			let mut h = StaticBuilder::build_hashtable(config, Some(slabs.clone()))?;
 
 			info!("insert 1")?;
-			assert!(h.insert(&2u64, &1u64).is_err());
+			assert!(h.insert(&2u64, &6u64).is_err());
 			info!("insert 2")?;
 			let mut h = StaticBuilder::build_hashtable(config, Some(slabs.clone()))?;
-			assert!(h.insert(&2u32, &1u32).is_ok());
+			h.insert(&2000u32, &1000u32)?;
 		}
 		Ok(())
 	}
