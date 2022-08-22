@@ -139,8 +139,9 @@ impl Serializable for [u8; 8] {
 	}
 }
 
-pub struct SlabWriter<'a> {
-	slabs: Option<&'a mut Rc<RefCell<dyn SlabAllocator>>>,
+#[derive(Clone)]
+pub struct SlabWriter {
+	slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	slab_id: usize,
 	offset: usize,
 	slab_size: usize,
@@ -148,9 +149,9 @@ pub struct SlabWriter<'a> {
 	max_value: usize,
 }
 
-impl<'a> SlabWriter<'a> {
+impl SlabWriter {
 	pub fn new(
-		slabs: Option<&'a mut Rc<RefCell<dyn SlabAllocator>>>,
+		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 		slab_id: usize,
 	) -> Result<Self, Error> {
 		debug!("new with slab_id = {}", slab_id)?;
@@ -318,7 +319,7 @@ impl<'a> SlabWriter<'a> {
 	}
 }
 
-impl<'a> Writer for SlabWriter<'a> {
+impl Writer for SlabWriter {
 	fn write_fixed_bytes<T: AsRef<[u8]>>(&mut self, bytes: T) -> Result<(), Error> {
 		let bytes = bytes.as_ref();
 		let bytes_len = bytes.len();
@@ -493,8 +494,9 @@ impl<'a> Writer for SlabWriter<'a> {
 	}
 }
 
-pub struct SlabReader<'a> {
-	slabs: Option<&'a Rc<RefCell<dyn SlabAllocator>>>,
+#[derive(Clone)]
+pub struct SlabReader {
+	slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	slab_id: usize,
 	offset: usize,
 	slab_size: usize,
@@ -502,9 +504,9 @@ pub struct SlabReader<'a> {
 	max_value: usize,
 }
 
-impl<'a> SlabReader<'a> {
+impl<'a> SlabReader {
 	pub fn new(
-		slabs: Option<&'a Rc<RefCell<dyn SlabAllocator>>>,
+		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 		slab_id: usize,
 	) -> Result<Self, Error> {
 		let (slab_size, slab_count) = match slabs.as_ref() {
@@ -562,6 +564,12 @@ impl<'a> SlabReader<'a> {
 			bytes_per_slab,
 			max_value,
 		})
+	}
+
+	pub fn seek(&mut self, slab_id: usize, offset: usize) -> Result<(), Error> {
+		self.slab_id = slab_id;
+		self.offset = offset;
+		Ok(())
 	}
 
 	fn get_next_id(&self, id: usize) -> Result<usize, Error> {
@@ -645,7 +653,7 @@ impl<'a> SlabReader<'a> {
 	}
 }
 
-impl<'a> Reader for SlabReader<'a> {
+impl Reader for SlabReader {
 	fn read_u8(&mut self) -> Result<u8, Error> {
 		let mut b = [0u8; 1];
 		self.read_exact(&mut b)?;
@@ -1076,7 +1084,7 @@ mod test {
 
 	#[test]
 	fn test_slab_rw() -> Result<(), Error> {
-		let mut slabs = slab_allocator(1024, 10_240)?;
+		let slabs = slab_allocator(1024, 10_240)?;
 
 		let slab_id = {
 			let mut slabs: RefMut<_> = slabs.borrow_mut();
@@ -1084,11 +1092,11 @@ mod test {
 			slab.id()
 		};
 
-		let mut slab_writer = SlabWriter::new(Some(&mut slabs), slab_id)?;
+		let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id)?;
 		slab_writer.write_u64(123)?;
 		slab_writer.write_u128(123)?;
 
-		let mut slab_reader = SlabReader::new(Some(&mut slabs), slab_id)?;
+		let mut slab_reader = SlabReader::new(Some(slabs.clone()), slab_id)?;
 		assert_eq!(slab_reader.read_u64()?, 123);
 		assert_eq!(slab_reader.read_u128()?, 123);
 
@@ -1097,18 +1105,18 @@ mod test {
 
 	#[test]
 	fn test_multi_slabs() -> Result<(), Error> {
-		let mut slabs = slab_allocator(1024, 10_240)?;
+		let slabs = slab_allocator(1024, 10_240)?;
 		let slab_id = {
 			let mut slabs: RefMut<_> = slabs.borrow_mut();
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
-		let mut slab_writer = SlabWriter::new(Some(&mut slabs), slab_id)?;
+		let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id)?;
 		let r = 10_100;
 		for i in 0..r {
 			slab_writer.write_u128(i)?;
 		}
-		let mut slab_reader = SlabReader::new(Some(&mut slabs), slab_id)?;
+		let mut slab_reader = SlabReader::new(Some(slabs.clone()), slab_id)?;
 		for i in 0..r {
 			assert_eq!(slab_reader.read_u128()?, i);
 		}
@@ -1124,14 +1132,14 @@ mod test {
 	#[test]
 	fn test_alternate_sized_slabs() -> Result<(), Error> {
 		for i in 0..1000 {
-			let mut slabs = slab_allocator(48 + i, 10)?;
+			let slabs = slab_allocator(48 + i, 10)?;
 
 			let slab_id = {
 				let mut slabs: RefMut<_> = slabs.borrow_mut();
 				let slab = slabs.allocate()?;
 				slab.id()
 			};
-			let mut slab_writer = SlabWriter::new(Some(&mut slabs), slab_id)?;
+			let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id)?;
 
 			let mut v = [0u8; 256];
 			for i in 0..v.len() {
@@ -1139,7 +1147,7 @@ mod test {
 			}
 			slab_writer.write_fixed_bytes(v)?;
 
-			let mut slab_reader = SlabReader::new(Some(&mut slabs), slab_id)?;
+			let mut slab_reader = SlabReader::new(Some(slabs), slab_id)?;
 			let mut v_back = [1u8; 256];
 			slab_reader.read_fixed_bytes(&mut v_back)?;
 			assert_eq!(v, v_back);
@@ -1147,13 +1155,13 @@ mod test {
 		// test capacity exceeded
 
 		// 470 is ok because only 1 byte overhead per slab.
-		let mut slabs = slab_allocator(48, 10)?;
+		let slabs = slab_allocator(48, 10)?;
 		let slab_id = {
 			let mut slabs: RefMut<_> = slabs.borrow_mut();
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
-		let mut slab_writer = SlabWriter::new(Some(&mut slabs), slab_id)?;
+		let mut slab_writer = SlabWriter::new(Some(slabs), slab_id)?;
 		let mut v = [0u8; 470];
 		for i in 0..v.len() {
 			v[i] = (i % 256) as u8;
@@ -1161,13 +1169,13 @@ mod test {
 		assert!(slab_writer.write_fixed_bytes(v).is_ok());
 
 		// 471 is one too many and returns error (note: user responsible for cleanup)
-		let mut slabs = slab_allocator(48, 10)?;
+		let slabs = slab_allocator(48, 10)?;
 		let slab_id = {
 			let mut slabs: RefMut<_> = slabs.borrow_mut();
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
-		let mut slab_writer = SlabWriter::new(Some(&mut slabs), slab_id)?;
+		let mut slab_writer = SlabWriter::new(Some(slabs), slab_id)?;
 		let mut v = [0u8; 471];
 		for i in 0..v.len() {
 			v[i] = (i % 256) as u8;
@@ -1207,6 +1215,38 @@ mod test {
 		})?;
 		info!("free_count={}", free_count2)?;
 		assert_eq!(free_count1, free_count2);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_seek() -> Result<(), Error> {
+		for i in 0..1000 {
+			let slabs = slab_allocator(48 + i, 10)?;
+
+			let slab_id = {
+				let mut slabs: RefMut<_> = slabs.borrow_mut();
+				let slab = slabs.allocate()?;
+				slab.id()
+			};
+			let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id)?;
+
+			let mut v = [0u8; 256];
+			for i in 0..v.len() {
+				v[i] = (i % 256) as u8;
+			}
+			slab_writer.write_fixed_bytes(v)?;
+
+			let mut slab_reader = SlabReader::new(Some(slabs.clone()), slab_id)?;
+			let mut v_back = [1u8; 256];
+			slab_reader.read_fixed_bytes(&mut v_back)?;
+			assert_eq!(v, v_back);
+
+			slab_reader.seek(slab_id, 0)?;
+			let mut v_back = [3u8; 256];
+			slab_reader.read_fixed_bytes(&mut v_back)?;
+			assert_eq!(v, v_back);
+		}
 
 		Ok(())
 	}

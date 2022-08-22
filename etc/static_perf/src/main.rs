@@ -45,20 +45,6 @@ fn main() -> Result<(), Error> {
 		slabs.init(config)?;
 	}
 
-	/*
-	let slabs2 = SlabAllocatorBuilder::build_ref();
-	let config = SlabAllocatorConfig {
-		slab_size: 48,
-		slab_count: 10_000,
-		..Default::default()
-	};
-
-	{
-		let mut slabs2: RefMut<_> = slabs2.borrow_mut();
-		slabs2.init(config)?;
-	}
-		*/
-
 	{
 		let mut h = if global {
 			hashtable!(MaxEntries(itt))?

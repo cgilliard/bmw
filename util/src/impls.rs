@@ -59,21 +59,20 @@ where
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
 		match self
 			.hashset
-			.get_next_slot(&mut self.cur, Direction::Backward)
+			.get_next_slot(&mut self.cur, Direction::Backward, &mut self.slab_reader)
 		{
-			Ok(reader) => match reader {
-				Some(mut reader) => match K::read(&mut reader) {
+			Ok(ret) => match ret {
+				true => match K::read(&mut self.slab_reader) {
 					Ok(k) => Some(k),
 					Err(e) => {
 						let _ = warn!("deserialization generated error: {}", e);
 						None
 					}
 				},
-				None => None,
+				false => None,
 			},
-
 			Err(e) => {
-				let _ = error!("get_next generated unexpected error: {}", e);
+				let _ = warn!("get_next_slot generated error: {}", e);
 				None
 			}
 		}
@@ -89,20 +88,29 @@ where
 		if self.list.size == 0 {
 			return None;
 		}
-		match self.list.get_next_slot(&mut self.cur, self.direction) {
-			Ok(reader) => match reader {
-				Some(mut reader) => match V::read(&mut reader) {
-					Ok(v) => Some(v),
+		let slot = self.cur;
+		match self
+			.list
+			.get_next_slot(&mut self.cur, self.direction, &mut self.slab_reader)
+		{
+			Ok(ret) => match ret {
+				true => match self.slab_reader.seek(slot, self.list.ptr_size * 2) {
+					Ok(_) => match V::read(&mut self.slab_reader) {
+						Ok(v) => Some(v),
+						Err(e) => {
+							let _ = warn!("deserialization generated error: {}", e);
+							None
+						}
+					},
 					Err(e) => {
-						let _ = warn!("deserialization generated error: {}", e);
+						let _ = warn!("slab_reader.seek generated error: {}", e);
 						None
 					}
 				},
-				None => None,
+				false => None,
 			},
-
 			Err(e) => {
-				let _ = error!("get_next generated unexpected error: {}", e);
+				let _ = warn!("get_next_slot generated error: {}", e);
 				None
 			}
 		}
@@ -131,6 +139,7 @@ where
 			hashset,
 			cur,
 			_phantom_data: PhantomData,
+			slab_reader: hashset.slab_reader.clone(),
 		}
 	}
 }
@@ -145,6 +154,7 @@ where
 			cur,
 			direction,
 			_phantom_data: PhantomData,
+			slab_reader: list.slab_reader.clone(),
 		}
 	}
 }
@@ -301,6 +311,9 @@ where
 
 		let bytes_per_slab = slab_size.saturating_sub(ptr_size);
 
+		let slab_reader = SlabReader::new(slabs.clone(), 0)?;
+		let slab_writer = SlabWriter::new(slabs.clone(), 0)?;
+
 		Ok(Self {
 			slabs,
 			entry_array,
@@ -312,6 +325,8 @@ where
 			size: 0,
 			head: max_value,
 			tail: max_value,
+			slab_reader,
+			slab_writer,
 			_phantom_data: PhantomData,
 		})
 	}
@@ -323,9 +338,10 @@ where
 	where
 		V: Serializable,
 	{
-		match self.get_next_slot(cur, Direction::Backward)? {
-			Some(mut reader) => Ok(Some((K::read(&mut reader)?, V::read(&mut reader)?))),
-			None => Ok(None),
+		let mut reader = self.slab_reader.clone();
+		match self.get_next_slot(cur, Direction::Backward, &mut reader)? {
+			true => Ok(Some((K::read(&mut reader)?, V::read(&mut reader)?))),
+			false => Ok(None),
 		}
 	}
 
@@ -333,10 +349,11 @@ where
 		&self,
 		cur: &mut usize,
 		direction: Direction,
-	) -> Result<Option<SlabReader>, Error> {
+		reader: &mut SlabReader,
+	) -> Result<bool, Error> {
 		debug!("cur={}", *cur)?;
 		if *cur >= self.max_value {
-			return Ok(None);
+			return Ok(false);
 		}
 		let slot = match &self.entry_array {
 			Some(entry_array) => entry_array[*cur],
@@ -344,19 +361,23 @@ where
 		};
 		debug!("slot={}", slot)?;
 
-		let mut ptrs = [0u8; 16];
+		let mut ptrs = [0u8; 8];
 		let ptr_size = self.ptr_size;
-		let mut reader = self.get_reader(slot)?;
-
-		// read both pointers
-		reader.read_fixed_bytes(&mut ptrs[0..ptr_size * 2])?;
 
 		*cur = match direction {
-			Direction::Backward => slice_to_usize(&ptrs[ptr_size..ptr_size * 2])?,
-			Direction::Forward => slice_to_usize(&ptrs[0..ptr_size])?,
+			Direction::Backward => {
+				reader.seek(slot, ptr_size)?;
+				reader.read_fixed_bytes(&mut ptrs[0..ptr_size])?;
+				slice_to_usize(&ptrs[0..ptr_size])?
+			}
+			Direction::Forward => {
+				reader.seek(slot, 0)?;
+				reader.read_fixed_bytes(&mut ptrs[0..ptr_size])?;
+				slice_to_usize(&ptrs[0..ptr_size])?
+			}
 		};
 		debug!("read cur = {}", cur)?;
-		Ok(Some(reader))
+		Ok(true)
 	}
 
 	fn clear_impl(&mut self) -> Result<(), Error> {
@@ -380,10 +401,11 @@ where
 			}
 
 			let last_cur = cur;
-			let next_slot_is_none = self.get_next_slot(&mut cur, Direction::Backward)?.is_none();
+			let additional =
+				self.get_next_slot(&mut cur, Direction::Backward, &mut self.slab_reader.clone())?;
 			match self.entry_array.as_mut() {
 				Some(entry_array) => {
-					if next_slot_is_none {
+					if !additional {
 						debug!("setting entry_array[{}]={}", last_cur, SLOT_EMPTY)?;
 						entry_array[last_cur] = SLOT_EMPTY;
 						break;
@@ -525,7 +547,8 @@ where
 		let ptr_size = self.ptr_size;
 		let max_value = self.max_value;
 		let tail = self.tail;
-		let (slab_id, mut writer) = self.get_writer()?;
+		let slab_id = self.allocate()?;
+		self.slab_writer.seek(slab_id, 0)?;
 
 		// for lists we use the slab_id as the entry
 		let entry = match entry {
@@ -541,10 +564,10 @@ where
 			"updating slab id {} with next = {}, prev = {}",
 			slab_id, max_value, tail
 		)?;
-		writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
+		self.slab_writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
 
 		match key {
-			Some(key) => match key.write(&mut writer) {
+			Some(key) => match key.write(&mut self.slab_writer) {
 				Ok(_) => {}
 				Err(e) => {
 					warn!("writing key generated error: {}", e)?;
@@ -559,7 +582,7 @@ where
 		}
 
 		match value {
-			Some(value) => match value.write(&mut writer) {
+			Some(value) => match value.write(&mut self.slab_writer) {
 				Ok(_) => {}
 				Err(e) => {
 					warn!("writing value generated error: {}", e)?;
@@ -579,22 +602,18 @@ where
 				if self.tail < max_value {
 					if entry_array[self.tail] < max_value {
 						let entry_value = self.lookup_entry(self.tail);
-						let mut reader = self.get_reader(entry_value)?;
-						reader.read_fixed_bytes(&mut ptrs[0..ptr_size * 2])?;
-						let mut writer = self.get_writer_id(entry_value)?;
+						self.slab_writer.seek(entry_value, 0)?;
 						usize_to_slice(entry, &mut ptrs[0..ptr_size])?;
-						writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
+						self.slab_writer.write_fixed_bytes(&ptrs[0..ptr_size])?;
 					}
 				}
 			}
 			None => {
 				// for list based structures we use the slab_id directly
 				if self.tail < max_value {
-					let mut reader = self.get_reader(self.tail)?;
-					reader.read_fixed_bytes(&mut ptrs[0..ptr_size * 2])?;
-					let mut writer = self.get_writer_id(self.tail)?;
+					self.slab_writer.seek(self.tail, 0)?;
 					usize_to_slice(entry, &mut ptrs[0..ptr_size])?;
-					writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
+					self.slab_writer.write_fixed_bytes(&ptrs[0..ptr_size])?;
 				}
 			}
 		}
@@ -620,39 +639,12 @@ where
 
 	fn read_key(&self, slab_id: usize) -> Result<Option<(K, SlabReader)>, Error> {
 		let ptr_size = self.ptr_size;
-		let mut skip = [0u8; 16];
-		// get a reader based on requested slab_id
-		let mut reader = self.get_reader(slab_id)?;
-		// read over prev/next
-		reader.read_fixed_bytes(&mut skip[0..ptr_size * 2])?;
+		// get a reader, we have to clone the rc because we are not mutable
+		let mut reader = self.slab_reader.clone();
+		// seek past the ptr data
+		reader.seek(slab_id, ptr_size * 2)?;
 		// read our serailized struct
 		Ok(Some((K::read(&mut reader)?, reader)))
-	}
-
-	fn get_reader(&self, slab_id: usize) -> Result<SlabReader, Error> {
-		Ok(match &self.slabs {
-			Some(slabs) => SlabReader::new(Some(slabs), slab_id)?,
-			None => SlabReader::new(None, slab_id)?,
-		})
-	}
-
-	fn get_writer(&mut self) -> Result<(usize, SlabWriter), Error> {
-		let slab_id = self.allocate()?;
-
-		let slab_writer = match &mut self.slabs {
-			Some(slabs) => SlabWriter::new(Some(slabs), slab_id)?,
-			None => SlabWriter::new(None, slab_id)?,
-		};
-
-		Ok((slab_id, slab_writer))
-	}
-
-	fn get_writer_id(&mut self, slab_id: usize) -> Result<SlabWriter, Error> {
-		debug!("get_writer_id,id={}", slab_id)?;
-		Ok(match &mut self.slabs {
-			Some(slabs) => SlabWriter::new(Some(slabs), slab_id)?,
-			None => SlabWriter::new(None, slab_id)?,
-		})
 	}
 
 	fn allocate(&mut self) -> Result<usize, Error> {
@@ -734,9 +726,9 @@ where
 		let mut prev = [0u8; 8];
 		let ptr_size = self.ptr_size;
 
-		let mut reader = self.get_reader(slab_id)?;
-		reader.read_fixed_bytes(&mut next[0..ptr_size])?;
-		reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
+		self.slab_reader.seek(slab_id, 0)?;
+		self.slab_reader.read_fixed_bytes(&mut next[0..ptr_size])?;
+		self.slab_reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
 
 		let next_usize_entry = slice_to_usize(&next[0..ptr_size])?;
 		let prev_usize_entry = slice_to_usize(&prev[0..ptr_size])?;
@@ -751,15 +743,13 @@ where
 		if next_usize_entry < self.max_value {
 			let next_usize = self.lookup_entry(next_usize_entry);
 			if next_usize < self.max_value {
-				let mut next = [0u8; 8];
-				let mut prev = [0u8; 8];
-				let mut reader = self.get_reader(next_usize)?;
-				reader.read_fixed_bytes(&mut next[0..ptr_size])?;
-				reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
-				usize_to_slice(prev_usize_entry, &mut prev[0..ptr_size])?;
-				let mut writer = self.get_writer_id(next_usize)?;
-				writer.write_fixed_bytes(&next[0..ptr_size])?;
-				writer.write_fixed_bytes(&prev[0..ptr_size])?;
+				let mut ptrs = [0u8; 8];
+				self.slab_reader.seek(next_usize, 0)?;
+				self.slab_reader
+					.read_fixed_bytes(&mut ptrs[0..ptr_size * 2])?;
+				usize_to_slice(prev_usize_entry, &mut ptrs[ptr_size..ptr_size * 2])?;
+				self.slab_writer.seek(next_usize, 0)?;
+				self.slab_writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
 			}
 		}
 
@@ -768,13 +758,13 @@ where
 			if prev_usize < self.max_value {
 				let mut next = [0u8; 8];
 				let mut prev = [0u8; 8];
-				let mut reader = self.get_reader(prev_usize)?;
-				reader.read_fixed_bytes(&mut next[0..ptr_size])?;
-				reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
+				self.slab_reader.seek(prev_usize, 0)?;
+				self.slab_reader.read_fixed_bytes(&mut next[0..ptr_size])?;
+				self.slab_reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
 				usize_to_slice(next_usize_entry, &mut next[0..ptr_size])?;
-				let mut writer = self.get_writer_id(prev_usize)?;
-				writer.write_fixed_bytes(&next[0..ptr_size])?;
-				writer.write_fixed_bytes(&prev[0..ptr_size])?;
+				self.slab_writer.seek(prev_usize, 0)?;
+				self.slab_writer.write_fixed_bytes(&next[0..ptr_size])?;
+				self.slab_writer.write_fixed_bytes(&prev[0..ptr_size])?;
 			}
 		}
 
@@ -808,6 +798,8 @@ where
 			size: self.size,
 			head: self.head,
 			tail: self.tail,
+			slab_reader: self.slab_reader.clone(),
+			slab_writer: self.slab_writer.clone(),
 			_phantom_data: PhantomData,
 		}
 	}
@@ -867,7 +859,7 @@ where
 		self.clear_impl()
 	}
 
-	fn iter<'a>(&'a self) -> HashtableIterator<'a, K, V> {
+	fn iter<'b>(&'b self) -> HashtableIterator<'b, K, V> {
 		HashtableIterator::new(self, self.tail)
 	}
 
@@ -914,7 +906,7 @@ where
 		self.clear_impl()
 	}
 
-	fn iter<'a>(&'a self) -> HashsetIterator<'a, K> {
+	fn iter<'b>(&'b self) -> HashsetIterator<'b, K> {
 		HashsetIterator::new(self, self.tail)
 	}
 
@@ -931,10 +923,10 @@ where
 		self.insert_impl::<V>(Some(&value), None, None)
 	}
 
-	fn iter<'a>(&'a self) -> ListIterator<'a, V> {
+	fn iter<'b>(&'b self) -> ListIterator<'b, V> {
 		ListIterator::new(self, self.head, Direction::Forward)
 	}
-	fn iter_rev<'a>(&'a self) -> ListIterator<'a, V> {
+	fn iter_rev<'b>(&'b self) -> ListIterator<'b, V> {
 		ListIterator::new(self, self.tail, Direction::Backward)
 	}
 	fn size(&self) -> usize {
@@ -1268,6 +1260,7 @@ mod test {
 		let mut i = 0;
 		for x in list.iter() {
 			i += 1;
+			info!("i={}", i)?;
 			assert_eq!(x, i);
 		}
 

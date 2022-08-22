@@ -13,6 +13,7 @@
 
 use crate::slabs::Slab;
 use crate::slabs::SlabMut;
+use crate::{SlabReader, SlabWriter};
 use bmw_err::*;
 use bmw_log::*;
 use std::cell::RefCell;
@@ -120,7 +121,7 @@ where
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
-	fn iter<'a>(&'a self) -> HashsetIterator<'a, K>;
+	fn iter<'a>(&'a self) -> HashsetIterator<K>;
 	fn copy(&self) -> Self;
 }
 
@@ -546,6 +547,7 @@ where
 	pub(crate) hashset: &'a StaticImpl<K>,
 	pub(crate) cur: usize,
 	pub(crate) _phantom_data: PhantomData<K>,
+	pub(crate) slab_reader: SlabReader,
 }
 
 pub struct ListIterator<'a, V>
@@ -556,6 +558,7 @@ where
 	pub(crate) cur: usize,
 	pub(crate) direction: Direction,
 	pub(crate) _phantom_data: PhantomData<V>,
+	pub(crate) slab_reader: SlabReader,
 }
 
 pub(crate) struct StaticImpl<K>
@@ -563,6 +566,8 @@ where
 	K: Serializable,
 {
 	pub(crate) slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+	pub(crate) slab_reader: SlabReader,
+	pub(crate) slab_writer: SlabWriter,
 	pub(crate) max_value: usize,
 	pub(crate) bytes_per_slab: usize,
 	pub(crate) slab_size: usize,
