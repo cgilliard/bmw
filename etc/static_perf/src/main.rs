@@ -28,11 +28,16 @@ fn main() -> Result<(), Error> {
 	let args = App::from_yaml(yml).version("1.0").get_matches();
 
 	let global = args.is_present("global");
-	init_slab_allocator!(SlabSize(48), SlabCount(10_000))?;
+	let itt = match args.is_present("itt") {
+		true => args.value_of("itt").unwrap().parse()?,
+		false => 10_000,
+	};
+
+	init_slab_allocator!(SlabSize(48), SlabCount(itt))?;
 	let slabs = SlabAllocatorBuilder::build_ref();
 	let config = SlabAllocatorConfig {
 		slab_size: 48,
-		slab_count: 10_000,
+		slab_count: itt,
 		..Default::default()
 	};
 	{
@@ -40,6 +45,7 @@ fn main() -> Result<(), Error> {
 		slabs.init(config)?;
 	}
 
+	/*
 	let slabs2 = SlabAllocatorBuilder::build_ref();
 	let config = SlabAllocatorConfig {
 		slab_size: 48,
@@ -51,49 +57,62 @@ fn main() -> Result<(), Error> {
 		let mut slabs2: RefMut<_> = slabs2.borrow_mut();
 		slabs2.init(config)?;
 	}
+		*/
 
-	let mut h = if global {
-		hashtable!(MaxEntries(2000))?
-	} else {
-		let config = StaticHashtableConfig {
-			max_entries: 2_000,
-			..Default::default()
+	{
+		let mut h = if global {
+			hashtable!(MaxEntries(itt))?
+		} else {
+			let config = StaticHashtableConfig {
+				max_entries: itt,
+				..Default::default()
+			};
+			StaticBuilder::build_hashtable(config, Some(slabs.clone()))?
 		};
-		StaticBuilder::build_hashtable(config, Some(slabs2))?
-	};
 
-	let now = Instant::now();
-	for i in 0..1000 {
-		h.insert(&i, &i)?;
-	}
-	let elapsed = now.elapsed();
-	info!("hashtable insert elapsed={:?}", elapsed)?;
+		let now = Instant::now();
+		for i in 0..itt {
+			h.insert(&i, &i)?;
+		}
+		let elapsed = now.elapsed();
+		let x_micros = elapsed.as_micros();
+		info!("hashtable insert elapsed={:?}", elapsed)?;
 
-	let now = Instant::now();
-	let mut h2 = HashMap::new();
-	let mut v = vec![];
-	for i in 0..1000 {
-		v.push(i);
-	}
-	for i in 0..1000 {
-		h2.insert(&v[i], &v[i]);
-	}
-	let elapsed = now.elapsed();
-	info!("hashmap insert elapsed={:?}", elapsed)?;
+		let now = Instant::now();
+		let mut h2 = HashMap::new();
+		let mut v = vec![];
+		for i in 0..itt {
+			v.push(i);
+		}
+		for i in 0..itt {
+			h2.insert(&v[i], &v[i]);
+		}
+		let elapsed = now.elapsed();
+		info!(
+			"hashmap insert elapsed={:?},delta={}",
+			elapsed,
+			x_micros as f64 / elapsed.as_micros() as f64
+		)?;
 
-	let now = Instant::now();
-	for i in 0..1000 {
-		h.get(&v[i])?;
-	}
-	let elapsed = now.elapsed();
-	info!("hashtable get elapsed={:?}", elapsed)?;
+		let now = Instant::now();
+		for i in 0..itt {
+			h.get(&v[i])?;
+		}
+		let elapsed = now.elapsed();
+		let x_micros = elapsed.as_micros();
+		info!("hashtable get elapsed={:?}", elapsed)?;
 
-	let now = Instant::now();
-	for i in 0..1000 {
-		h2.get(&v[i]);
+		let now = Instant::now();
+		for i in 0..itt {
+			h2.get(&v[i]);
+		}
+		let elapsed = now.elapsed();
+		info!(
+			"hashmap get elapsed={:?},delta={}",
+			elapsed,
+			x_micros as f64 / elapsed.as_micros() as f64
+		)?;
 	}
-	let elapsed = now.elapsed();
-	info!("hashmap get elapsed={:?}", elapsed)?;
 
 	let mut list = if !global {
 		StaticBuilder::build_list(StaticListConfig::default(), Some(slabs))?
@@ -101,35 +120,45 @@ fn main() -> Result<(), Error> {
 		list![]
 	};
 	let now = Instant::now();
-	for i in 0..1000 {
+	for i in 0..itt {
 		list.push(i)?;
 	}
 	let elapsed = now.elapsed();
+	let x_micros = elapsed.as_micros();
 	info!("list insert = {:?}", elapsed)?;
 	let now = Instant::now();
 	let mut vec = vec![];
-	for i in 0..1000 {
+	for i in 0..itt {
 		vec.push(i);
 	}
 	let elapsed = now.elapsed();
-	info!("vec insert elapsed={:?}", elapsed)?;
+	info!(
+		"vec insert elapsed={:?},delta={}",
+		elapsed,
+		x_micros as f64 / elapsed.as_micros() as f64
+	)?;
 
 	let now = Instant::now();
 	for x in list.iter() {
-		if x > 1000 {
+		if x > itt {
 			info!("do something")?;
 		}
 	}
 	let elapsed = now.elapsed();
+	let x_micros = elapsed.as_nanos();
 	info!("list iter elapsed={:?}", elapsed)?;
 
 	let now = Instant::now();
 	for x in vec {
-		if x > 1000 {
+		if x > itt {
 			info!("do something")?;
 		}
 	}
 	let elapsed = now.elapsed();
-	info!("vec iter elapsed={:?}", elapsed)?;
+	info!(
+		"vec iter elapsed={:?},delta={}",
+		elapsed,
+		x_micros as f64 / elapsed.as_nanos() as f64
+	)?;
 	Ok(())
 }
