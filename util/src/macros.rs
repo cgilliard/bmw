@@ -50,12 +50,8 @@ macro_rules! init_slab_allocator {
                         slab_count_specified = true;
                         if slab_count_specified {}
                     },
-                    bmw_util::ConfigOption::MaxEntries(_) => {
-                        error = Some("Invalid configuration MaxEntries is not allowed for slab_allocator!".to_string());
-
-                    }
-                    bmw_util::ConfigOption::MaxLoadFactor(_) => {
-                         error = Some("Invalid configuration MaxLoadFactor is not allowed for slab_allocator!".to_string());
+                    _ => {
+                        error = Some(format!("'{:?}' is not allowed for hashset", $config));
                     }
                 }
             )*
@@ -117,12 +113,8 @@ macro_rules! slab_allocator {
                         slab_count_specified = true;
                         if slab_count_specified {}
                     },
-                    bmw_util::ConfigOption::MaxEntries(_) => {
-                        error = Some("Invalid configuration MaxEntries is not allowed for slab_allocator!".to_string());
-
-                    }
-                    bmw_util::ConfigOption::MaxLoadFactor(_) => {
-                         error = Some("Invalid configuration MaxLoadFactor is not allowed for slab_allocator!".to_string());
+                    _ => {
+                        error = Some(format!("'{:?}' is not allowed for hashset", $config));
                     }
                 }
             )*
@@ -166,13 +158,6 @@ macro_rules! hashtable {
 
                 $(
                 match $config {
-                    bmw_util::ConfigOption::SlabSize(_) => {
-                        error = Some("Invalid configuration SlabSize is not allowed for hashtable!".to_string());
-
-                    },
-                    bmw_util::ConfigOption::SlabCount(_) => {
-                        error = Some("Invalid configuration SlabCount is not allowed for hashtable!".to_string());
-                    },
                     bmw_util::ConfigOption::MaxEntries(max_entries) => {
                         config.max_entries = max_entries;
 
@@ -192,6 +177,9 @@ macro_rules! hashtable {
 
                         max_load_factor_specified = true;
                         if max_load_factor_specified {}
+                    }
+                    _ => {
+                        error = Some(format!("'{:?}' is not allowed for hashset", $config));
                     }
                 }
                 )*
@@ -230,13 +218,6 @@ macro_rules! hashset {
 
                 $(
                 match $config {
-                    bmw_util::ConfigOption::SlabSize(_) => {
-                        error = Some("Invalid configuration SlabSize is not allowed for hashset!".to_string());
-
-                    },
-                    bmw_util::ConfigOption::SlabCount(_) => {
-                        error = Some("Invalid configuration SlabCount is not allowed for hashset!".to_string());
-                    },
                     bmw_util::ConfigOption::MaxEntries(max_entries) => {
                         config.max_entries = max_entries;
 
@@ -256,6 +237,9 @@ macro_rules! hashset {
 
                         max_load_factor_specified = true;
                         if max_load_factor_specified {}
+                    }
+                    _ => {
+                        error = Some(format!("'{:?}' is not allowed for hashset", $config));
                     }
                 }
                 )*
@@ -280,13 +264,104 @@ macro_rules! list {
     };
 }
 
+#[macro_export]
+macro_rules! thread_pool {
+	() => {{
+                let config = bmw_util::ThreadPoolConfig::default();
+                match bmw_util::ThreadPoolBuilder::build(config) {
+                        Ok(mut ret) => {
+                                ret.start()?;
+                                Ok(ret)
+                        }
+                        Err(e) => {
+                            Err(
+                                    bmw_err::err!(
+                                            bmw_err::ErrKind::Misc,
+                                            format!("threadpoolbuilder buld error: {}", e)
+                                    )
+                            )
+                        }
+                }
+        }};
+	( $( $config:expr ),* ) => {{
+                let mut config = bmw_util::ThreadPoolConfig::default();
+		let mut error: Option<String> = None;
+		let mut min_size_specified = false;
+                let mut max_size_specified = false;
+
+                $(
+                match $config {
+                    bmw_util::ConfigOption::MinSize(min_size) => {
+                        config.min_size = min_size;
+                         if min_size_specified {
+                            error = Some("MinSize was specified more than once!".to_string());
+                        }
+
+                        min_size_specified = true;
+                        if min_size_specified {}
+                    },
+                    bmw_util::ConfigOption::MaxSize(max_size) => {
+                        config.max_size = max_size;
+                         if max_size_specified {
+                            error = Some("MaxSize was specified more than once!".to_string());
+                        }
+
+                        max_size_specified = true;
+                        if max_size_specified {}
+                    },
+                    _ => {
+                        error = Some(
+                            format!(
+                                "Invalid configuration {:?} is not allowed for thread_pool!",
+                                $config
+                            )
+                        );
+                    }
+                }
+                )*
+
+                match error {
+                    Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
+                    None => {
+                            let mut ret = bmw_util::ThreadPoolBuilder::build(config)?;
+                            ret.start()?;
+                            Ok(ret)
+                    },
+                }
+        }};
+}
+
+#[macro_export]
+macro_rules! execute {
+	($thread_pool:expr, $program:expr) => {{
+		$thread_pool.execute(async move { $program })
+	}};
+}
+
+#[macro_export]
+macro_rules! block_on {
+	($res:expr) => {{
+		match $res.recv() {
+			Ok(res) => res,
+			Err(e) => bmw_util::PoolResult::Err(bmw_err::err!(
+				ErrKind::ThreadPanic,
+				format!("thread pool panic: {}", e)
+			)),
+		}
+	}};
+}
+
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::{StaticHashset, StaticHashtable, StaticList};
+	use crate::{thread_pool, PoolResult, StaticHashset, StaticHashtable, StaticList, ThreadPool};
+	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
 	use bmw_util::ConfigOption::*;
 	use std::cell::RefMut;
+	use std::sync::mpsc::Receiver;
+	use std::thread::sleep;
+	use std::time::Duration;
 
 	info!();
 
@@ -356,6 +431,65 @@ mod test {
 
 		let list3 = list![1, 2, 3, 4, 5];
 		info!("list={:?}", list3)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_thread_pool_macro() -> Result<(), bmw_err::Error> {
+		let tp = thread_pool!()?;
+		let resp = execute!(tp, {
+			info!("in thread pool")?;
+			Ok(123)
+		})?;
+		assert_eq!(block_on!(resp), PoolResult::Ok(123));
+
+		let tp = thread_pool!(MinSize(3))?;
+		let resp: Receiver<PoolResult<u32, Error>> = execute!(tp, {
+			info!("thread pool2")?;
+			Err(err!(ErrKind::Test, "test err"))
+		})?;
+		assert_eq!(
+			block_on!(resp),
+			PoolResult::Err(err!(ErrKind::Test, "test err"))
+		);
+
+		let tp = thread_pool!(MinSize(3))?;
+		let resp: Receiver<PoolResult<u32, Error>> = execute!(tp, {
+			info!("thread pool panic")?;
+			let x: Option<u32> = None;
+			let _y = x.unwrap();
+			Err(err!(ErrKind::Test, "test err"))
+		})?;
+		assert_eq!(
+			block_on!(resp),
+			PoolResult::Err(err!(
+				ErrKind::ThreadPanic,
+				"thread pool panic: receiving on a closed channel"
+			))
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn test_thread_pool_options() -> Result<(), Error> {
+		let tp = thread_pool!(MinSize(4), MaxSize(5))?;
+
+		assert_eq!(tp.size()?, 4);
+		let resp = execute!(tp, {
+			info!("thread pool")?;
+			Ok(0)
+		})?;
+		assert_eq!(block_on!(resp), PoolResult::Ok(0));
+
+		for _ in 0..10 {
+			execute!(tp, {
+				info!("thread pool")?;
+				sleep(Duration::from_millis(5_000));
+				Ok(0)
+			})?;
+		}
+		sleep(Duration::from_millis(2_000));
+		assert_eq!(tp.size()?, 5);
 		Ok(())
 	}
 }

@@ -26,15 +26,20 @@ use std::sync::mpsc::Receiver;
 
 info!();
 
+#[derive(Debug)]
 pub enum ConfigOption {
 	MaxEntries(usize),
 	MaxLoadFactor(f64),
 	SlabSize(usize),
 	SlabCount(usize),
+	MinSize(usize),
+	MaxSize(usize),
 }
 
+#[derive(Debug, Clone)]
 pub struct ThreadPoolConfig {
-	pub size: usize,
+	pub min_size: usize,
+	pub max_size: usize,
 }
 
 /// The configuration struct for a [`StaticHashtable`]. This struct is passed
@@ -181,20 +186,22 @@ where
 pub trait BitVec {}
 
 #[derive(Debug, PartialEq)]
-pub enum ExecutionResponse<T> {
-	Success(T),
-	Fail(Error),
+pub enum PoolResult<T, E> {
+	Ok(T),
+	Err(E),
 	Panic,
 }
 
-unsafe impl<T> Send for ExecutionResponse<T> {}
-unsafe impl<T> Sync for ExecutionResponse<T> {}
+unsafe impl<T, E> Send for PoolResult<T, E> {}
+unsafe impl<T, E> Sync for PoolResult<T, E> {}
 
 pub trait ThreadPool<T> {
-	fn execute<F>(&self, f: F) -> Result<Receiver<ExecutionResponse<T>>, Error>
+	fn execute<F>(&self, f: F) -> Result<Receiver<PoolResult<T, Error>>, Error>
 	where
 		F: Future<Output = Result<T, Error>> + Send + Sync + 'static;
 	fn start(&mut self) -> Result<(), Error>;
+	fn stop(&mut self) -> Result<(), Error>;
+	fn size(&self) -> Result<usize, Error>;
 }
 
 /// This trait defines the public interface to the [`crate::SlabAllocator`]. The slab

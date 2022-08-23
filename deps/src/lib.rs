@@ -15,6 +15,7 @@
 pub use backtrace;
 pub use chrono;
 pub use colored;
+pub use dyn_clone;
 pub use failure;
 pub use failure_derive;
 pub use futures;

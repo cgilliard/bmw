@@ -81,6 +81,9 @@ pub enum ErrorKind {
 	/// Overflow error
 	#[fail(display = "overflow error: {}", _0)]
 	Overflow(String),
+	/// Thread Panic
+	#[fail(display = "thread panic: {}", _0)]
+	ThreadPanic(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
@@ -117,6 +120,8 @@ pub enum ErrKind {
 	Overflow,
 	/// A simulated error used in tests
 	Test,
+	/// Thread panic
+	ThreadPanic,
 }
 
 impl Display for Error {

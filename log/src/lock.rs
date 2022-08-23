@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bmw_deps::dyn_clone::DynClone;
 use bmw_deps::rand::random;
 use bmw_err::{err, map_err, ErrKind, Error};
 use std::cell::RefCell;
@@ -72,6 +73,15 @@ macro_rules! lock {
 	}};
 }
 
+/// The same as lock except that the value returned is in a Box<dyn LockBox<T>> structure.
+/// See [`crate::LockBox`] for a working example.
+#[macro_export]
+macro_rules! lock_box {
+	($value:expr) => {{
+		bmw_log::LockBuilder::build_box($value)
+	}};
+}
+
 /// Wrapper around the lock functionalities used by bmw in [`std::sync`] rust libraries.
 /// The main benefits are the simplified interface and the fact that if a thread attempts
 /// to obtain a lock twice, an error will be thrown instead of a thread panic. This is implemented
@@ -116,6 +126,53 @@ where
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
 	/// Clone this [`crate::Lock`].
 	fn clone(&self) -> Self;
+}
+
+/// [`crate::LockBox`] is the same as [`crate:Lock`] except that it is possible to build
+/// The LockBox into a Box<dyn LockBox<T>> structure so that it is object safe. It can then
+/// be cloned using DynClone.
+///
+/// # Examples
+///
+///```
+///
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_deps::dyn_clone::clone_box;
+///
+/// struct TestLockBox<T> {
+///     lock_box: Box<dyn LockBox<T>>,
+/// }
+///
+/// fn test_lock_box() -> Result<(), Error> {
+///     let lock_box = lock_box!(1u32)?;
+///     let mut lock_box2 = clone_box(&*lock_box);
+///     let mut tlb = TestLockBox { lock_box };
+///
+///     {
+///         let mut tlb = tlb.lock_box.wlock()?;
+///         (**tlb.guard()) = 2u32;
+///     }
+///
+///     {
+///         let tlb = tlb.lock_box.rlock()?;
+///         assert_eq!((**tlb.guard()), 2u32);
+///     }
+///
+///     Ok(())
+/// }
+///
+///```
+pub trait LockBox<T>: Send + Sync + DynClone
+where
+	T: Send + Sync,
+{
+	/// obtain a write lock and corresponding [`std::sync::RwLockWriteGuard`] for this
+	/// [`crate::Lock`].
+	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
+	/// obtain a read lock and corresponding [`std::sync::RwLockReadGuard`] for this
+	/// [`crate::Lock`].
+	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
 }
 
 /// Wrapper around the [`std::sync::RwLockReadGuard`].
@@ -171,6 +228,7 @@ impl<T> Drop for RwLockWriteGuardWrapper<'_, T> {
 	}
 }
 
+#[derive(Clone)]
 struct LockImpl<T> {
 	t: Arc<RwLock<T>>,
 	id: u128,
@@ -181,6 +239,43 @@ where
 	T: Send + Sync,
 {
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
+		self.do_wlock()
+	}
+
+	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
+		self.do_rlock()
+	}
+
+	fn clone(&self) -> Self {
+		Self {
+			t: self.t.clone(),
+			id: self.id,
+		}
+	}
+}
+
+impl<T> LockBox<T> for LockImpl<T>
+where
+	T: Send + Sync + Clone,
+{
+	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
+		self.do_wlock()
+	}
+
+	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
+		self.do_rlock()
+	}
+}
+
+impl<T> LockImpl<T> {
+	fn new(t: T) -> Self {
+		Self {
+			t: Arc::new(RwLock::new(t)),
+			id: random(),
+		}
+	}
+
+	fn do_wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
 		let contains = LOCKS.with(|f| -> Result<bool, Error> {
 			let ret = (*f.borrow()).contains(&self.id);
 			(*f.borrow_mut()).insert(self.id);
@@ -195,7 +290,7 @@ where
 		}
 	}
 
-	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
+	fn do_rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
 		let contains = LOCKS.with(|f| -> Result<bool, Error> {
 			let ret = (*f.borrow()).contains(&self.id);
 			(*f.borrow_mut()).insert(self.id);
@@ -207,22 +302,6 @@ where
 		} else {
 			let guard = map_err!(self.t.read(), ErrKind::Poison)?;
 			Ok(RwLockReadGuardWrapper { guard, id: self.id })
-		}
-	}
-
-	fn clone(&self) -> Self {
-		Self {
-			t: self.t.clone(),
-			id: self.id,
-		}
-	}
-}
-
-impl<T> LockImpl<T> {
-	fn new(t: T) -> Self {
-		Self {
-			t: Arc::new(RwLock::new(t)),
-			id: random(),
 		}
 	}
 }
@@ -238,13 +317,22 @@ impl LockBuilder {
 	{
 		Ok(LockImpl::new(t))
 	}
+
+	pub fn build_box<T>(t: T) -> Result<Box<dyn LockBox<T>>, Error>
+	where
+		T: Send + Sync + Clone + 'static,
+	{
+		Ok(Box::new(LockImpl::new(t)))
+	}
 }
 
 #[cfg(test)]
 mod test {
 	use crate as bmw_log;
 	use crate::lock::Lock;
+	use crate::lock::LockBox;
 	use crate::lock::LockBuilder;
+	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::Error;
 	use bmw_log::lock;
 	use std::thread::{sleep, spawn};
@@ -330,6 +418,39 @@ mod test {
 		sleep(Duration::from_millis(1000));
 		let x = lock_clone.rlock()?;
 		assert_eq!(**(x.guard()), 2);
+
+		Ok(())
+	}
+
+	struct TestLockBox<T> {
+		lock_box: Box<dyn LockBox<T>>,
+	}
+
+	#[test]
+	fn test_lock_box() -> Result<(), Error> {
+		let lock_box = lock_box!(1u32)?;
+		let mut lock_box2 = clone_box(&*lock_box);
+		let mut tlb = TestLockBox { lock_box };
+		{
+			let mut tlb = tlb.lock_box.wlock()?;
+			(**tlb.guard()) = 2u32;
+		}
+
+		{
+			let tlb = tlb.lock_box.rlock()?;
+			assert_eq!((**tlb.guard()), 2u32);
+		}
+
+		{
+			let mut tlb = lock_box2.wlock()?;
+			assert_eq!((**tlb.guard()), 2u32);
+			(**tlb.guard()) = 3u32;
+		}
+
+		{
+			let tlb = tlb.lock_box.rlock()?;
+			assert_eq!((**tlb.guard()), 3u32);
+		}
 
 		Ok(())
 	}
