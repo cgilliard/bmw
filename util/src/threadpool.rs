@@ -18,7 +18,7 @@ use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
@@ -29,10 +29,10 @@ struct FutureWrapper<T> {
 	tx: SyncSender<PoolResult<T, Error>>,
 }
 
-struct ThreadPoolImpl<T: 'static> {
+struct ThreadPoolImpl<T: 'static + Send + Sync> {
 	config: ThreadPoolConfig,
 	rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
-	tx: Option<Sender<FutureWrapper<T>>>,
+	tx: Option<SyncSender<FutureWrapper<T>>>,
 	state: Box<dyn LockBox<ThreadPoolState>>,
 }
 
@@ -41,6 +41,7 @@ impl Default for ThreadPoolConfig {
 		Self {
 			min_size: 3,
 			max_size: 7,
+			sync_channel_size: 7,
 		}
 	}
 }
@@ -53,7 +54,7 @@ struct ThreadPoolState {
 	stop: bool,
 }
 
-impl<T: 'static> Drop for ThreadPoolImpl<T> {
+impl<T: 'static + Send + Sync> Drop for ThreadPoolImpl<T> {
 	fn drop(&mut self) {
 		match self.stop() {
 			Ok(_) => {}
@@ -64,7 +65,7 @@ impl<T: 'static> Drop for ThreadPoolImpl<T> {
 	}
 }
 
-impl<T: 'static> ThreadPoolImpl<T> {
+impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
 	fn new(config: ThreadPoolConfig) -> Result<Self, Error> {
 		let state = lock_box!(ThreadPoolState {
 			waiting: 0,
@@ -168,7 +169,7 @@ impl<T: 'static> ThreadPoolImpl<T> {
 	}
 }
 
-impl<T: 'static> ThreadPool<T> for ThreadPoolImpl<T> {
+impl<T: 'static + Send + Sync> ThreadPool<T> for ThreadPoolImpl<T> {
 	fn execute<F>(&self, f: F) -> Result<Receiver<PoolResult<T, Error>>, Error>
 	where
 		F: Future<Output = Result<T, Error>> + Send + Sync + 'static,
@@ -187,7 +188,7 @@ impl<T: 'static> ThreadPool<T> for ThreadPoolImpl<T> {
 		Ok(rx)
 	}
 	fn start(&mut self) -> Result<(), Error> {
-		let (tx, rx) = channel();
+		let (tx, rx) = sync_channel(self.config.sync_channel_size);
 		let rx = Arc::new(Mutex::new(rx));
 		self.rx = Some(rx.clone());
 		self.tx = Some(tx.clone());
@@ -214,13 +215,16 @@ impl ThreadPoolBuilder {
 	/// Build a [`crate::ThreadPool`] based on the specified [`crate::ThreadPoolConfig`]. Note
 	/// that the thread pool will not be usable until the [`crate::ThreadPool::start`] function
 	/// has been called.
-	pub fn build<T: 'static>(config: ThreadPoolConfig) -> Result<impl ThreadPool<T>, Error> {
+	pub fn build<T: 'static + Send + Sync>(
+		config: ThreadPoolConfig,
+	) -> Result<impl ThreadPool<T>, Error> {
 		Ok(ThreadPoolImpl::new(config)?)
 	}
 }
 
 #[cfg(test)]
 mod test {
+	use crate::execute;
 	use crate::threadpool::ThreadPoolImpl;
 	use crate::{PoolResult, ThreadPool, ThreadPoolBuilder, ThreadPoolConfig};
 	use bmw_deps::dyn_clone::clone_box;
@@ -448,6 +452,30 @@ mod test {
 		sleep(Duration::from_millis(1000));
 		let state = state.rlock()?;
 		assert_eq!((**state.guard()).cur_size, 0);
+		Ok(())
+	}
+
+	#[test]
+	fn pass_to_threads() -> Result<(), Error> {
+		let mut tp = ThreadPoolBuilder::build(ThreadPoolConfig {
+			min_size: 2,
+			max_size: 4,
+			..Default::default()
+		})?;
+		tp.start()?;
+
+		let tp = lock!(tp)?;
+		for _ in 0..6 {
+			let tp = tp.clone();
+			std::thread::spawn(move || -> Result<(), Error> {
+				let tp = tp.rlock()?;
+				execute!((**tp.guard()), {
+					info!("executing in thread pool")?;
+					Ok(1)
+				})?;
+				Ok(())
+			});
+		}
 		Ok(())
 	}
 }

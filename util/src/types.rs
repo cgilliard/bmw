@@ -50,14 +50,17 @@ pub enum ConfigOption {
 /// [`std::default::Default`] trait is implemented for this trait.
 #[derive(Debug, Clone)]
 pub struct ThreadPoolConfig {
-	// The minimum number of threads that this thread_pool will use. The default value is 3.
+	/// The minimum number of threads that this thread_pool will use. The default value is 3.
 	pub min_size: usize,
-	// The maximm number of threads that this thread_pool will use. The default value is 7.
+	/// The maximm number of threads that this thread_pool will use. The default value is 7.
 	pub max_size: usize,
+	/// The size of the sync_channel buffer. See [`std::sync::mpsc::sync_channel`] for more
+	/// information. The default value is 7.
+	pub sync_channel_size: usize,
 }
 
 /// The configuration struct for a [`StaticHashtable`]. This struct is passed
-/// into the [`crate::StaticHashtableBuilder::build`] function. The [`std::default::Default`]
+/// into the [`crate::StaticBuilder::build_hashtable`] function. The [`std::default::Default`]
 /// trait is implemented for this trait.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StaticHashtableConfig {
@@ -74,7 +77,7 @@ pub struct StaticHashtableConfig {
 }
 
 /// The configuration struct for a [`StaticHashset`]. This struct is passed
-/// into the [`crate::StaticHashsetBuilder::build`] function. The [`std::default::Default`]
+/// into the [`crate::StaticBuilder::build_hashset`] function. The [`std::default::Default`]
 /// trait is implemented for this trait.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StaticHashsetConfig {
