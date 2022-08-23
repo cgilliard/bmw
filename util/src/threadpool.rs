@@ -324,6 +324,7 @@ mod test {
 			})?;
 			v.push(res);
 		}
+		sleep(Duration::from_millis(1000));
 		assert_eq!(tp.size()?, 2);
 
 		// confirm we can still process
