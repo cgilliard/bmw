@@ -104,7 +104,10 @@ macro_rules! lock {
 ///     Ok(())
 /// }
 ///```
-pub trait Lock<T> {
+pub trait Lock<T>: Send + Sync
+where
+	T: Send + Sync,
+{
 	/// obtain a write lock and corresponding [`std::sync::RwLockWriteGuard`] for this
 	/// [`crate::Lock`].
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
@@ -121,7 +124,10 @@ pub struct RwLockReadGuardWrapper<'a, T> {
 	id: u128,
 }
 
-impl<'a, T> RwLockReadGuardWrapper<'a, T> {
+impl<'a, T> RwLockReadGuardWrapper<'a, T>
+where
+	T: Send + Sync,
+{
 	pub fn guard(&self) -> &RwLockReadGuard<'a, T> {
 		&self.guard
 	}
@@ -170,7 +176,10 @@ struct LockImpl<T> {
 	id: u128,
 }
 
-impl<T> Lock<T> for LockImpl<T> {
+impl<T> Lock<T> for LockImpl<T>
+where
+	T: Send + Sync,
+{
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
 		let contains = LOCKS.with(|f| -> Result<bool, Error> {
 			let ret = (*f.borrow()).contains(&self.id);
@@ -223,7 +232,10 @@ impl<T> LockImpl<T> {
 pub struct LockBuilder {}
 
 impl LockBuilder {
-	pub fn build<T>(t: T) -> Result<impl Lock<T>, Error> {
+	pub fn build<T>(t: T) -> Result<impl Lock<T>, Error>
+	where
+		T: Send + Sync,
+	{
 		Ok(LockImpl::new(t))
 	}
 }

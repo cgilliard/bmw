@@ -323,6 +323,8 @@ mod test {
 		let mut hashtable = hashtable!(MaxEntries(100), MaxLoadFactor(0.9))?;
 		hashtable.insert(&"test".to_string(), &1)?;
 		assert_eq!(hashtable.size(), 1);
+		hashtable.insert(&"something".to_string(), &2)?;
+		info!("hashtable={:?}", hashtable)?;
 		Ok(())
 	}
 
@@ -336,6 +338,10 @@ mod test {
 		hashset.insert(&"test".to_string())?;
 		assert_eq!(hashset.size(), 1);
 		assert!(hashset.contains(&"test".to_string())?);
+		info!("hashset={:?}", hashset)?;
+		hashset.insert(&"another item".to_string())?;
+		hashset.insert(&"third item".to_string())?;
+		info!("hashset={:?}", hashset)?;
 		Ok(())
 	}
 

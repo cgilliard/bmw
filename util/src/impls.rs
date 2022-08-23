@@ -214,18 +214,33 @@ where
 	K: Serializable + Debug,
 {
 	fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-		let itt = ListIterator::new(self, self.head, Direction::Forward);
-		write!(f, "[")?;
-		let mut i = 0;
-		for x in itt {
-			if i == 0 {
-				write!(f, "{:?}", x)?;
-			} else {
-				write!(f, ", {:?}", x)?;
+		if self.entry_array.is_some() {
+			let itt = HashsetIterator::new(self, self.tail);
+			write!(f, "[")?;
+			let mut i = 0;
+			for x in itt {
+				if i == 0 {
+					write!(f, "{:?}", x)?;
+				} else {
+					write!(f, ", {:?}", x)?;
+				}
+				i += 1;
 			}
-			i += 1;
+			write!(f, "]")?;
+		} else {
+			let itt = ListIterator::new(self, self.head, Direction::Forward);
+			write!(f, "[")?;
+			let mut i = 0;
+			for x in itt {
+				if i == 0 {
+					write!(f, "{:?}", x)?;
+				} else {
+					write!(f, ", {:?}", x)?;
+				}
+				i += 1;
+			}
+			write!(f, "]")?;
 		}
-		write!(f, "]")?;
 		Ok(())
 	}
 }
@@ -862,7 +877,7 @@ where
 
 impl<K, V> StaticHashtable<K, V> for StaticImpl<K>
 where
-	K: Serializable + Hash + PartialEq,
+	K: Serializable + Hash + PartialEq + Debug,
 	V: Serializable,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error> {
@@ -911,7 +926,7 @@ where
 
 impl<K> StaticHashset<K> for StaticImpl<K>
 where
-	K: Serializable + Hash + PartialEq,
+	K: Serializable + Hash + PartialEq + Debug,
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error> {
 		let mut hasher = DefaultHasher::new();
@@ -993,7 +1008,7 @@ impl StaticBuilder {
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<impl StaticHashtable<K, V>, Error>
 	where
-		K: Serializable + Hash + PartialEq,
+		K: Serializable + Hash + PartialEq + Debug,
 		V: Serializable,
 	{
 		StaticImpl::new(Some(config), None, None, slabs)
@@ -1004,7 +1019,7 @@ impl StaticBuilder {
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<impl StaticHashset<K>, Error>
 	where
-		K: Serializable + Hash + PartialEq,
+		K: Serializable + Hash + PartialEq + Debug,
 	{
 		StaticImpl::new(None, Some(config), None, slabs)
 	}

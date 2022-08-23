@@ -8,7 +8,7 @@ repository = "https://github.com/37miners/bmw"
 keywords = [ "crypto", "bitcoinmw"]
 readme = "README.md"
 exclude = ["**/*.bmw", "**/*.bmw"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 

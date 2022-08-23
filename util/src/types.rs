@@ -22,6 +22,7 @@ use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::rc::Rc;
+use std::sync::mpsc::Receiver;
 
 info!();
 
@@ -30,6 +31,10 @@ pub enum ConfigOption {
 	MaxLoadFactor(f64),
 	SlabSize(usize),
 	SlabCount(usize),
+}
+
+pub struct ThreadPoolConfig {
+	pub size: usize,
 }
 
 /// The configuration struct for a [`StaticHashtable`]. This struct is passed
@@ -98,9 +103,9 @@ impl Serializable for StaticHashsetConfig {
 	}
 }
 
-pub trait StaticHashtable<K, V>
+pub trait StaticHashtable<K, V>: PartialEq + Debug
 where
-	K: Serializable + Hash + PartialEq,
+	K: Serializable + Hash + PartialEq + Debug,
 	V: Serializable,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
@@ -112,9 +117,9 @@ where
 	fn copy(&self) -> Self;
 }
 
-pub trait StaticHashset<K>
+pub trait StaticHashset<K>: PartialEq + Debug
 where
-	K: Serializable + Hash + PartialEq,
+	K: Serializable + Hash + PartialEq + Debug,
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
 	fn contains(&self, key: &K) -> Result<bool, Error>;
@@ -175,11 +180,21 @@ where
 /// TODO: not implemented
 pub trait BitVec {}
 
-/// TODO: not implemented
-pub trait ThreadPool {
-	fn execute<F>(&self, f: F) -> Result<(), Error>
+#[derive(Debug, PartialEq)]
+pub enum ExecutionResponse<T> {
+	Success(T),
+	Fail(Error),
+	Panic,
+}
+
+unsafe impl<T> Send for ExecutionResponse<T> {}
+unsafe impl<T> Sync for ExecutionResponse<T> {}
+
+pub trait ThreadPool<T> {
+	fn execute<F>(&self, f: F) -> Result<Receiver<ExecutionResponse<T>>, Error>
 	where
-		F: Future<Output = Result<(), Error>> + Send + Sync + 'static;
+		F: Future<Output = Result<T, Error>> + Send + Sync + 'static;
+	fn start(&mut self) -> Result<(), Error>;
 }
 
 /// This trait defines the public interface to the [`crate::SlabAllocator`]. The slab
@@ -530,6 +545,8 @@ where
 }
 
 pub struct StaticBuilder {}
+
+pub struct ThreadPoolBuilder {}
 
 pub struct HashtableIterator<'a, K, V>
 where

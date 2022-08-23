@@ -9,7 +9,7 @@ keywords = [ "crypto", "bitcoinmw"]
 readme = "README.md"
 exclude = ["**/*.bmw", "**/*.bmw"]
 build = "src/build/build.rs"
-edition = "2018"
+edition = "2021"
 
 [workspace]
 members = [

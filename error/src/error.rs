@@ -17,12 +17,20 @@ use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
 use std::num::{ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
+use std::sync::mpsc::{Receiver, RecvError, SendError};
+use std::sync::MutexGuard;
 use std::sync::{PoisonError, RwLockReadGuard, RwLockWriteGuard};
 
 /// Base Error struct which is used throughout bmw.
 #[derive(Debug, Fail)]
 pub struct Error {
 	inner: Context<ErrorKind>,
+}
+
+impl PartialEq for Error {
+	fn eq(&self, r: &Error) -> bool {
+		r.kind() == self.kind()
+	}
 }
 
 /// Kinds of errors that can occur.
@@ -200,6 +208,30 @@ impl<T> From<PoisonError<RwLockReadGuard<'_, T>>> for Error {
 	fn from(e: PoisonError<RwLockReadGuard<'_, T>>) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::Poison(format!("Poison error: {}", e))),
+		}
+	}
+}
+
+impl<T> From<PoisonError<MutexGuard<'_, Receiver<T>>>> for Error {
+	fn from(e: PoisonError<MutexGuard<'_, Receiver<T>>>) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Poison(format!("Poison error: {}", e))),
+		}
+	}
+}
+
+impl From<RecvError> for Error {
+	fn from(e: RecvError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::IllegalState(format!("Recv error: {}", e))),
+		}
+	}
+}
+
+impl<T> From<SendError<T>> for Error {
+	fn from(e: SendError<T>) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::IllegalState(format!("Send error: {}", e))),
 		}
 	}
 }
