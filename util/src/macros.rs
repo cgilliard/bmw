@@ -264,6 +264,7 @@ macro_rules! list {
     };
 }
 
+/// Macro used to configure/build a thread pool. See [`crate::ThreadPool`] for working examples.
 #[macro_export]
 macro_rules! thread_pool {
 	() => {{
@@ -288,6 +289,7 @@ macro_rules! thread_pool {
 		let mut error: Option<String> = None;
 		let mut min_size_specified = false;
                 let mut max_size_specified = false;
+                let mut sync_channel_size_specified = false;
 
                 $(
                 match $config {
@@ -302,13 +304,22 @@ macro_rules! thread_pool {
                     },
                     bmw_util::ConfigOption::MaxSize(max_size) => {
                         config.max_size = max_size;
-                         if max_size_specified {
+                        if max_size_specified {
                             error = Some("MaxSize was specified more than once!".to_string());
                         }
 
                         max_size_specified = true;
                         if max_size_specified {}
                     },
+                    bmw_util::ConfigOption::SyncChannelSize(sync_channel_size) => {
+                        config.sync_channel_size = sync_channel_size;
+                        if sync_channel_size_specified {
+                             error = Some("SyncChannelSize was specified more than once!".to_string());
+                        }
+
+                        sync_channel_size_specified = true;
+                        if sync_channel_size_specified {}
+                    }
                     _ => {
                         error = Some(
                             format!(
@@ -331,6 +342,7 @@ macro_rules! thread_pool {
         }};
 }
 
+/// Macro used to execute tasks in a thread pool. See [`crate::ThreadPool`] for working examples.
 #[macro_export]
 macro_rules! execute {
 	($thread_pool:expr, $program:expr) => {{
@@ -338,6 +350,7 @@ macro_rules! execute {
 	}};
 }
 
+/// Macro used to block until a thread pool has completed the task. See [`crate::ThreadPool`] for working examples.
 #[macro_export]
 macro_rules! block_on {
 	($res:expr) => {{
@@ -472,9 +485,10 @@ mod test {
 
 	#[test]
 	fn test_thread_pool_options() -> Result<(), Error> {
-		let tp = thread_pool!(MinSize(4), MaxSize(5))?;
+		let tp = thread_pool!(MinSize(4), MaxSize(5), SyncChannelSize(10))?;
 
 		assert_eq!(tp.size()?, 4);
+		sleep(Duration::from_millis(2_000));
 		let resp = execute!(tp, {
 			info!("thread pool")?;
 			Ok(0)

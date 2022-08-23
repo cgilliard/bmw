@@ -43,11 +43,14 @@ pub enum ConfigOption {
 	MinSize(usize),
 	/// The maximum number of threads for a thread pool. See [`crate::ThreadPool`].
 	MaxSize(usize),
+	/// The size of the sync channel for a thread pool. See [`crate::ThreadPool`].
+	SyncChannelSize(usize),
 }
 
 /// The configuration struct for a [`crate::ThreadPool`]. This struct is passed into the
 /// [`crate::ThreadPoolBuilder::build`] function or the [`crate::thread_pool`] macro. The
-/// [`std::default::Default`] trait is implemented for this trait.
+/// [`std::default::Default`] trait is implemented for this trait. Also see [`crate::ConfigOption`]
+/// for details on configuring via macro.
 #[derive(Debug, Clone)]
 pub struct ThreadPoolConfig {
 	/// The minimum number of threads that this thread_pool will use. The default value is 3.
@@ -202,6 +205,10 @@ where
 /// TODO: not implemented
 pub trait BitVec {}
 
+/// The result returned from a call to [`crate::ThreadPool::execute`]. This is
+/// similar to [`std::result::Result`] except that it implements [`std::marker::Send`]
+/// and [`std::marker::Sync`] so that it can be passed through threads. Also a type
+/// [`crate::PoolResult::Panic`] is returned if a thread panic occurs in the thread pool.
 #[derive(Debug, PartialEq)]
 pub enum PoolResult<T, E> {
 	Ok(T),
@@ -212,12 +219,105 @@ pub enum PoolResult<T, E> {
 unsafe impl<T, E> Send for PoolResult<T, E> {}
 unsafe impl<T, E> Sync for PoolResult<T, E> {}
 
+/// This trait defines the public interface to the ThreadPool. A pool can be configured
+/// via the [`crate::ThreadPoolConfig`] struct. The thread pool should be accessed through the
+/// macros under normal circumstances. See [`crate::thread_pool`], [`crate::execute`] and
+/// [`crate::block_on`] for additional details. The thread pool can be passed through threads via a
+/// [`bmw_log::Lock`] or [`bmw_log::LockBox`] so a single thread pool can service multiple
+/// worker threads. See examples below.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::*;
+/// use bmw_util::ConfigOption::{MaxSize, MinSize};
+///
+/// info!();
+///
+/// fn thread_pool() -> Result<(), Error> {
+///     let tp = thread_pool!()?; // create a thread pool using default settings
+///
+///     // create a shared variable protected by the [`bmw_log::lock`] macro.
+///     let mut shared = lock!(0)?; // we use an integer 0, but any struct can be used.
+///     let shared_clone = shared.clone();
+///
+///     // execute a task
+///     let handle = execute!(tp, {
+///         // obtain the lock in write mode
+///         let mut shared = shared.wlock()?;
+///         // increment the counter
+///         (**shared.guard()) += 1;
+///         // return the counter value (now it's 1)
+///         Ok((**shared.guard()))
+///     })?;
+///
+///     // block on the returned handle until it's task is complete and assert that the
+///     // return value is 1.
+///     assert_eq!(block_on!(handle), PoolResult::Ok(1));
+///
+///     // check our shared value which was updated in the thread pool.
+///     let shared_clone = shared_clone.rlock()?;
+///     assert_eq!((**shared_clone.guard()), 1);
+///
+///     Ok(())
+/// }
+///
+/// fn thread_pool2() -> Result<(), Error> {
+///     // create a thread pool with the specified max/min size. See [`crate::ThreadPoolConfig`]
+///     // for further details.
+///     let tp = thread_pool!(MaxSize(10), MinSize(5))?;
+///
+///     // put the thread pool in a [`bmw_log::Lock`].
+///     let tp = lock!(tp)?;
+///
+///     // spawn 6 worker threads
+///     for _ in 0..6 {
+///         // create a clone of our locked thread pool for each worker thread
+///         let tp = tp.clone();
+///         std::thread::spawn(move || -> Result<(), Error> {
+///             // do some work here and pass other work to the thread pool.
+///             // ...
+///
+///             // obtain a read lock on the thread pool
+///             let tp = tp.rlock()?;
+///
+///             // execute the task in the thread pool, the returned handle can be used
+///             // if desired or ignored
+///             execute!((**tp.guard()), {
+///                 info!("executing in thread pool")?;
+///                 Ok(1)
+///             })?;
+///             Ok(())
+///         });
+///     }
+///     Ok(())
+/// }
+///
+///```
 pub trait ThreadPool<T> {
+	/// Execute a task in the thread pool. This task will run to completion
+	/// on the first available thread in the pool. The return value is a receiver
+	/// which will be sent a [`crate::PoolResult`] on completion of the task. If
+	/// an error occurs, [`bmw_err::Error`] will be returned.
 	fn execute<F>(&self, f: F) -> Result<Receiver<PoolResult<T, Error>>, Error>
 	where
 		F: Future<Output = Result<T, Error>> + Send + Sync + 'static;
+
+	/// Start the pool. If macros are used, this call is unnecessary.
 	fn start(&mut self) -> Result<(), Error>;
+
+	/// Stop the thread pool. Note that this function is automatically called by
+	/// the [`std::ops::Drop`] handler, but if needed, it can be explicitly called.
+	/// This function, whether called through drop or directly, will ensure no new
+	/// tasks are processed in the ThreadPool and that the threads will be stopped once they
+	/// become idle again. It however, does not ensure that any tasks currently running in the thread pool are stopped
+	/// immediately. That is the responsibility of the user.
 	fn stop(&mut self) -> Result<(), Error>;
+
+	/// Returns the current size of the thread pool which will be between
+	/// [`crate::ThreadPoolConfig::min_size`] and [`crate::ThreadPoolConfig::max_size`].
 	fn size(&self) -> Result<usize, Error>;
 }
 
@@ -570,6 +670,7 @@ where
 
 pub struct StaticBuilder {}
 
+/// The builder for [`ThreadPool`].
 pub struct ThreadPoolBuilder {}
 
 pub struct HashtableIterator<'a, K, V>
