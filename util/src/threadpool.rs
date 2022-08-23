@@ -299,17 +299,25 @@ mod test {
 
 	#[test]
 	fn test_sizing() -> Result<(), Error> {
-		let mut tp = ThreadPoolBuilder::build(ThreadPoolConfig {
+		let mut tp = ThreadPoolImpl::new(ThreadPoolConfig {
 			min_size: 2,
 			max_size: 4,
 			..Default::default()
 		})?;
 		tp.start()?;
-		sleep(Duration::from_millis(1000));
 		let mut v = vec![];
 
 		let x = lock!(0)?;
 
+		loop {
+			{
+				let state = tp.state.rlock()?;
+				if (**state.guard()).waiting == 2 {
+					break;
+				}
+			}
+			sleep(Duration::from_millis(100));
+		}
 		// first use up all the min_size threads
 		for _ in 0..2 {
 			let x_clone = x.clone();
@@ -324,7 +332,6 @@ mod test {
 			})?;
 			v.push(res);
 		}
-		sleep(Duration::from_millis(1000));
 		assert_eq!(tp.size()?, 2);
 
 		// confirm we can still process
