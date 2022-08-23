@@ -26,19 +26,33 @@ use std::sync::mpsc::Receiver;
 
 info!();
 
+/// Configuration options used throughout this crate via macro.
 #[derive(Debug)]
 pub enum ConfigOption {
+	/// The maximum number of entries for a data structure. See [`crate::StaticHashtable`] and
+	/// [`crate::StaticHashset`].
 	MaxEntries(usize),
+	/// The maximum load factor for a data structure. See [`crate::StaticHashtable`] and
+	/// [`crate::StaticHashset`].
 	MaxLoadFactor(f64),
+	/// The slab size for a slab allocator. See [`crate::SlabAllocator`].
 	SlabSize(usize),
+	/// The slab count for a slab allocator. See [`crate::SlabAllocator`].
 	SlabCount(usize),
+	/// The minimum number of threads for a thread pool. See [`crate::ThreadPool`].
 	MinSize(usize),
+	/// The maximum number of threads for a thread pool. See [`crate::ThreadPool`].
 	MaxSize(usize),
 }
 
+/// The configuration struct for a [`crate::ThreadPool`]. This struct is passed into the
+/// [`crate::ThreadPoolBuilder::build`] function or the [`crate::thread_pool`] macro. The
+/// [`std::default::Default`] trait is implemented for this trait.
 #[derive(Debug, Clone)]
 pub struct ThreadPoolConfig {
+	// The minimum number of threads that this thread_pool will use. The default value is 3.
 	pub min_size: usize,
+	// The maximm number of threads that this thread_pool will use. The default value is 7.
 	pub max_size: usize,
 }
 

@@ -480,6 +480,7 @@ mod test {
 			Ok(0)
 		})?;
 		assert_eq!(block_on!(resp), PoolResult::Ok(0));
+		assert_eq!(tp.size()?, 4);
 
 		for _ in 0..10 {
 			execute!(tp, {
