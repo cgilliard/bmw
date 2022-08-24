@@ -109,7 +109,7 @@ pub struct SlabAllocatorConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct StaticListConfig {}
+pub struct ListConfig {}
 
 pub trait StaticHashtable<K, V>: PartialEq + Debug
 where
@@ -158,7 +158,7 @@ where
 	fn peek(&self) -> Result<Option<V>, Error>;
 }
 
-pub trait StaticList<V>: PartialEq + Debug
+pub trait List<V>: PartialEq + Debug
 where
 	V: Serializable,
 {
@@ -167,26 +167,16 @@ where
 	fn iter_rev<'a>(&'a self) -> ListIterator<'a, V>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
-	fn append(&mut self, list: &impl StaticList<V>) -> Result<(), Error>;
+	fn append(&mut self, list: &impl List<V>) -> Result<(), Error>;
 	fn copy(&self) -> Self;
 }
 
-pub trait SortableList<V>: StaticList<V>
+pub trait SortableList<V>: List<V>
 where
 	V: Serializable + Ord,
 {
 	fn sort(&mut self) -> Result<(), Error>;
 }
-
-/// TODO: not implemented
-pub trait Array<V>
-where
-	V: Serializable,
-{
-}
-
-/// TODO: not implemented
-pub trait BitVec {}
 
 /// The result returned from a call to [`crate::ThreadPool::execute`]. This is
 /// similar to [`std::result::Result`] except that it implements [`std::marker::Send`]
@@ -521,33 +511,28 @@ pub trait SlabAllocator {
 	fn init(&mut self, config: SlabAllocatorConfig) -> Result<(), Error>;
 }
 
-/// TODO: not implemented
 pub trait Match {
 	fn start(&self) -> usize;
 	fn end(&self) -> usize;
-	fn id(&self) -> u128;
+	fn id(&self) -> usize;
 	fn set_start(&mut self, start: usize) -> Result<(), Error>;
 	fn set_end(&mut self, end: usize) -> Result<(), Error>;
-	fn set_id(&mut self, id: u128) -> Result<(), Error>;
+	fn set_id(&mut self, id: usize) -> Result<(), Error>;
 }
 
-/// TODO: not implemented
-pub trait Pattern {
-	fn regex(&self) -> String;
-	fn is_case_sensitive(&self) -> bool;
-	fn is_termination_pattern(&self) -> bool;
-	fn id(&self) -> u128;
+#[derive(Debug, PartialEq)]
+pub struct Pattern {
+	pub(crate) regex: String,
+	pub(crate) is_case_sensitive: bool,
+	pub(crate) is_termination_pattern: bool,
+	pub(crate) id: usize,
 }
 
-/// TODO: not implemented
 pub trait SuffixTree {
-	fn add_pattern(&mut self, pattern: &dyn Pattern) -> Result<(), Error>;
-	fn run_matches(
-		&mut self,
-		text: &[u8],
-		matches: &mut Vec<Box<dyn Match>>,
-	) -> Result<usize, Error>;
+	fn run_matches(&mut self, text: &[u8], matches: &mut [Box<dyn Match>]) -> Result<usize, Error>;
 }
+
+pub struct MatchBuilder {}
 
 /// Writer trait used to serializing data.
 pub trait Writer {

@@ -16,14 +16,16 @@ mod macros;
 mod misc;
 mod ser;
 mod slabs;
+mod suffix_tree;
 mod threadpool;
 mod types;
 
 pub use crate::ser::{deserialize, serialize, BinReader, BinWriter, SlabReader, SlabWriter};
 pub use crate::slabs::{Slab, SlabAllocatorBuilder, SlabMut, GLOBAL_SLAB_ALLOCATOR};
 pub use crate::types::{
-	ConfigOption, HashsetIterator, HashtableIterator, ListIterator, PoolResult, Reader,
-	Serializable, SlabAllocator, SlabAllocatorConfig, SortableList, StaticBuilder, StaticHashset,
-	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig,
-	StaticQueue, ThreadPool, ThreadPoolBuilder, ThreadPoolConfig, Writer,
+	ConfigOption, HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Match,
+	MatchBuilder, Pattern, PoolResult, Reader, Serializable, SlabAllocator, SlabAllocatorConfig,
+	SortableList, StaticBuilder, StaticHashset, StaticHashsetConfig, StaticHashtable,
+	StaticHashtableConfig, StaticQueue, SuffixTree, ThreadPool, ThreadPoolBuilder,
+	ThreadPoolConfig, Writer,
 };

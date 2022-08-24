@@ -14,10 +14,9 @@
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
 use crate::types::{Direction, StaticImpl};
 use crate::{
-	HashsetIterator, HashtableIterator, ListIterator, Reader, Serializable, SlabAllocator,
-	SlabAllocatorConfig, SlabReader, SlabWriter, StaticBuilder, StaticHashset, StaticHashsetConfig,
-	StaticHashtable, StaticHashtableConfig, StaticList, StaticListConfig, Writer,
-	GLOBAL_SLAB_ALLOCATOR,
+	HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Reader, Serializable,
+	SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, StaticBuilder, StaticHashset,
+	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, Writer, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::*;
 use bmw_log::*;
@@ -177,7 +176,7 @@ impl Default for StaticHashsetConfig {
 	}
 }
 
-impl Default for StaticListConfig {
+impl Default for ListConfig {
 	fn default() -> Self {
 		Self {}
 	}
@@ -252,7 +251,7 @@ where
 	fn new(
 		hashtable_config: Option<StaticHashtableConfig>,
 		hashset_config: Option<StaticHashsetConfig>,
-		list_config: Option<StaticListConfig>,
+		list_config: Option<ListConfig>,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<Self, Error> {
 		let (slab_size, slab_count) = match slabs.as_ref() {
@@ -971,7 +970,7 @@ where
 	}
 }
 
-impl<V> StaticList<V> for StaticImpl<V>
+impl<V> List<V> for StaticImpl<V>
 where
 	V: Serializable + Debug + PartialEq,
 {
@@ -991,7 +990,7 @@ where
 	fn clear(&mut self) -> Result<(), Error> {
 		self.clear_impl()
 	}
-	fn append(&mut self, list: &impl StaticList<V>) -> Result<(), Error> {
+	fn append(&mut self, list: &impl List<V>) -> Result<(), Error> {
 		for x in list.iter() {
 			self.push(x)?;
 		}
@@ -1025,9 +1024,9 @@ impl StaticBuilder {
 	}
 
 	pub fn build_list<V>(
-		config: StaticListConfig,
+		config: ListConfig,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<impl StaticList<V>, Error>
+	) -> Result<impl List<V>, Error>
 	where
 		V: Serializable + Debug + PartialEq,
 	{
@@ -1039,11 +1038,11 @@ impl StaticBuilder {
 mod test {
 	use crate as bmw_util;
 	use crate::impls::StaticBuilder;
-	use crate::types::{StaticHashset, StaticList};
+	use crate::types::{List, StaticHashset};
 	use crate::ConfigOption::SlabSize;
 	use crate::{
-		slab_allocator, SlabAllocatorBuilder, SlabAllocatorConfig, StaticHashsetConfig,
-		StaticHashtable, StaticHashtableConfig, StaticListConfig, GLOBAL_SLAB_ALLOCATOR,
+		slab_allocator, ListConfig, SlabAllocatorBuilder, SlabAllocatorConfig, StaticHashsetConfig,
+		StaticHashtable, StaticHashtableConfig, GLOBAL_SLAB_ALLOCATOR,
 	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
@@ -1277,7 +1276,7 @@ mod test {
 
 	#[test]
 	fn test_list1() -> Result<(), Error> {
-		let mut list = StaticBuilder::build_list(StaticListConfig::default(), None)?;
+		let mut list = StaticBuilder::build_list(ListConfig::default(), None)?;
 		list.push(1)?;
 		list.push(2)?;
 		list.push(3)?;
@@ -1308,7 +1307,7 @@ mod test {
 
 	#[test]
 	fn test_append() -> Result<(), Error> {
-		let mut list = StaticBuilder::build_list(StaticListConfig::default(), None)?;
+		let mut list = StaticBuilder::build_list(ListConfig::default(), None)?;
 		list.push(1)?;
 		list.push(2)?;
 		list.push(3)?;
@@ -1316,7 +1315,7 @@ mod test {
 		list.push(5)?;
 		list.push(6)?;
 
-		let mut list2 = StaticBuilder::build_list(StaticListConfig::default(), None)?;
+		let mut list2 = StaticBuilder::build_list(ListConfig::default(), None)?;
 		list2.push(7)?;
 		list2.push(8)?;
 		list2.push(9)?;

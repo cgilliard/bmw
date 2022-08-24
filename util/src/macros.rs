@@ -252,7 +252,8 @@ macro_rules! hashset {
 macro_rules! list {
     ( $( $x:expr ),* ) => {
         {
-            let mut temp_list = bmw_util::StaticBuilder::build_list(bmw_util::StaticListConfig::default(), None)?;
+            use bmw_util::List;
+            let mut temp_list = bmw_util::StaticBuilder::build_list(bmw_util::ListConfig::default(), None)?;
             $(
                 temp_list.push($x)?;
             )*
@@ -364,7 +365,7 @@ macro_rules! block_on {
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::{thread_pool, PoolResult, StaticHashset, StaticHashtable, StaticList, ThreadPool};
+	use crate::{thread_pool, List, PoolResult, StaticHashset, StaticHashtable, ThreadPool};
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
 	use bmw_util::ConfigOption::*;
