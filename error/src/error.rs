@@ -17,7 +17,7 @@ use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
 use std::num::{ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
-use std::sync::mpsc::{Receiver, RecvError, SendError};
+use std::sync::mpsc::{RecvError, SendError};
 use std::sync::MutexGuard;
 use std::sync::{PoisonError, RwLockReadGuard, RwLockWriteGuard};
 
@@ -217,8 +217,8 @@ impl<T> From<PoisonError<RwLockReadGuard<'_, T>>> for Error {
 	}
 }
 
-impl<T> From<PoisonError<MutexGuard<'_, Receiver<T>>>> for Error {
-	fn from(e: PoisonError<MutexGuard<'_, Receiver<T>>>) -> Error {
+impl<T> From<PoisonError<MutexGuard<'_, T>>> for Error {
+	fn from(e: PoisonError<MutexGuard<'_, T>>) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::Poison(format!("Poison error: {}", e))),
 		}
@@ -243,10 +243,13 @@ impl<T> From<SendError<T>> for Error {
 
 #[cfg(test)]
 mod test {
-	use crate::{Error, ErrorKind};
+	use crate as bmw_err;
+	use crate::{err, ErrKind, Error, ErrorKind};
 	use bmw_deps::substring::Substring;
 	use std::convert::TryInto;
 	use std::ffi::OsString;
+	use std::sync::mpsc::channel;
+	use std::sync::{Arc, Mutex, RwLock};
 
 	fn get_os_string() -> Result<(), Error> {
 		Err(OsString::new().into())
@@ -300,6 +303,67 @@ mod test {
 		let x: Result<u32, _> = "abc".parse();
 		check_error(x, ErrorKind::Misc(format!("ParseIntError..")).into())?;
 		check_error(get_utf8(), ErrorKind::Utf8(format!("Utf8 Error..")).into())?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_other_errors() -> Result<(), Error> {
+		let mutex = Arc::new(Mutex::new(0));
+		let mutex_clone = mutex.clone();
+		let lock = Arc::new(RwLock::new(0));
+		let lock_clone = lock.clone();
+		let _ = std::thread::spawn(move || -> Result<u32, Error> {
+			let _mutex = mutex_clone.lock();
+			let _x = lock.write();
+			let y: Option<u32> = None;
+			Ok(y.unwrap())
+		})
+		.join();
+
+		check_error(
+			lock_clone.write(),
+			ErrorKind::Poison(format!("Poison..")).into(),
+		)?;
+
+		check_error(
+			lock_clone.read(),
+			ErrorKind::Poison(format!("Poison..")).into(),
+		)?;
+
+		check_error(mutex.lock(), ErrorKind::Poison(format!("Poison..")).into())?;
+
+		let x = err!(ErrKind::Poison, "");
+		let y = err!(ErrKind::IllegalArgument, "");
+		let z = err!(ErrKind::Poison, "");
+
+		assert_ne!(x, y);
+		assert_eq!(x, z);
+
+		let (tx, rx) = channel();
+
+		std::thread::spawn(move || -> Result<(), Error> {
+			tx.send(1)?;
+			Ok(())
+		});
+
+		assert!(rx.recv().is_ok());
+		let err = rx.recv();
+		assert!(err.is_err());
+		check_error(
+			err,
+			ErrorKind::IllegalState(format!("IllegalState..")).into(),
+		)?;
+		let tx = {
+			let (tx, _rx) = channel();
+			tx
+		};
+
+		let err = tx.send(1);
+		check_error(
+			err,
+			ErrorKind::IllegalState(format!("IllegalState..")).into(),
+		)?;
 
 		Ok(())
 	}

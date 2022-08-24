@@ -111,23 +111,6 @@ pub struct SlabAllocatorConfig {
 #[derive(Debug, Clone)]
 pub struct StaticListConfig {}
 
-impl Serializable for StaticHashsetConfig {
-	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
-		let max_entries = reader.read_usize()?;
-		let max_load_factor = f64::read(reader)?;
-		let ret = Self {
-			max_entries,
-			max_load_factor,
-		};
-		Ok(ret)
-	}
-	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-		writer.write_usize(self.max_entries)?;
-		f64::write(&self.max_load_factor, writer)?;
-		Ok(())
-	}
-}
-
 pub trait StaticHashtable<K, V>: PartialEq + Debug
 where
 	K: Serializable + Hash + PartialEq + Debug,

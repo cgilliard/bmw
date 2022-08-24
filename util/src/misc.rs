@@ -55,15 +55,6 @@ pub fn slice_to_usize(slice: &[u8]) -> Result<usize, Error> {
 	Ok(ret)
 }
 
-pub fn _is_max(slice: &[u8]) -> bool {
-	for i in 0..slice.len() {
-		if slice[i] != 0xFF {
-			return false;
-		}
-	}
-	return true;
-}
-
 pub fn set_max(slice: &mut [u8]) {
 	for i in 0..slice.len() {
 		slice[i] = 0xFF;
@@ -119,6 +110,10 @@ mod test {
 			usize_to_slice(i as usize, &mut b)?;
 			assert_eq!(slice_to_usize(&b)?, i as usize);
 		}
+
+		assert!(usize_to_slice(1, &mut [0u8; 9]).is_err());
+
+		assert!(slice_to_usize(&mut [0u8; 9]).is_err());
 
 		Ok(())
 	}

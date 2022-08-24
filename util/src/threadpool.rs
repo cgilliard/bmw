@@ -34,6 +34,7 @@ struct ThreadPoolImpl<T: 'static + Send + Sync> {
 	rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
 	tx: Option<SyncSender<FutureWrapper<T>>>,
 	state: Box<dyn LockBox<ThreadPoolState>>,
+	test_config: Option<TestConfig>,
 }
 
 impl Default for ThreadPoolConfig {
@@ -54,33 +55,53 @@ struct ThreadPoolState {
 	stop: bool,
 }
 
+struct TestConfig {
+	debug_drop_error: bool,
+}
+
 impl<T: 'static + Send + Sync> Drop for ThreadPoolImpl<T> {
 	fn drop(&mut self) {
-		match self.stop() {
-			Ok(_) => {}
-			Err(e) => {
-				let _ = error!("unexpected error calling drop: {}", e);
-			}
+		let stop = self.stop();
+		if stop.is_err() {
+			let _ = error!("unexpected error calling drop: {}", stop.unwrap_err());
 		}
 	}
 }
 
 impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
-	fn new(config: ThreadPoolConfig) -> Result<Self, Error> {
-		let state = lock_box!(ThreadPoolState {
-			waiting: 0,
-			cur_size: config.min_size,
-			config: config.clone(),
-			stop: false,
-		})?;
-		Ok(Self {
+	fn new(config: ThreadPoolConfig, test_config: Option<TestConfig>) -> Result<Self, Error> {
+		if config.min_size == 0 || config.min_size > config.max_size {
+			let fmt = "min_size must be > 0 and < max_size";
+			return Err(err!(ErrKind::Configuration, fmt));
+		}
+		let waiting = 0;
+		let cur_size = config.min_size;
+		let config_clone = config.clone();
+		let stop = false;
+		let tps = ThreadPoolState {
+			waiting,
+			cur_size,
 			config,
-			rx: None,
-			tx: None,
+			stop,
+		};
+		let state = lock_box!(tps)?;
+
+		let config = config_clone;
+		let rx = None;
+		let tx = None;
+
+		let ret = Self {
+			config,
+			tx,
+			rx,
 			state,
-		})
+			test_config,
+		};
+		Ok(ret)
 	}
 
+	// this function appears to have full test coverage, disable tarpaulin for now
+	#[cfg(not(tarpaulin_include))]
 	fn run_thread<R: 'static>(
 		rx: Arc<Mutex<Receiver<FutureWrapper<R>>>>,
 		mut state: Box<dyn LockBox<ThreadPoolState>>,
@@ -129,23 +150,19 @@ impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
 
 						match block_on(next.f) {
 							Ok(res) => {
-								match next.tx.send(PoolResult::Ok(res)) {
-									Ok(_) => {}
-									Err(e) => {
-										// supress this message in case user
-										// ignores response, which is ok to do
-										debug!("error sending response: {}", e)?;
-									}
+								let send_res = next.tx.send(PoolResult::Ok(res));
+								if send_res.is_err() {
+									debug!("error sending response: {}", send_res.unwrap_err())?;
 								}
 							}
 							Err(e) => {
-								match next.tx.send(PoolResult::Err(e)) {
-									Ok(_) => {}
-									Err(e) => {
-										// supress this message in case user
-										// ignores response, which is ok to do
-										debug!("error sending response: {}", e)?;
-									}
+								debug!("sending an errpre")?;
+								let send_res = next.tx.send(PoolResult::Err(e));
+								debug!("sending an err")?;
+								if send_res.is_err() {
+									debug!("error sending response: {}", send_res.unwrap_err())?;
+								} else {
+									debug!("sent response ok")?;
 								}
 							}
 						}
@@ -174,17 +191,14 @@ impl<T: 'static + Send + Sync> ThreadPool<T> for ThreadPoolImpl<T> {
 	where
 		F: Future<Output = Result<T, Error>> + Send + Sync + 'static,
 	{
+		if self.tx.is_none() {
+			let fmt = "Thread pool has not been initialized";
+			return Err(err!(ErrKind::IllegalState, fmt));
+		}
+
 		let (tx, rx) = sync_channel::<PoolResult<T, Error>>(self.config.max_size);
 		let fw = FutureWrapper { f: Box::pin(f), tx };
-		match &self.tx {
-			Some(tx) => tx.send(fw)?,
-			None => {
-				return Err(err!(
-					ErrKind::IllegalState,
-					"Thread pool has not been initialized"
-				));
-			}
-		}
+		self.tx.as_ref().unwrap().send(fw)?;
 		Ok(rx)
 	}
 	fn start(&mut self) -> Result<(), Error> {
@@ -199,6 +213,9 @@ impl<T: 'static + Send + Sync> ThreadPool<T> for ThreadPoolImpl<T> {
 	}
 
 	fn stop(&mut self) -> Result<(), Error> {
+		if self.test_config.is_some() && self.test_config.as_ref().unwrap().debug_drop_error {
+			return Err(err!(ErrKind::Test, "debug stop"));
+		}
 		let mut state = self.state.wlock()?;
 		(**state.guard()).stop = true;
 		self.tx = None;
@@ -218,13 +235,14 @@ impl ThreadPoolBuilder {
 	pub fn build<T: 'static + Send + Sync>(
 		config: ThreadPoolConfig,
 	) -> Result<impl ThreadPool<T>, Error> {
-		Ok(ThreadPoolImpl::new(config)?)
+		Ok(ThreadPoolImpl::new(config, None)?)
 	}
 }
 
 #[cfg(test)]
 mod test {
 	use crate::execute;
+	use crate::threadpool::TestConfig;
 	use crate::threadpool::ThreadPoolImpl;
 	use crate::{PoolResult, ThreadPool, ThreadPoolBuilder, ThreadPoolConfig};
 	use bmw_deps::dyn_clone::clone_box;
@@ -236,9 +254,10 @@ mod test {
 	info!();
 
 	#[test]
-	fn test_threadpool() -> Result<(), Error> {
+	fn test_threadpool1() -> Result<(), Error> {
 		let mut tp = ThreadPoolBuilder::build(ThreadPoolConfig {
 			min_size: 10,
+			max_size: 10,
 			..Default::default()
 		})?;
 		tp.start()?;
@@ -257,12 +276,12 @@ mod test {
 
 		let mut count = 0;
 		loop {
+			count += 1;
+			assert!(count < 500);
 			sleep(Duration::from_millis(10));
 			if **x_clone.rlock()?.guard() == 2 {
 				break;
 			}
-			count += 1;
-			assert!(count < 500);
 		}
 
 		// return an error
@@ -273,8 +292,7 @@ mod test {
 		// handle panic
 		let res = tp.execute(async move {
 			let x: Option<u32> = None;
-			let _ = x.unwrap();
-			Ok(1)
+			Ok(x.unwrap())
 		})?;
 
 		assert!(res.recv().is_err());
@@ -283,8 +301,7 @@ mod test {
 		for _ in 0..10 {
 			let res = tp.execute(async move {
 				let x: Option<u32> = None;
-				let _ = x.unwrap();
-				Ok(1)
+				Ok(x.unwrap())
 			})?;
 
 			assert!(res.recv().is_err());
@@ -294,16 +311,34 @@ mod test {
 		let res = tp.execute(async move { Ok(5) })?;
 		assert_eq!(res.recv()?, PoolResult::Ok(5));
 
+		sleep(Duration::from_millis(1000));
+		info!("test sending errors")?;
+
+		// send an error and ignore the response
+		{
+			let res = tp.execute(async move { Err(err!(ErrKind::Test, "")) })?;
+			drop(res);
+			sleep(Duration::from_millis(1000));
+		}
+		{
+			let res = tp.execute(async move { Err(err!(ErrKind::Test, "test")) })?;
+			assert_eq!(res.recv()?, PoolResult::Err(err!(ErrKind::Test, "test")));
+		}
+		sleep(Duration::from_millis(1_000));
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_sizing() -> Result<(), Error> {
-		let mut tp = ThreadPoolImpl::new(ThreadPoolConfig {
-			min_size: 2,
-			max_size: 4,
-			..Default::default()
-		})?;
+		let mut tp = ThreadPoolImpl::new(
+			ThreadPoolConfig {
+				min_size: 2,
+				max_size: 4,
+				..Default::default()
+			},
+			None,
+		)?;
 		tp.start()?;
 		let mut v = vec![];
 
@@ -318,6 +353,7 @@ mod test {
 			}
 			sleep(Duration::from_millis(100));
 		}
+		assert_eq!(tp.size()?, 2);
 		// first use up all the min_size threads
 		for _ in 0..2 {
 			let x_clone = x.clone();
@@ -332,7 +368,17 @@ mod test {
 			})?;
 			v.push(res);
 		}
-		assert_eq!(tp.size()?, 2);
+		loop {
+			{
+				let state = tp.state.rlock()?;
+				if (**state.guard()).waiting == 1 {
+					break;
+				}
+				info!("waiting = {}", (**state.guard()).waiting)?;
+			}
+			sleep(Duration::from_millis(100));
+		}
+		assert_eq!(tp.size()?, 3);
 
 		// confirm we can still process
 		for _ in 0..10 {
@@ -439,14 +485,17 @@ mod test {
 	}
 
 	#[test]
-	fn test_drop() -> Result<(), Error> {
+	fn test_threadpool_drop() -> Result<(), Error> {
 		let state;
 		{
-			let mut tp = ThreadPoolImpl::new(ThreadPoolConfig {
-				min_size: 2,
-				max_size: 4,
-				..Default::default()
-			})?;
+			let mut tp = ThreadPoolImpl::new(
+				ThreadPoolConfig {
+					min_size: 2,
+					max_size: 4,
+					..Default::default()
+				},
+				None,
+			)?;
 			state = clone_box(&*tp.state);
 			tp.start()?;
 			sleep(Duration::from_millis(1000));
@@ -458,8 +507,38 @@ mod test {
 			assert_eq!(tp.size()?, 2);
 		}
 		sleep(Duration::from_millis(1000));
-		let state = state.rlock()?;
-		assert_eq!((**state.guard()).cur_size, 0);
+		let state_guard = state.rlock()?;
+		assert_eq!((**state_guard.guard()).cur_size, 0);
+		assert_eq!((**state_guard.guard()).stop, true);
+		let state;
+		{
+			let mut tp = ThreadPoolImpl::new(
+				ThreadPoolConfig {
+					min_size: 2,
+					max_size: 4,
+					..Default::default()
+				},
+				Some(TestConfig {
+					debug_drop_error: true,
+				}),
+			)?;
+			state = clone_box(&*tp.state);
+			tp.start()?;
+			sleep(Duration::from_millis(1000));
+			assert_eq!(tp.size()?, 2);
+			tp.execute(async move { Ok(()) })?;
+
+			sleep(Duration::from_millis(1000));
+			info!("stopping pool")?;
+			assert_eq!(tp.size()?, 2);
+		}
+		sleep(Duration::from_millis(1000));
+		let state_guard = state.rlock()?;
+
+		// other threads die due to the channel being closed so we get to 0 still.
+		assert_eq!((**state_guard.guard()).cur_size, 0);
+		assert_eq!((**state_guard.guard()).stop, false);
+
 		Ok(())
 	}
 
@@ -484,6 +563,40 @@ mod test {
 				Ok(())
 			});
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn test_bad_configs() -> Result<(), Error> {
+		assert!(ThreadPoolBuilder::build::<()>(ThreadPoolConfig {
+			min_size: 5,
+			max_size: 4,
+			..Default::default()
+		})
+		.is_err());
+
+		assert!(ThreadPoolBuilder::build::<()>(ThreadPoolConfig {
+			min_size: 0,
+			max_size: 4,
+			..Default::default()
+		})
+		.is_err());
+
+		let tp = ThreadPoolBuilder::build::<()>(ThreadPoolConfig {
+			min_size: 5,
+			max_size: 6,
+			..Default::default()
+		});
+		assert!(tp.is_ok());
+		let tp = tp.unwrap();
+
+		assert_eq!(
+			tp.execute(async move { Ok(()) }).unwrap_err(),
+			err!(
+				ErrKind::IllegalState,
+				"Thread pool has not been initialized"
+			)
+		);
 		Ok(())
 	}
 }

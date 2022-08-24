@@ -60,10 +60,7 @@ macro_rules! init_slab_allocator {
                 None => {
                         bmw_util::GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(), Error> {
                         unsafe {
-                                f.get()
-                                        .as_mut()
-                                        .unwrap()
-                                        .init(config)?;
+                                f.get().as_mut().unwrap().init(config)?;
                                 Ok(())
                         }
                         })
@@ -470,8 +467,7 @@ mod test {
 		let resp: Receiver<PoolResult<u32, Error>> = execute!(tp, {
 			info!("thread pool panic")?;
 			let x: Option<u32> = None;
-			let _y = x.unwrap();
-			Err(err!(ErrKind::Test, "test err"))
+			Ok(x.unwrap())
 		})?;
 		assert_eq!(
 			block_on!(resp),

@@ -248,6 +248,11 @@ mod test {
 		let map = map_err!(x, ErrKind::Misc);
 		assert!(matches!(map.unwrap_err().kind(), crate::ErrorKind::Misc(_)));
 
+		let map = map_err!(x, ErrKind::Poison);
+		let kind = map.unwrap_err().kind();
+		let _poison = crate::ErrorKind::Poison("".to_string());
+		assert!(matches!(kind, _poison));
+
 		Ok(())
 	}
 }

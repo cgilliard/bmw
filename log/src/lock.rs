@@ -18,6 +18,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+#[cfg(not(tarpaulin_include))]
 thread_local! {
 	pub static LOCKS: RefCell<HashSet<u128>> = RefCell::new(HashSet::new());
 }
@@ -179,12 +180,14 @@ where
 pub struct RwLockReadGuardWrapper<'a, T> {
 	guard: RwLockReadGuard<'a, T>,
 	id: u128,
+	debug_err: bool,
 }
 
 impl<'a, T> RwLockReadGuardWrapper<'a, T>
 where
 	T: Send + Sync,
 {
+	#[cfg(not(tarpaulin_include))]
 	pub fn guard(&self) -> &RwLockReadGuard<'a, T> {
 		&self.guard
 	}
@@ -193,12 +196,13 @@ where
 impl<T> Drop for RwLockReadGuardWrapper<'_, T> {
 	fn drop(&mut self) {
 		let id = self.id;
-		match LOCKS.with(|f| -> Result<(), Error> {
+
+		let res = LOCKS.with(|f| -> Result<(), Error> {
 			(*f.borrow_mut()).remove(&id);
 			Ok(())
-		}) {
-			Ok(_) => {}
-			Err(e) => println!("error dropping read lock: {}", e),
+		});
+		if res.is_err() || self.debug_err {
+			println!("error dropping read lock: {:?}", res);
 		}
 	}
 }
@@ -207,9 +211,11 @@ impl<T> Drop for RwLockReadGuardWrapper<'_, T> {
 pub struct RwLockWriteGuardWrapper<'a, T> {
 	guard: RwLockWriteGuard<'a, T>,
 	id: u128,
+	debug_err: bool,
 }
 
 impl<'a, T> RwLockWriteGuardWrapper<'a, T> {
+	#[cfg(not(tarpaulin_include))]
 	pub fn guard(&mut self) -> &mut RwLockWriteGuard<'a, T> {
 		&mut self.guard
 	}
@@ -218,12 +224,14 @@ impl<'a, T> RwLockWriteGuardWrapper<'a, T> {
 impl<T> Drop for RwLockWriteGuardWrapper<'_, T> {
 	fn drop(&mut self) {
 		let id = self.id;
-		match LOCKS.with(|f| -> Result<(), Error> {
+
+		let res = LOCKS.with(|f| -> Result<(), Error> {
 			(*f.borrow_mut()).remove(&id);
 			Ok(())
-		}) {
-			Ok(_) => {}
-			Err(e) => println!("error dropping write lock: {}", e),
+		});
+
+		if res.is_err() || self.debug_err {
+			println!("error dropping write lock: {:?}", res);
 		}
 	}
 }
@@ -286,7 +294,14 @@ impl<T> LockImpl<T> {
 			Err(err!(ErrKind::Poison, "would deadlock"))
 		} else {
 			let guard = map_err!(self.t.write(), ErrKind::Poison)?;
-			Ok(RwLockWriteGuardWrapper { guard, id: self.id })
+			let id = self.id;
+			let debug_err = false;
+			let ret = RwLockWriteGuardWrapper {
+				guard,
+				id,
+				debug_err,
+			};
+			Ok(ret)
 		}
 	}
 
@@ -301,7 +316,14 @@ impl<T> LockImpl<T> {
 			Err(err!(ErrKind::Poison, "would deadlock"))
 		} else {
 			let guard = map_err!(self.t.read(), ErrKind::Poison)?;
-			Ok(RwLockReadGuardWrapper { guard, id: self.id })
+			let id = self.id;
+			let debug_err = false;
+			let ret = RwLockReadGuardWrapper {
+				guard,
+				id,
+				debug_err,
+			};
+			Ok(ret)
 		}
 	}
 }
@@ -332,9 +354,11 @@ mod test {
 	use crate::lock::Lock;
 	use crate::lock::LockBox;
 	use crate::lock::LockBuilder;
+	use crate::{RwLockReadGuardWrapper, RwLockWriteGuardWrapper};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::Error;
 	use bmw_log::lock;
+	use std::sync::{Arc, RwLock};
 	use std::thread::{sleep, spawn};
 	use std::time::Duration;
 
@@ -452,6 +476,33 @@ mod test {
 			assert_eq!((**tlb.guard()), 3u32);
 		}
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_rw_guards() -> Result<(), Error> {
+		{
+			let lock = Arc::new(RwLock::new(1));
+			let guard = lock.read().unwrap();
+			let x = RwLockReadGuardWrapper {
+				guard,
+				id: 0,
+				debug_err: true,
+			};
+			let guard = x.guard();
+			assert_eq!(**guard, 1);
+		}
+		{
+			let lock = Arc::new(RwLock::new(1));
+			let guard = lock.write().unwrap();
+			let mut x = RwLockWriteGuardWrapper {
+				guard,
+				id: 0,
+				debug_err: true,
+			};
+			let guard = x.guard();
+			assert_eq!(**guard, 1);
+		}
 		Ok(())
 	}
 }

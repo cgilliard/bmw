@@ -21,14 +21,10 @@ use std::rc::Rc;
 
 info!();
 
-// tarpaulin is not seeing this line as covered probably because it's thread_local.
-// The GLOBAL_SLAB_ALLOCATOR is used in several tests. Not including in tarpaulin
-// results.
 #[cfg(not(tarpaulin_include))]
 thread_local! {
 	#[doc(hidden)]
-	pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> =
-				SlabAllocatorBuilder::build_unsafe();
+	pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> = SlabAllocatorBuilder::build_unsafe();
 }
 
 /// Builder struct used to build slab allocators. The build functions are generally called
@@ -138,16 +134,12 @@ impl SlabAllocator for SlabAllocatorImpl {
 					return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 				}
 				let offset = (self.ptr_size + config.slab_size) * id;
-				debug!(
-					"cur data = {:?},first_free={}",
-					&self.data[offset..offset + self.ptr_size],
-					self.first_free
-				)?;
+				debug!("first_free={}", self.first_free)?;
+
 				// check that it's currently allocated
 				let slab_entry = slice_to_usize(&self.data[offset..offset + self.ptr_size])?;
 
 				if slab_entry != self.max_value - 1 {
-					//if true {
 					debug!("double free")?;
 					// double free error
 					let fmt = format!("slab.id = {} has been freed when not allocated", id);
@@ -159,10 +151,6 @@ impl SlabAllocator for SlabAllocatorImpl {
 				debug!("free:self.config={:?},id={}", config, id)?;
 				self.data[offset..offset + self.ptr_size]
 					.clone_from_slice(&first_free_slice[0..self.ptr_size]);
-				debug!(
-					"set data offset to {:?}",
-					&self.data[offset..offset + self.ptr_size]
-				)?;
 				self.first_free = id;
 				debug!("update firstfree to {}", self.first_free)?;
 				self.free_count += 1;
@@ -339,10 +327,6 @@ impl SlabAllocatorBuilder {
 	pub fn build() -> Box<dyn SlabAllocator + Send + Sync> {
 		Box::new(SlabAllocatorImpl::new())
 	}
-
-	pub fn build_impl() -> impl SlabAllocator {
-		SlabAllocatorImpl::new()
-	}
 }
 
 #[cfg(test)]
@@ -358,6 +342,10 @@ mod test {
 	#[test]
 	fn test_simple() -> Result<(), Error> {
 		let mut slabs = SlabAllocatorBuilder::build();
+
+		assert!(slabs.slab_count().is_err());
+		assert!(slabs.slab_size().is_err());
+
 		slabs.init(SlabAllocatorConfig::default())?;
 
 		let (id1, id2);
@@ -441,6 +429,8 @@ mod test {
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
+		let slab = slabs.get(id)?;
+		assert_eq!(slab.id(), id);
 		slabs.free(id)?;
 		assert!(slabs.free(id).is_err());
 		let id2 = {
