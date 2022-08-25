@@ -16,12 +16,13 @@ use crate::slabs::SlabMut;
 use crate::{SlabReader, SlabWriter};
 use bmw_err::*;
 use bmw_log::*;
+use std::alloc::Layout;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::ops::IndexMut;
+use std::ops::Range;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 
@@ -109,7 +110,25 @@ pub struct SlabAllocatorConfig {
 	pub slab_count: usize,
 }
 
-pub trait Array<T>: IndexMut<usize> {}
+pub struct ArrayList<T> {
+	pub(crate) inner: Array<T>,
+	pub(crate) size: usize,
+}
+
+pub struct ArraySlice<'a, T> {
+	pub(crate) _array: &'a mut Array<T>,
+	pub(crate) _range: Range<usize>,
+}
+
+pub struct Array<T> {
+	pub(crate) data: *mut u8,
+	pub(crate) size_of_type: usize,
+	pub(crate) size: usize,
+	pub(crate) layout: Layout,
+	pub(crate) _phantom_data: PhantomData<T>,
+}
+
+pub struct ArrayBuilder {}
 
 #[derive(Debug, Clone)]
 pub struct ListConfig {}
@@ -125,7 +144,9 @@ where
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
 	fn iter<'a>(&'a self) -> HashtableIterator<'a, K, V>;
-	fn copy(&self) -> Self;
+	fn copy(&self) -> Result<Self, Error>
+	where
+		Self: Sized;
 }
 
 pub trait StaticHashset<K>: PartialEq + Debug
@@ -138,14 +159,12 @@ where
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
 	fn iter<'a>(&'a self) -> HashsetIterator<K>;
-	fn copy(&self) -> Self;
+	fn copy(&self) -> Result<Self, Error>
+	where
+		Self: Sized;
 }
 
-/// TODO: not implemented
-pub trait StaticQueue<V>
-where
-	V: Serializable,
-{
+pub trait Queue<V> {
 	fn enqueue(&mut self, value: &V) -> Result<(), Error>;
 	fn dequeue(&mut self) -> Result<Option<&V>, Error>;
 	fn peek(&self) -> Result<Option<&V>, Error>;
@@ -161,17 +180,16 @@ where
 	fn peek(&self) -> Result<Option<V>, Error>;
 }
 
-pub trait List<V>: PartialEq + Debug
-where
-	V: Serializable,
-{
+pub trait List<V>: PartialEq + Debug {
 	fn push(&mut self, value: V) -> Result<(), Error>;
-	fn iter<'a>(&'a self) -> ListIterator<'a, V>;
-	fn iter_rev<'a>(&'a self) -> ListIterator<'a, V>;
+	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
+	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
 	fn append(&mut self, list: &impl List<V>) -> Result<(), Error>;
-	fn copy(&self) -> Self;
+	fn copy(&self) -> Result<Self, Error>
+	where
+		Self: Sized;
 }
 
 pub trait SortableList<V>: List<V>
@@ -685,7 +703,7 @@ where
 	pub(crate) bytes_per_slab: usize,
 	pub(crate) slab_size: usize,
 	pub(crate) ptr_size: usize,
-	pub(crate) entry_array: Option<Vec<usize>>,
+	pub(crate) entry_array: Option<Array<usize>>,
 	pub(crate) size: usize,
 	pub(crate) head: usize,
 	pub(crate) tail: usize,

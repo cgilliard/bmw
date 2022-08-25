@@ -14,10 +14,12 @@
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
 use crate::types::{Direction, StaticImpl};
 use crate::{
-	HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Reader, Serializable,
-	SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, StaticBuilder, StaticHashset,
-	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, Writer, GLOBAL_SLAB_ALLOCATOR,
+	ArrayBuilder, HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Reader,
+	Serializable, SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, StaticBuilder,
+	StaticHashset, StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, Writer,
+	GLOBAL_SLAB_ALLOCATOR,
 };
+use bmw_deps::try_traits::clone::TryClone;
 use bmw_err::*;
 use bmw_log::*;
 use std::cell::{Ref, RefCell, RefMut};
@@ -341,11 +343,14 @@ where
 				(None, ptr_size + 2)
 			}
 			None => {
-				let mut entry_array = vec![];
 				let size: usize = (max_entries as f64 / max_load_factor).ceil() as usize;
+				let mut entry_array = ArrayBuilder::build(size)?;
 				debug!("entry array init to size = {}", size)?;
-				entry_array.resize(size, SLOT_EMPTY);
-				let mut x = entry_array.len() + 2; // two more, one for deleted and one for empty
+				for i in 0..size {
+					entry_array[i] = SLOT_EMPTY
+				}
+				//entry_array.resize(size, SLOT_EMPTY);
+				let mut x = entry_array.size() + 2; // two more, one for deleted and one for empty
 				let mut ptr_size = 0;
 				loop {
 					if x == 0 {
@@ -517,8 +522,12 @@ where
 
 		// clear the entry array to get rid of SLOT_DELETED
 		if self.entry_array.is_some() {
-			let len = self.entry_array.as_ref().unwrap().len();
-			self.entry_array = Some(vec![0; len]);
+			let size = self.entry_array.as_ref().unwrap().size();
+			let mut entry_array = ArrayBuilder::build(size)?;
+			for i in 0..size {
+				entry_array[i] = SLOT_EMPTY
+			}
+			self.entry_array = Some(entry_array);
 		}
 
 		Ok(())
@@ -529,7 +538,7 @@ where
 		K: Serializable + PartialEq,
 	{
 		let entry_array_len = match self.entry_array.as_ref() {
-			Some(e) => e.len(),
+			Some(e) => e.size(),
 			None => {
 				return Err(err!(
 					ErrKind::IllegalState,
@@ -539,7 +548,7 @@ where
 		};
 		let mut entry = hash
 			% match &self.entry_array {
-				Some(entry_array) => entry_array.len(),
+				Some(entry_array) => entry_array.size(),
 				None => 1,
 			};
 
@@ -582,7 +591,7 @@ where
 		V: Serializable,
 	{
 		let entry_array_len = match self.entry_array.as_ref() {
-			Some(e) => e.len(),
+			Some(e) => e.size(),
 			None => 0,
 		};
 
@@ -590,7 +599,7 @@ where
 			Some(key) => {
 				let mut entry = hash
 					% match &self.entry_array {
-						Some(entry_array) => entry_array.len(),
+						Some(entry_array) => entry_array.size(),
 						None => 1,
 					};
 
@@ -944,14 +953,17 @@ where
 		Ok(())
 	}
 
-	fn copy_impl(&self) -> Self {
-		Self {
+	fn copy_impl(&self) -> Result<Self, Error> {
+		Ok(Self {
 			slabs: None,
 			bytes_per_slab: self.bytes_per_slab,
 			max_value: self.max_value,
 			slab_size: self.slab_size,
 			ptr_size: self.ptr_size,
-			entry_array: self.entry_array.clone(),
+			entry_array: match &self.entry_array {
+				Some(entry_array) => Some(entry_array.try_clone()?),
+				None => None,
+			},
 			max_load_factor: self.max_load_factor,
 			size: self.size,
 			head: self.head,
@@ -959,7 +971,7 @@ where
 			slab_reader: self.slab_reader.clone(),
 			slab_writer: self.slab_writer.clone(),
 			_phantom_data: PhantomData,
-		}
+		})
 	}
 }
 
@@ -1021,7 +1033,7 @@ where
 		HashtableIterator::new(self, self.tail)
 	}
 
-	fn copy(&self) -> Self {
+	fn copy(&self) -> Result<Self, Error> {
 		self.copy_impl()
 	}
 }
@@ -1068,7 +1080,7 @@ where
 		HashsetIterator::new(self, self.tail)
 	}
 
-	fn copy(&self) -> Self {
+	fn copy(&self) -> Result<Self, Error> {
 		self.copy_impl()
 	}
 }
@@ -1081,11 +1093,11 @@ where
 		self.insert_impl::<V>(Some(&value), None, None)
 	}
 
-	fn iter<'b>(&'b self) -> ListIterator<'b, V> {
-		ListIterator::new(self, self.head, Direction::Forward)
+	fn iter<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
+		Box::new(ListIterator::new(self, self.head, Direction::Forward))
 	}
-	fn iter_rev<'b>(&'b self) -> ListIterator<'b, V> {
-		ListIterator::new(self, self.tail, Direction::Backward)
+	fn iter_rev<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
+		Box::new(ListIterator::new(self, self.tail, Direction::Backward))
 	}
 	fn size(&self) -> usize {
 		self.size
@@ -1099,7 +1111,7 @@ where
 		}
 		Ok(())
 	}
-	fn copy(&self) -> Self {
+	fn copy(&self) -> Result<Self, Error> {
 		self.copy_impl()
 	}
 }

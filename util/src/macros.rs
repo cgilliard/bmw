@@ -355,7 +355,7 @@ macro_rules! block_on {
 		match $res.recv() {
 			Ok(res) => res,
 			Err(e) => bmw_util::PoolResult::Err(bmw_err::err!(
-				ErrKind::ThreadPanic,
+				bmw_err::ErrKind::ThreadPanic,
 				format!("thread pool panic: {}", e)
 			)),
 		}
