@@ -87,22 +87,15 @@ where
 		if self.list.size == 0 {
 			return None;
 		}
-		let slot = self.cur;
 		match self
 			.list
 			.get_next_slot(&mut self.cur, self.direction, &mut self.slab_reader)
 		{
 			Ok(ret) => match ret {
-				true => match self.slab_reader.seek(slot, self.list.ptr_size * 2) {
-					Ok(_) => match V::read(&mut self.slab_reader) {
-						Ok(v) => Some(v),
-						Err(e) => {
-							let _ = warn!("deserialization generated error: {}", e);
-							None
-						}
-					},
+				true => match V::read(&mut self.slab_reader) {
+					Ok(v) => Some(v),
 					Err(e) => {
-						let _ = warn!("slab_reader.seek generated error: {}", e);
+						let _ = warn!("deserialization generated error: {}", e);
 						None
 					}
 				},
@@ -148,6 +141,7 @@ where
 	V: Serializable,
 {
 	fn new(list: &'a StaticImpl<V>, cur: usize, direction: Direction) -> Self {
+		let _ = debug!("new list iter");
 		Self {
 			list,
 			cur,
@@ -279,6 +273,20 @@ where
 			})?,
 		};
 
+		if slab_size > 256 * 256 {
+			return Err(err!(
+				ErrKind::Configuration,
+				"slab_size must be equal to or less than 65,536"
+			));
+		}
+
+		if slab_count > 281_474_976_710_655 {
+			return Err(err!(
+				ErrKind::Configuration,
+				"slab_count must be equal to or less than 281_474_976_710_655"
+			));
+		}
+
 		let (max_entries, max_load_factor) = match hashtable_config {
 			Some(config) => {
 				if config.max_entries == 0 {
@@ -329,7 +337,8 @@ where
 					x >>= 8;
 					ptr_size += 1;
 				}
-				(None, ptr_size)
+				debug!("ptr_size={}", ptr_size + 2)?;
+				(None, ptr_size + 2)
 			}
 			None => {
 				let mut entry_array = vec![];
@@ -401,37 +410,57 @@ where
 		direction: Direction,
 		reader: &mut SlabReader,
 	) -> Result<bool, Error> {
-		debug!("cur={}", *cur)?;
+		debug!("get_next_slot for cur={}", *cur)?;
 		if *cur >= self.max_value {
 			return Ok(false);
 		}
-		let slot = match &self.entry_array {
-			Some(entry_array) => entry_array[*cur],
-			None => *cur,
+		let (slab_id, offset) = match &self.entry_array {
+			Some(entry_array) => (entry_array[*cur], 0),
+			None => (*cur >> 16, *cur & 0xFFFF),
 		};
-		debug!("slot={}", slot)?;
+		debug!("slot={}", slab_id)?;
 
-		let mut ptrs = [0u8; 8];
-		let ptr_size = self.ptr_size;
+		let mut ptrs = [0u8; 16];
 
-		*cur = match direction {
-			Direction::Backward => {
-				reader.seek(slot, ptr_size)?;
-				reader.read_fixed_bytes(&mut ptrs[0..ptr_size])?;
-				slice_to_usize(&ptrs[0..ptr_size])?
+		*cur = if self.entry_array.is_some() {
+			match direction {
+				Direction::Backward => {
+					reader.seek(slab_id, self.ptr_size)?;
+					reader.read_fixed_bytes(&mut ptrs[0..self.ptr_size])?;
+					slice_to_usize(&ptrs[0..self.ptr_size])?
+				}
+				Direction::Forward => {
+					reader.seek(slab_id, 0)?;
+					reader.read_fixed_bytes(&mut ptrs[0..self.ptr_size])?;
+					slice_to_usize(&ptrs[0..self.ptr_size])?
+				}
 			}
-			Direction::Forward => {
-				reader.seek(slot, 0)?;
-				reader.read_fixed_bytes(&mut ptrs[0..ptr_size])?;
-				slice_to_usize(&ptrs[0..ptr_size])?
+		} else {
+			match direction {
+				Direction::Backward => {
+					reader.seek(slab_id, offset + self.ptr_size)?;
+					debug!(
+						"complete read from offset={},ptr_size={}",
+						offset + self.ptr_size,
+						self.ptr_size
+					)?;
+					reader.read_fixed_bytes(&mut ptrs[0..self.ptr_size])?;
+					slice_to_usize(&ptrs[0..self.ptr_size])?
+				}
+				Direction::Forward => {
+					reader.seek(slab_id, offset)?;
+					reader.read_fixed_bytes(&mut ptrs[0..self.ptr_size * 2])?;
+					slice_to_usize(&ptrs[0..self.ptr_size])?
+				}
 			}
 		};
-		debug!("read cur = {}", cur)?;
 		Ok(true)
 	}
 
 	fn clear_impl(&mut self) -> Result<(), Error> {
 		let mut cur = self.tail;
+		debug!("clear impl tail = {}", cur)?;
+		let mut last_del = usize::MAX;
 		loop {
 			if cur == SLOT_EMPTY || cur == SLOT_DELETED {
 				break;
@@ -444,7 +473,18 @@ where
 
 			if cur < self.max_value {
 				let entry = self.lookup_entry(cur);
-				self.free_chain(entry)?;
+				if self.entry_array.is_some() {
+					self.free_chain(entry)?;
+				} else {
+					let slot = entry >> 16;
+					if slot != last_del {
+						if last_del != usize::MAX {
+							debug!("free_chain last={}", last_del)?;
+							self.free_chain(last_del)?;
+						}
+						last_del = slot;
+					}
+				}
 			} else {
 				break;
 			}
@@ -464,6 +504,11 @@ where
 				}
 				None => {}
 			}
+		}
+
+		if last_del != usize::MAX {
+			debug!("free_chain {}", last_del)?;
+			self.free_chain(last_del)?;
 		}
 		debug!("set size to 0")?;
 		self.size = 0;
@@ -602,14 +647,31 @@ where
 		let ptr_size = self.ptr_size;
 		let max_value = self.max_value;
 		let tail = self.tail;
-		let slab_id = self.allocate()?;
-		self.slab_writer.seek(slab_id, 0)?;
+		let offset = self.slab_writer.offset();
+		let allocated;
+		let mut writer_allocation = usize::MAX;
+		let (slab_id, offset) =
+			if self.entry_array.is_some() || offset == 0 || offset >= self.bytes_per_slab {
+				let slab_id = self.allocate()?;
+				debug!("calling seek1")?;
+				self.slab_writer.seek(slab_id, 0)?;
+				allocated = true;
+				(slab_id, 0)
+			} else {
+				allocated = false;
+				(self.slab_writer.slab_id(), offset)
+			};
 
-		// for lists we use the slab_id as the entry
+		// for lists we use the slab_id|offset as the entry
 		let entry = match entry {
 			Some(entry) => entry,
-			None => slab_id,
+			None => (slab_id << 16) | offset & 0xFFFF,
 		};
+
+		debug!(
+			"=========new entry={},slab_id={},offset={}",
+			entry, slab_id, offset
+		)?;
 		let mut ptrs = [0u8; 16];
 		debug!("slab_id={}", slab_id)?;
 		// update head/tail pointers
@@ -621,13 +683,22 @@ where
 		)?;
 
 		self.slab_writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
+		if self.slab_writer.first_allocation() != usize::MAX {
+			writer_allocation = self.slab_writer.first_allocation();
+		}
 		debug!("key write")?;
 		match key {
 			Some(key) => match key.write(&mut self.slab_writer) {
 				Ok(_) => {}
 				Err(e) => {
 					warn!("writing key generated error: {}", e)?;
-					self.free_chain(slab_id)?;
+					if self.entry_array.is_some() {
+						self.free_chain(slab_id)?;
+					} else if allocated {
+						self.free_chain(slab_id)?;
+					} else if writer_allocation != usize::MAX {
+						self.free_chain(writer_allocation)?;
+					}
 					return Err(err!(
 						ErrKind::CapacityExceeded,
 						format!("writing key generated error: {}", e)
@@ -636,12 +707,22 @@ where
 			},
 			None => {}
 		}
+		if writer_allocation == usize::MAX && self.slab_writer.first_allocation() != usize::MAX {
+			writer_allocation = self.slab_writer.first_allocation();
+		}
+
 		match value {
 			Some(value) => match value.write(&mut self.slab_writer) {
 				Ok(_) => {}
 				Err(e) => {
 					warn!("writing value generated error: {}", e)?;
-					self.free_chain(slab_id)?;
+					if self.entry_array.is_some() {
+						self.free_chain(slab_id)?;
+					} else if allocated {
+						self.free_chain(slab_id)?;
+					} else if writer_allocation != usize::MAX {
+						self.free_chain(writer_allocation)?;
+					}
 					return Err(err!(
 						ErrKind::CapacityExceeded,
 						format!("writing value generated error: {}", e)
@@ -650,6 +731,14 @@ where
 			},
 			None => {}
 		}
+
+		debug!(
+			"offset={},slab_id={},ptr_size={},slab_size={}",
+			self.slab_writer.offset(),
+			self.slab_writer.slab_id(),
+			self.ptr_size,
+			self.slab_size
+		)?;
 
 		match self.entry_array.as_mut() {
 			Some(entry_array) => {
@@ -666,13 +755,28 @@ where
 			None => {
 				// for list based structures we use the slab_id directly
 				if self.tail < max_value {
-					self.slab_writer.seek(self.tail, 0)?;
+					let offset = self.slab_writer.offset();
+					let slab_id = self.slab_writer.slab_id();
+					let uoffset = self.tail & 0xFFFF;
+					let uslab_id = self.tail >> 16;
+					debug!(
+						"calling seek3 uoffset={},uslab_id={},tail={}",
+						uoffset, uslab_id, self.tail
+					)?;
+					self.slab_writer.seek(uslab_id, uoffset)?;
 					usize_to_slice(entry, &mut ptrs[0..ptr_size])?;
 					self.slab_writer.write_fixed_bytes(&ptrs[0..ptr_size])?;
+					// move back to previous position
+					self.slab_writer.seek(slab_id, offset)?;
+					debug!(
+						"moving back to previous position of slab_id={},offset={}",
+						slab_id, offset
+					)?;
 				}
 			}
 		}
 
+		debug!("setting the tail to {}", entry)?;
 		self.tail = entry;
 
 		if self.head >= max_value {
@@ -780,7 +884,6 @@ where
 		let mut next = [0u8; 8];
 		let mut prev = [0u8; 8];
 		let ptr_size = self.ptr_size;
-
 		self.slab_reader.seek(slab_id, 0)?;
 		self.slab_reader.read_fixed_bytes(&mut next[0..ptr_size])?;
 		self.slab_reader.read_fixed_bytes(&mut prev[0..ptr_size])?;
@@ -1232,7 +1335,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_hashset() -> Result<(), Error> {
+	fn test_hashset1() -> Result<(), Error> {
 		let mut hashset =
 			StaticBuilder::build_hashset::<i32>(StaticHashsetConfig::default(), None)?;
 		hashset.insert(&1)?;
@@ -1283,7 +1386,6 @@ mod test {
 		list.push(4)?;
 		list.push(5)?;
 		list.push(6)?;
-
 		let mut i = 0;
 		for x in list.iter() {
 			info!("valuetest_fwd={}", x)?;

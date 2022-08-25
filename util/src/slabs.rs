@@ -108,6 +108,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		}
 
 		let id = self.first_free;
+		info!("slab allocate id = {}", id)?;
 		let offset = (self.ptr_size + config.slab_size) * id;
 		self.first_free = slice_to_usize(&self.data[offset..offset + self.ptr_size])?;
 		debug!("new firstfree={}", self.first_free)?;

@@ -21,6 +21,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::ops::IndexMut;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 
@@ -107,6 +108,8 @@ pub struct SlabAllocatorConfig {
 	/// The number of slabs that this slab allocator can allocate
 	pub slab_count: usize,
 }
+
+pub trait Array<T>: IndexMut<usize> {}
 
 #[derive(Debug, Clone)]
 pub struct ListConfig {}
