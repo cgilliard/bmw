@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
-use crate::{SlabAllocator, SlabAllocatorConfig};
+use crate::{Array, ArrayBuilder, SlabAllocator, SlabAllocatorConfig};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::cell::RefCell;
@@ -49,7 +49,7 @@ pub struct Slab<'a> {
 
 struct SlabAllocatorImpl {
 	config: Option<SlabAllocatorConfig>,
-	data: Vec<u8>,
+	data: Array<u8>,
 	first_free: usize,
 	free_count: usize,
 	ptr_size: usize,
@@ -110,7 +110,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		let id = self.first_free;
 		info!("slab allocate id = {}", id)?;
 		let offset = (self.ptr_size + config.slab_size) * id;
-		self.first_free = slice_to_usize(&self.data[offset..offset + self.ptr_size])?;
+		self.first_free = slice_to_usize(&self.data.as_slice()[offset..offset + self.ptr_size])?;
 		debug!("new firstfree={}", self.first_free)?;
 		let offset = offset + self.ptr_size;
 		// mark it as not free we use max_value - 1 because max_value is used to
@@ -118,10 +118,10 @@ impl SlabAllocator for SlabAllocatorImpl {
 		let mut invalid_ptr = [0u8; 8];
 		usize_to_slice(self.max_value - 1, &mut invalid_ptr[0..self.ptr_size])?;
 
-		self.data[(self.ptr_size + config.slab_size) * id
+		self.data.as_mut()[(self.ptr_size + config.slab_size) * id
 			..(self.ptr_size + config.slab_size) * id + self.ptr_size]
 			.clone_from_slice(&invalid_ptr[0..self.ptr_size]);
-		let data = &mut self.data[offset..offset + config.slab_size as usize];
+		let data = &mut self.data.as_mut()[offset..offset + config.slab_size as usize];
 		self.free_count = self.free_count.saturating_sub(1);
 
 		Ok(SlabMut { data, id })
@@ -138,7 +138,8 @@ impl SlabAllocator for SlabAllocatorImpl {
 				debug!("first_free={}", self.first_free)?;
 
 				// check that it's currently allocated
-				let slab_entry = slice_to_usize(&self.data[offset..offset + self.ptr_size])?;
+				let slab_entry =
+					slice_to_usize(&self.data.as_slice()[offset..offset + self.ptr_size])?;
 
 				if slab_entry != self.max_value - 1 {
 					debug!("double free")?;
@@ -150,7 +151,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 				let mut first_free_slice = [0u8; 8];
 				usize_to_slice(self.first_free, &mut first_free_slice[0..self.ptr_size])?;
 				debug!("free:self.config={:?},id={}", config, id)?;
-				self.data[offset..offset + self.ptr_size]
+				self.data.as_mut()[offset..offset + self.ptr_size]
 					.clone_from_slice(&first_free_slice[0..self.ptr_size]);
 				self.first_free = id;
 				debug!("update firstfree to {}", self.first_free)?;
@@ -174,7 +175,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		}
 		debug!("get:self.config={:?},id={}", config, id)?;
 		let offset = self.ptr_size + ((self.ptr_size + config.slab_size) * id);
-		let data = &self.data[offset..offset + config.slab_size];
+		let data = &self.data.as_slice()[offset..offset + config.slab_size];
 		Ok(Slab { data, id })
 	}
 	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMut<'a>, Error> {
@@ -188,7 +189,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		}
 		debug!("get_mut:self.config={:?},id={}", config, id)?;
 		let offset = self.ptr_size + ((self.ptr_size + config.slab_size) * id);
-		let data = &mut self.data[offset..offset + config.slab_size as usize];
+		let data = &mut self.data.as_mut()[offset..offset + config.slab_size as usize];
 		Ok(SlabMut { data, id })
 	}
 
@@ -242,7 +243,11 @@ impl SlabAllocator for SlabAllocatorImpl {
 						"slab_count must be greater than 0"
 					));
 				}
-				let mut data = vec![];
+				let mut data =
+					ArrayBuilder::build(config.slab_count * (config.slab_size + self.ptr_size))?;
+				for i in 0..data.size() {
+					data[i] = 0u8;
+				}
 				self.ptr_size = 0;
 				let mut x = config.slab_count + 2; // two more,
 								   // one for termination
@@ -257,7 +262,6 @@ impl SlabAllocator for SlabAllocatorImpl {
 				let mut ptr = [0u8; 8];
 				set_max(&mut ptr[0..self.ptr_size]);
 				self.max_value = slice_to_usize(&ptr[0..self.ptr_size])?;
-				data.resize(config.slab_count * (config.slab_size + self.ptr_size), 0u8);
 				Self::build_free_list(
 					&mut data,
 					config.slab_count,
@@ -277,10 +281,11 @@ impl SlabAllocator for SlabAllocatorImpl {
 
 impl SlabAllocatorImpl {
 	fn new() -> Self {
+		let data = ArrayBuilder::build(0).unwrap();
 		Self {
 			config: None,
 			free_count: 0,
-			data: vec![],
+			data,
 			first_free: 0,
 			ptr_size: 8,
 			max_value: 0,
@@ -288,7 +293,7 @@ impl SlabAllocatorImpl {
 	}
 
 	fn build_free_list(
-		data: &mut Vec<u8>,
+		data: &mut Array<u8>,
 		slab_count: usize,
 		slab_size: usize,
 		ptr_size: usize,
@@ -303,7 +308,8 @@ impl SlabAllocatorImpl {
 			}
 
 			let offset_next = i * (ptr_size + slab_size);
-			data[offset_next..offset_next + ptr_size].clone_from_slice(&next_bytes[0..ptr_size]);
+			data.as_mut()[offset_next..offset_next + ptr_size]
+				.clone_from_slice(&next_bytes[0..ptr_size]);
 		}
 		Ok(())
 	}
@@ -325,7 +331,7 @@ impl SlabAllocatorBuilder {
 		Rc::new(RefCell::new(SlabAllocatorImpl::new()))
 	}
 
-	pub fn build() -> Box<dyn SlabAllocator + Send + Sync> {
+	pub fn build() -> Box<dyn SlabAllocator> {
 		Box::new(SlabAllocatorImpl::new())
 	}
 }

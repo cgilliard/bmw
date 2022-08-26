@@ -20,8 +20,9 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, Range};
 use std::ptr::copy_nonoverlapping;
+use std::slice::{from_raw_parts, from_raw_parts_mut};
 
 info!();
 
@@ -42,6 +43,18 @@ impl<T> Array<T> {
 
 	pub fn size(&self) -> usize {
 		self.size
+	}
+
+	pub fn as_slice<'a>(&'a self) -> &'a [T] {
+		let ptr: *mut T = self.data as *mut T;
+		let slice = unsafe { from_raw_parts(ptr, self.size) };
+		slice
+	}
+
+	pub fn as_mut<'a>(&'a mut self) -> &'a mut [T] {
+		let ptr: *mut T = self.data as *mut T;
+		let slice = unsafe { from_raw_parts_mut(ptr, self.size) };
+		slice
 	}
 }
 
