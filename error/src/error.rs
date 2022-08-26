@@ -84,37 +84,40 @@ pub enum ErrorKind {
 	/// Thread Panic
 	#[fail(display = "thread panic: {}", _0)]
 	ThreadPanic(String),
+	/// Memmory Allocation Error
+	#[fail(display = "memory allocation error: {}", _0)]
+	Alloc(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
 /// names using the [`crate::err`] and [`crate::map_err`] macros.
 pub enum ErrKind {
-	/// IO Error.
+	/// IO Error
 	IO,
-	/// Log Error.
+	/// Log Error
 	Log,
-	/// A conversion to the utf8 format resulted in an error.
+	/// A conversion to the utf8 format resulted in an error
 	Utf8,
-	/// An array index was out of bounds.
+	/// An array index was out of bounds
 	ArrayIndexOutOfBounds,
-	/// Configuration error.
+	/// Configuration error
 	Configuration,
 	/// Attempt to obtain a lock resulted in a poison error. See [`std::sync::PoisonError`]
-	/// for further details.
+	/// for further details
 	Poison,
-	/// Data is corrupted.
+	/// Data is corrupted
 	CorruptedData,
-	/// A timeout has occurred.
+	/// A timeout has occurred
 	Timeout,
-	/// The capacity is exceeded.
+	/// The capacity is exceeded
 	CapacityExceeded,
-	/// Unexpected end of file.
+	/// Unexpected end of file
 	UnexpectedEof,
-	/// Illegal argument was specified.
+	/// Illegal argument was specified
 	IllegalArgument,
-	/// A Miscellaneous Error occurred.
+	/// A Miscellaneous Error occurred
 	Misc,
-	/// Application is in an illegal state.
+	/// Application is in an illegal state
 	IllegalState,
 	/// Overflow error
 	Overflow,
@@ -122,6 +125,8 @@ pub enum ErrKind {
 	Test,
 	/// Thread panic
 	ThreadPanic,
+	/// Memory allocation error
+	Alloc,
 }
 
 impl Display for Error {

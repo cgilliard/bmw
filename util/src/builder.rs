@@ -15,11 +15,11 @@ use crate::slabs::SlabAllocatorImpl;
 use crate::suffix_tree::{MatchImpl, SuffixTreeImpl};
 use crate::threadpool::ThreadPoolImpl;
 use crate::types::Builder;
-use crate::types::StaticImpl;
+use crate::types::{StaticImpl, StaticImplSync};
 use crate::{
-	Array, ArrayList, List, ListConfig, Match, Pattern, Queue, Serializable, SlabAllocator, Stack,
-	StaticHashset, StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, SuffixTree,
-	ThreadPool, ThreadPoolConfig,
+	Array, ArrayList, List, ListConfig, Match, Pattern, Queue, Serializable, SlabAllocator,
+	SlabAllocatorConfig, Stack, StaticHashset, StaticHashsetConfig, StaticHashtable,
+	StaticHashtableConfig, SuffixTree, ThreadPool, ThreadPoolConfig,
 };
 use bmw_err::Error;
 use std::cell::{RefCell, UnsafeCell};
@@ -37,7 +37,7 @@ impl Builder {
 		Ok(ThreadPoolImpl::new(config, None)?)
 	}
 
-	pub fn build<T>(size: usize) -> Result<Array<T>, Error>
+	pub fn build_array<T>(size: usize) -> Result<Array<T>, Error>
 	where
 		T: Clone,
 	{
@@ -51,6 +51,15 @@ impl Builder {
 		ArrayList::new(size)
 	}
 
+	/*
+	pub fn build_array_list_concrete<T>(size: usize) -> Result<Box<dyn List<T>>, Error>
+	where
+		T: Clone + Debug + PartialEq + 'static,
+	{
+		Ok(Box::new(build_array_list(size)?))
+	}
+		*/
+
 	pub fn build_queue<T>(size: usize) -> Result<impl Queue<T>, Error>
 	where
 		T: Clone,
@@ -58,11 +67,36 @@ impl Builder {
 		ArrayList::new(size)
 	}
 
+	pub fn build_queue_boxed<T>(size: usize) -> Result<Box<dyn Queue<T>>, Error>
+	where
+		T: Clone + 'static,
+	{
+		Ok(Box::new(ArrayList::new(size)?))
+	}
+
 	pub fn build_stack<T>(size: usize) -> Result<impl Stack<T>, Error>
 	where
 		T: Clone,
 	{
 		ArrayList::new(size)
+	}
+
+	pub fn build_stack_boxed<T>(size: usize) -> Result<Box<dyn Stack<T>>, Error>
+	where
+		T: Clone + 'static,
+	{
+		Ok(Box::new(ArrayList::new(size)?))
+	}
+
+	pub fn build_sync_hashtable<K, V>(
+		config: StaticHashtableConfig,
+		slab_config: SlabAllocatorConfig,
+	) -> Result<impl StaticHashtable<K, V>, Error>
+	where
+		K: Serializable + Hash + PartialEq + Debug,
+		V: Serializable,
+	{
+		StaticImplSync::new(Some(config), None, None, slab_config)
 	}
 
 	pub fn build_hashtable<K, V>(
@@ -76,6 +110,16 @@ impl Builder {
 		StaticImpl::new(Some(config), None, None, slabs)
 	}
 
+	pub fn build_sync_hashset<K>(
+		config: StaticHashsetConfig,
+		slab_config: SlabAllocatorConfig,
+	) -> Result<impl StaticHashset<K>, Error>
+	where
+		K: Serializable + Hash + PartialEq + Debug,
+	{
+		StaticImplSync::new(None, Some(config), None, slab_config)
+	}
+
 	pub fn build_hashset<K>(
 		config: StaticHashsetConfig,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
@@ -84,6 +128,16 @@ impl Builder {
 		K: Serializable + Hash + PartialEq + Debug,
 	{
 		StaticImpl::new(None, Some(config), None, slabs)
+	}
+
+	pub fn build_sync_list<V>(
+		config: ListConfig,
+		slab_config: SlabAllocatorConfig,
+	) -> Result<impl List<V>, Error>
+	where
+		V: Serializable + Debug + PartialEq,
+	{
+		StaticImplSync::new(None, None, Some(config), slab_config)
 	}
 
 	pub fn build_list<V>(

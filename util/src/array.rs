@@ -34,6 +34,9 @@ where
 		let n = ::std::mem::size_of::<T>();
 		let layout = Layout::from_size_align(size * n, n).unwrap();
 		let data = unsafe { alloc(layout) };
+		if data.is_null() {
+			return Err(err!(ErrKind::Alloc, "could not allocate memory for array"));
+		}
 		debug!("n={}", n)?;
 		Ok(Self {
 			data,
@@ -66,6 +69,10 @@ where
 		})
 	}
 }
+
+unsafe impl<T> Send for Array<T> where T: Send {}
+
+unsafe impl<T> Sync for Array<T> where T: Sync {}
 
 impl<T> Debug for Array<T>
 where
@@ -113,6 +120,9 @@ impl<T> TryClone for Array<T> {
 	fn try_clone(&self) -> Result<Self, Error> {
 		let layout = self.layout;
 		let data = unsafe { alloc(layout) };
+		if data.is_null() {
+			return Err(err!(ErrKind::Alloc, "could not allocate memory for array"));
+		}
 		let size = self.size;
 		let size_of_type = self.size_of_type;
 
@@ -392,7 +402,7 @@ mod test {
 
 	#[test]
 	fn test_array_simple() -> Result<(), Error> {
-		let mut arr = Builder::build(10)?;
+		let mut arr = Builder::build_array(10)?;
 		for i in 0..10 {
 			arr[i] = i as u64;
 		}
@@ -402,7 +412,7 @@ mod test {
 		}
 
 		let mut test = TestStruct {
-			arr: Builder::build(40)?,
+			arr: Builder::build_array(40)?,
 		};
 
 		for i in 0..40 {
@@ -422,7 +432,7 @@ mod test {
 
 	#[test]
 	fn test_array_iterator() -> Result<(), Error> {
-		let mut arr = Builder::build(10)?;
+		let mut arr = Builder::build_array(10)?;
 		for i in 0..10 {
 			arr[i] = i as u64;
 		}
@@ -440,7 +450,7 @@ mod test {
 		let tp = thread_pool!()?;
 
 		let handle = execute!(tp, {
-			let mut x = Builder::build(10)?;
+			let mut x = Builder::build_array(10)?;
 			for i in 0..11 {
 				x[i] = i;
 			}
@@ -456,7 +466,7 @@ mod test {
 		);
 
 		let handle = execute!(tp, {
-			let mut x = Builder::build(10)?;
+			let mut x = Builder::build_array(10)?;
 			for i in 0..10 {
 				x[i] = i;
 			}
@@ -470,8 +480,8 @@ mod test {
 
 	#[test]
 	fn test_array_partial_eq() -> Result<(), Error> {
-		let mut arr1 = Builder::build(10)?;
-		let mut arr2 = Builder::build(11)?;
+		let mut arr1 = Builder::build_array(10)?;
+		let mut arr2 = Builder::build_array(11)?;
 
 		for i in 0..10 {
 			arr1[i] = 7;
@@ -483,22 +493,22 @@ mod test {
 
 		assert_ne!(arr1, arr2);
 
-		let mut arr3 = Builder::build(10)?;
+		let mut arr3 = Builder::build_array(10)?;
 		for i in 0..10 {
 			arr3[i] = 8;
 		}
 
 		assert_ne!(arr3, arr1);
 
-		let mut arr4 = Builder::build(10)?;
+		let mut arr4 = Builder::build_array(10)?;
 		for i in 0..10 {
 			arr4[i] = 7;
 		}
 
 		assert_eq!(arr4, arr1);
 
-		let mut arr5 = Builder::build(20)?;
-		let mut arr6 = Builder::build(20)?;
+		let mut arr5 = Builder::build_array(20)?;
+		let mut arr6 = Builder::build_array(20)?;
 
 		info!("test 128")?;
 		for i in 0..20 {
@@ -587,7 +597,7 @@ mod test {
 	#[test]
 	fn test_as_slice_mut() -> Result<(), Error> {
 		let data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-		let mut array = Builder::build(data.len())?;
+		let mut array = Builder::build_array(data.len())?;
 		array.as_mut().clone_from_slice(&data);
 
 		assert_eq!(array[3], 3u8);
@@ -671,6 +681,46 @@ mod test {
 		}
 
 		assert!(stack.push(1).is_err());
+		Ok(())
+	}
+
+	#[test]
+	fn test_sync_array() -> Result<(), Error> {
+		let mut array = Builder::build_array(10)?;
+		array[0] = 1;
+
+		let mut lock = lock!(array)?;
+		let lock_clone = lock.clone();
+
+		let tp = thread_pool!()?;
+
+		let handle = execute!(tp, {
+			let mut array = lock.wlock()?;
+			assert_eq!((**array.guard())[0], 1);
+			(**array.guard())[0] = 2;
+			(**array.guard())[1] = 20;
+
+			Ok(())
+		})?;
+
+		block_on!(handle);
+
+		let array_processed = lock_clone.rlock()?;
+		assert_eq!((**array_processed.guard())[0], 2);
+		assert_eq!((**array_processed.guard())[1], 20);
+
+		Ok(())
+	}
+
+	struct TestBoxedQueue {
+		queue: Box<dyn Queue<u32>>,
+	}
+
+	#[test]
+	fn test_queue_boxed() -> Result<(), Error> {
+		let queue = Builder::build_queue_boxed(10)?;
+		let mut test = TestBoxedQueue { queue };
+		test.queue.enqueue(1)?;
 		Ok(())
 	}
 }

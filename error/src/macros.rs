@@ -115,6 +115,10 @@ macro_rules! err {
 					bmw_err::ErrorKind::ThreadPanic($msg.to_string()).into();
 				error
 			}
+			bmw_err::ErrKind::Alloc => {
+				let error: bmw_err::Error = bmw_err::ErrorKind::Alloc($msg.to_string()).into();
+				error
+			}
 		}
 	}};
 }
@@ -190,6 +194,9 @@ macro_rules! map_err {
 				}
 				bmw_err::ErrKind::ThreadPanic => {
 					bmw_err::ErrorKind::ThreadPanic(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::Alloc => {
+					bmw_err::ErrorKind::Alloc(format!("{}: {}", $msg, e)).into()
 				}
 			};
 			error

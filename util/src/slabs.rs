@@ -86,7 +86,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 		}
 
 		let id = self.first_free;
-		info!("slab allocate id = {}", id)?;
+		debug!("slab allocate id = {}", id)?;
 		let offset = (self.ptr_size + config.slab_size) * id;
 		self.first_free = slice_to_usize(&self.data.as_slice()[offset..offset + self.ptr_size])?;
 		debug!("new firstfree={}", self.first_free)?;
@@ -222,7 +222,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 					));
 				}
 				let mut data =
-					Builder::build(config.slab_count * (config.slab_size + self.ptr_size))?;
+					Builder::build_array(config.slab_count * (config.slab_size + self.ptr_size))?;
 				for i in 0..data.size() {
 					data[i] = 0u8;
 				}
@@ -259,7 +259,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 
 impl SlabAllocatorImpl {
 	pub(crate) fn new() -> Self {
-		let data = Builder::build(0).unwrap();
+		let data = Builder::build_array(0).unwrap();
 		Self {
 			config: None,
 			free_count: 0,

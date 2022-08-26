@@ -168,7 +168,7 @@ pub trait Stack<V> {
 	fn peek(&self) -> Option<&V>;
 }
 
-pub trait List<V>: PartialEq + Debug {
+pub trait List<V>: Debug + PartialEq {
 	fn push(&mut self, value: V) -> Result<(), Error>;
 	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
 	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
@@ -689,6 +689,13 @@ where
 	pub(crate) direction: Direction,
 	pub(crate) _phantom_data: PhantomData<V>,
 	pub(crate) slab_reader: SlabReader,
+}
+
+pub struct StaticImplSync<K>
+where
+	K: Serializable,
+{
+	pub(crate) static_impl: StaticImpl<K>,
 }
 
 pub(crate) struct StaticImpl<K>

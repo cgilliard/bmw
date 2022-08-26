@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
-use crate::types::{Direction, StaticImpl};
+use crate::types::{Direction, StaticImpl, StaticImplSync};
 use crate::{
 	Builder, HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Reader,
 	Serializable, SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, StaticHashset,
@@ -239,6 +239,189 @@ where
 	}
 }
 
+unsafe impl<K> Send for StaticImplSync<K> where K: Serializable {}
+
+unsafe impl<K> Sync for StaticImplSync<K> where K: Serializable {}
+
+impl<K> PartialEq for StaticImplSync<K>
+where
+	K: Serializable + PartialEq,
+{
+	fn eq(&self, rhs: &Self) -> bool {
+		self.static_impl == rhs.static_impl
+	}
+}
+
+impl<K> Debug for StaticImplSync<K>
+where
+	K: Serializable + Debug,
+{
+	fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+		write!(f, "{:?}", self.static_impl)
+	}
+}
+
+impl<K> StaticImplSync<K>
+where
+	K: Serializable,
+{
+	pub(crate) fn new(
+		hashtable_config: Option<StaticHashtableConfig>,
+		hashset_config: Option<StaticHashsetConfig>,
+		list_config: Option<ListConfig>,
+		slab_allocator_config: SlabAllocatorConfig,
+	) -> Result<Self, Error> {
+		let slabs = Builder::build_slabs_ref();
+		{
+			let mut slabs: RefMut<_> = slabs.borrow_mut();
+			slabs.init(slab_allocator_config)?;
+		}
+
+		let static_impl =
+			StaticImpl::new(hashtable_config, hashset_config, list_config, Some(slabs))?;
+		Ok(Self { static_impl })
+	}
+}
+
+impl<K, V> StaticHashtable<K, V> for StaticImplSync<K>
+where
+	K: Serializable + Hash + PartialEq + Debug,
+	V: Serializable,
+{
+	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error> {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		self.static_impl
+			.insert_hash_impl(Some(key), Some(value), hash)
+	}
+	fn get(&self, key: &K) -> Result<Option<V>, Error> {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		match self.static_impl.get_impl(key, hash)? {
+			Some((_entry, mut reader)) => Ok(Some(V::read(&mut reader)?)),
+			None => Ok(None),
+		}
+	}
+	fn remove(&mut self, key: &K) -> Result<Option<V>, Error> {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		match self.static_impl.get_impl(key, hash)? {
+			Some((entry, mut reader)) => {
+				let v = V::read(&mut reader)?;
+				self.static_impl.remove_impl(entry)?;
+				Ok(Some(v))
+			}
+			None => Ok(None),
+		}
+	}
+	fn size(&self) -> usize {
+		self.static_impl.size
+	}
+	fn clear(&mut self) -> Result<(), Error> {
+		self.static_impl.clear_impl()
+	}
+
+	fn iter<'b>(&'b self) -> HashtableIterator<'b, K, V> {
+		HashtableIterator::new(&self.static_impl, self.static_impl.tail)
+	}
+	fn copy(&self) -> Result<Self, Error> {
+		let static_impl = self.static_impl.copy_impl()?;
+		Ok(Self { static_impl })
+	}
+}
+
+impl<K> StaticHashset<K> for StaticImplSync<K>
+where
+	K: Serializable + Hash + PartialEq + Debug,
+{
+	fn insert(&mut self, key: &K) -> Result<(), Error> {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		self.static_impl
+			.insert_hash_impl::<K>(Some(key), None, hash)
+	}
+	fn contains(&self, key: &K) -> Result<bool, Error> {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		match self.static_impl.get_impl(key, hash)? {
+			Some(_) => Ok(true),
+			None => Ok(false),
+		}
+	}
+	fn remove(&mut self, key: &K) -> Result<bool, Error> {
+		let mut hasher = DefaultHasher::new();
+		key.hash(&mut hasher);
+		let hash = hasher.finish() as usize;
+		match self.static_impl.get_impl(key, hash)? {
+			Some((entry, _reader)) => {
+				self.static_impl.remove_impl(entry)?;
+				Ok(true)
+			}
+			None => Ok(false),
+		}
+	}
+	fn size(&self) -> usize {
+		self.static_impl.size
+	}
+	fn clear(&mut self) -> Result<(), Error> {
+		self.static_impl.clear_impl()
+	}
+
+	fn iter<'b>(&'b self) -> HashsetIterator<'b, K> {
+		HashsetIterator::new(&self.static_impl, self.static_impl.tail)
+	}
+
+	fn copy(&self) -> Result<Self, Error> {
+		let static_impl = self.static_impl.copy_impl()?;
+		Ok(Self { static_impl })
+	}
+}
+
+impl<V> List<V> for StaticImplSync<V>
+where
+	V: Serializable + Debug + PartialEq,
+{
+	fn push(&mut self, value: V) -> Result<(), Error> {
+		self.static_impl.insert_impl::<V>(Some(&value), None, None)
+	}
+
+	fn iter<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
+		Box::new(ListIterator::new(
+			&self.static_impl,
+			self.static_impl.head,
+			Direction::Forward,
+		))
+	}
+	fn iter_rev<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
+		Box::new(ListIterator::new(
+			&self.static_impl,
+			self.static_impl.tail,
+			Direction::Backward,
+		))
+	}
+	fn size(&self) -> usize {
+		self.static_impl.size
+	}
+	fn clear(&mut self) -> Result<(), Error> {
+		self.static_impl.clear_impl()
+	}
+	fn append(&mut self, list: &impl List<V>) -> Result<(), Error> {
+		for x in list.iter() {
+			self.static_impl.push(x)?;
+		}
+		Ok(())
+	}
+	fn copy(&self) -> Result<Self, Error> {
+		let static_impl = self.static_impl.copy_impl()?;
+		Ok(Self { static_impl })
+	}
+}
+
 impl<K> StaticImpl<K>
 where
 	K: Serializable,
@@ -343,7 +526,7 @@ where
 			}
 			None => {
 				let size: usize = (max_entries as f64 / max_load_factor).ceil() as usize;
-				let mut entry_array = Builder::build(size)?;
+				let mut entry_array = Builder::build_array(size)?;
 				debug!("entry array init to size = {}", size)?;
 				for i in 0..size {
 					entry_array[i] = SLOT_EMPTY
@@ -522,7 +705,7 @@ where
 		// clear the entry array to get rid of SLOT_DELETED
 		if self.entry_array.is_some() {
 			let size = self.entry_array.as_ref().unwrap().size();
-			let mut entry_array = Builder::build(size)?;
+			let mut entry_array = Builder::build_array(size)?;
 			for i in 0..size {
 				entry_array[i] = SLOT_EMPTY
 			}
@@ -1115,48 +1298,13 @@ where
 	}
 }
 
-/*
-impl Builder {
-	pub fn build_hashtable<K, V>(
-		config: StaticHashtableConfig,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<impl StaticHashtable<K, V>, Error>
-	where
-		K: Serializable + Hash + PartialEq + Debug,
-		V: Serializable,
-	{
-		StaticImpl::new(Some(config), None, None, slabs)
-	}
-
-	pub fn build_hashset<K>(
-		config: StaticHashsetConfig,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<impl StaticHashset<K>, Error>
-	where
-		K: Serializable + Hash + PartialEq + Debug,
-	{
-		StaticImpl::new(None, Some(config), None, slabs)
-	}
-
-	pub fn build_list<V>(
-		config: ListConfig,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<impl List<V>, Error>
-	where
-		V: Serializable + Debug + PartialEq,
-	{
-		StaticImpl::new(None, None, Some(config), slabs)
-	}
-}
-*/
-
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
 	use crate::types::{List, StaticHashset};
 	use crate::ConfigOption::SlabSize;
 	use crate::{
-		execute, slab_allocator, thread_pool, Builder, ListConfig, SlabAllocatorConfig,
+		block_on, execute, slab_allocator, thread_pool, Builder, ListConfig, SlabAllocatorConfig,
 		StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, ThreadPool,
 		GLOBAL_SLAB_ALLOCATOR,
 	};
@@ -1505,39 +1653,114 @@ mod test {
 		}
 		Ok(())
 	}
-
-	/*
 	#[test]
 	fn test_sync_hashtable() -> Result<(), Error> {
-		let slab_size = 1024;
-		let slabs = Builder::build_slabs_ref();
-		let config = SlabAllocatorConfig {
-			slab_size,
+		let slab_config = SlabAllocatorConfig {
+			slab_size: 1024,
 			slab_count: 1024,
 			..Default::default()
 		};
-		{
-			let mut slabs: RefMut<_> = slabs.borrow_mut();
-			slabs.init(config)?;
-		}
 
 		let config = StaticHashtableConfig {
 			max_entries: 1024,
 			..Default::default()
 		};
 
-		let mut h = Builder::build_hashtable(config, Some(slabs.clone()))?;
+		let h = Builder::build_sync_hashtable(config, slab_config)?;
 		let mut h = lock!(h)?;
+		let h_clone = h.clone();
 
 		let tp = thread_pool!()?;
 
-		execute!(tp, {
+		{
+			let h2 = h_clone.rlock()?;
+			assert_eq!((**h2.guard()).get(&2u64)?, None);
+		}
+
+		let handle = execute!(tp, {
 			let mut h = h.wlock()?;
 			(**h.guard()).insert(&2u64, &6u64)?;
 			Ok(())
 		})?;
 
+		block_on!(handle);
+
+		let h = h_clone.rlock()?;
+		assert_eq!((**h.guard()).get(&2u64)?, Some(6u64));
+
 		Ok(())
 	}
-		*/
+
+	#[test]
+	fn test_sync_hashset() -> Result<(), Error> {
+		let slab_config = SlabAllocatorConfig {
+			slab_size: 1024,
+			slab_count: 1024,
+			..Default::default()
+		};
+
+		let config = StaticHashsetConfig {
+			max_entries: 1024,
+			..Default::default()
+		};
+
+		let h = Builder::build_sync_hashset(config, slab_config)?;
+		let mut h = lock!(h)?;
+		let h_clone = h.clone();
+
+		let tp = thread_pool!()?;
+
+		{
+			let h2 = h_clone.rlock()?;
+			assert_eq!((**h2.guard()).contains(&2u64)?, false);
+		}
+
+		let handle = execute!(tp, {
+			let mut h = h.wlock()?;
+			(**h.guard()).insert(&2u64)?;
+			Ok(())
+		})?;
+
+		block_on!(handle);
+
+		let h = h_clone.rlock()?;
+		assert_eq!((**h.guard()).contains(&2u64)?, true);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_sync_list() -> Result<(), Error> {
+		let slab_config = SlabAllocatorConfig {
+			slab_size: 1024,
+			slab_count: 1024,
+			..Default::default()
+		};
+
+		let config = ListConfig {};
+
+		let h = Builder::build_sync_list(config, slab_config)?;
+		let mut h = lock!(h)?;
+		let h_clone = h.clone();
+
+		let tp = thread_pool!()?;
+
+		{
+			let h = h_clone.rlock()?;
+			assert_eq!((**h.guard()).size(), 0);
+		}
+
+		let handle = execute!(tp, {
+			let mut h = h.wlock()?;
+			(**h.guard()).push(2u64)?;
+			Ok(())
+		})?;
+
+		block_on!(handle);
+
+		let h = h_clone.rlock()?;
+		assert_eq!((**h.guard()).size(), 1);
+
+		Ok(())
+	}
 }
