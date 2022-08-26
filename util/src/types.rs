@@ -11,8 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::slabs::Slab;
-use crate::slabs::SlabMut;
 use crate::{SlabReader, SlabWriter};
 use bmw_err::*;
 use bmw_log::*;
@@ -49,7 +47,7 @@ pub enum ConfigOption {
 }
 
 /// The configuration struct for a [`crate::ThreadPool`]. This struct is passed into the
-/// [`crate::ThreadPoolBuilder::build`] function or the [`crate::thread_pool`] macro. The
+/// [`crate::Builder::build_thread_pool`] function or the [`crate::thread_pool`] macro. The
 /// [`std::default::Default`] trait is implemented for this trait. Also see [`crate::ConfigOption`]
 /// for details on configuring via macro.
 #[derive(Debug, Clone)]
@@ -64,7 +62,7 @@ pub struct ThreadPoolConfig {
 }
 
 /// The configuration struct for a [`StaticHashtable`]. This struct is passed
-/// into the [`crate::StaticBuilder::build_hashtable`] function. The [`std::default::Default`]
+/// into the [`crate::Builder::build_hashtable`] function. The [`std::default::Default`]
 /// trait is implemented for this trait.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StaticHashtableConfig {
@@ -81,7 +79,7 @@ pub struct StaticHashtableConfig {
 }
 
 /// The configuration struct for a [`StaticHashset`]. This struct is passed
-/// into the [`crate::StaticBuilder::build_hashset`] function. The [`std::default::Default`]
+/// into the [`crate::Builder::build_hashset`] function. The [`std::default::Default`]
 /// trait is implemented for this trait.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StaticHashsetConfig {
@@ -123,8 +121,6 @@ pub struct Array<T> {
 	pub(crate) layout: Layout,
 	pub(crate) _phantom_data: PhantomData<T>,
 }
-
-pub struct ArrayBuilder {}
 
 #[derive(Debug, Clone)]
 pub struct ListConfig {}
@@ -305,6 +301,20 @@ pub trait ThreadPool<T> {
 	/// Returns the current size of the thread pool which will be between
 	/// [`crate::ThreadPoolConfig::min_size`] and [`crate::ThreadPoolConfig::max_size`].
 	fn size(&self) -> Result<usize, Error>;
+}
+
+/// Struct that is used as a mutable refernce to data in a slab. See [`crate::SlabAllocator`] for
+/// further details.
+pub struct SlabMut<'a> {
+	pub(crate) data: &'a mut [u8],
+	pub(crate) id: usize,
+}
+
+/// Struct that is used as a immutable refernce to data in a slab. See [`crate::SlabAllocator`] for
+/// further details.
+pub struct Slab<'a> {
+	pub(crate) data: &'a [u8],
+	pub(crate) id: usize,
 }
 
 /// This trait defines the public interface to the [`crate::SlabAllocator`]. The slab
@@ -649,10 +659,7 @@ where
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error>;
 }
 
-pub struct StaticBuilder {}
-
-/// The builder for [`ThreadPool`].
-pub struct ThreadPoolBuilder {}
+pub struct Builder {}
 
 pub struct HashtableIterator<'a, K, V>
 where

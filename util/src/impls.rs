@@ -14,10 +14,9 @@
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
 use crate::types::{Direction, StaticImpl};
 use crate::{
-	ArrayBuilder, HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Reader,
-	Serializable, SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, StaticBuilder,
-	StaticHashset, StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, Writer,
-	GLOBAL_SLAB_ALLOCATOR,
+	Builder, HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Reader,
+	Serializable, SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, StaticHashset,
+	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, Writer, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_deps::try_traits::clone::TryClone;
 use bmw_err::*;
@@ -244,7 +243,7 @@ impl<K> StaticImpl<K>
 where
 	K: Serializable,
 {
-	fn new(
+	pub(crate) fn new(
 		hashtable_config: Option<StaticHashtableConfig>,
 		hashset_config: Option<StaticHashsetConfig>,
 		list_config: Option<ListConfig>,
@@ -344,7 +343,7 @@ where
 			}
 			None => {
 				let size: usize = (max_entries as f64 / max_load_factor).ceil() as usize;
-				let mut entry_array = ArrayBuilder::build(size)?;
+				let mut entry_array = Builder::build(size)?;
 				debug!("entry array init to size = {}", size)?;
 				for i in 0..size {
 					entry_array[i] = SLOT_EMPTY
@@ -523,7 +522,7 @@ where
 		// clear the entry array to get rid of SLOT_DELETED
 		if self.entry_array.is_some() {
 			let size = self.entry_array.as_ref().unwrap().size();
-			let mut entry_array = ArrayBuilder::build(size)?;
+			let mut entry_array = Builder::build(size)?;
 			for i in 0..size {
 				entry_array[i] = SLOT_EMPTY
 			}
@@ -1116,7 +1115,8 @@ where
 	}
 }
 
-impl StaticBuilder {
+/*
+impl Builder {
 	pub fn build_hashtable<K, V>(
 		config: StaticHashtableConfig,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
@@ -1148,16 +1148,17 @@ impl StaticBuilder {
 		StaticImpl::new(None, None, Some(config), slabs)
 	}
 }
+*/
 
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::impls::StaticBuilder;
 	use crate::types::{List, StaticHashset};
 	use crate::ConfigOption::SlabSize;
 	use crate::{
-		slab_allocator, ListConfig, SlabAllocatorBuilder, SlabAllocatorConfig, StaticHashsetConfig,
-		StaticHashtable, StaticHashtableConfig, GLOBAL_SLAB_ALLOCATOR,
+		execute, slab_allocator, thread_pool, Builder, ListConfig, SlabAllocatorConfig,
+		StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, ThreadPool,
+		GLOBAL_SLAB_ALLOCATOR,
 	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
@@ -1169,7 +1170,7 @@ mod test {
 
 	#[test]
 	fn test_static_hashtable() -> Result<(), Error> {
-		let mut hashtable = StaticBuilder::build_hashtable(
+		let mut hashtable = Builder::build_hashtable(
 			StaticHashtableConfig {
 				max_entries: 100,
 				..Default::default()
@@ -1185,7 +1186,7 @@ mod test {
 
 	#[test]
 	fn test_remove_static_hashtable() -> Result<(), Error> {
-		let mut hashtable = StaticBuilder::build_hashtable(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
 		hashtable.insert(&1, &2)?;
 		let v = hashtable.get(&1)?;
 		assert_eq!(v.unwrap(), 2);
@@ -1206,7 +1207,7 @@ mod test {
 			keys.push(random::<u32>());
 			values.push(random::<u32>());
 		}
-		let mut hashtable = StaticBuilder::build_hashtable(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
 		let mut hashmap = HashMap::new();
 		for i in 0..1_000 {
 			hashtable.insert(&keys[i], &values[i])?;
@@ -1234,7 +1235,7 @@ mod test {
 
 	#[test]
 	fn test_iterator() -> Result<(), Error> {
-		let mut hashtable = StaticBuilder::build_hashtable(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
 		hashtable.insert(&1, &10)?;
 		hashtable.insert(&2, &20)?;
 		hashtable.insert(&3, &30)?;
@@ -1277,7 +1278,7 @@ mod test {
 
 	#[test]
 	fn test_clear() -> Result<(), Error> {
-		let mut hashtable = StaticBuilder::build_hashtable(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
 		let free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 		})?;
@@ -1314,8 +1315,7 @@ mod test {
 	fn test_hashtable_drop() -> Result<(), Error> {
 		let free_count1;
 		{
-			let mut hashtable =
-				StaticBuilder::build_hashtable(StaticHashtableConfig::default(), None)?;
+			let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
 			free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 			})?;
@@ -1348,8 +1348,7 @@ mod test {
 
 	#[test]
 	fn test_hashset1() -> Result<(), Error> {
-		let mut hashset =
-			StaticBuilder::build_hashset::<i32>(StaticHashsetConfig::default(), None)?;
+		let mut hashset = Builder::build_hashset::<i32>(StaticHashsetConfig::default(), None)?;
 		hashset.insert(&1)?;
 		hashset.insert(&2)?;
 		hashset.insert(&3)?;
@@ -1391,7 +1390,7 @@ mod test {
 
 	#[test]
 	fn test_list1() -> Result<(), Error> {
-		let mut list = StaticBuilder::build_list(ListConfig::default(), None)?;
+		let mut list = Builder::build_list(ListConfig::default(), None)?;
 		list.push(1)?;
 		list.push(2)?;
 		list.push(3)?;
@@ -1421,7 +1420,7 @@ mod test {
 
 	#[test]
 	fn test_append() -> Result<(), Error> {
-		let mut list = StaticBuilder::build_list(ListConfig::default(), None)?;
+		let mut list = Builder::build_list(ListConfig::default(), None)?;
 		list.push(1)?;
 		list.push(2)?;
 		list.push(3)?;
@@ -1429,7 +1428,7 @@ mod test {
 		list.push(5)?;
 		list.push(6)?;
 
-		let mut list2 = StaticBuilder::build_list(ListConfig::default(), None)?;
+		let mut list2 = Builder::build_list(ListConfig::default(), None)?;
 		list2.push(7)?;
 		list2.push(8)?;
 		list2.push(9)?;
@@ -1451,7 +1450,7 @@ mod test {
 	#[test]
 	fn test_small_slabs() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(8))?;
-		let mut table = StaticBuilder::build_hashtable(
+		let mut table = Builder::build_hashtable(
 			StaticHashtableConfig {
 				max_entries: 100,
 				..Default::default()
@@ -1480,7 +1479,7 @@ mod test {
 	#[test]
 	fn test_small_config() -> Result<(), Error> {
 		let slab_size = 12;
-		let slabs = SlabAllocatorBuilder::build_ref();
+		let slabs = Builder::build_slabs_ref();
 		let config = SlabAllocatorConfig {
 			slab_size,
 			slab_count: 1,
@@ -1496,14 +1495,49 @@ mod test {
 				max_entries: 1,
 				..Default::default()
 			};
-			let mut h = StaticBuilder::build_hashtable(config, Some(slabs.clone()))?;
+			let mut h = Builder::build_hashtable(config, Some(slabs.clone()))?;
 
 			info!("insert 1")?;
 			assert!(h.insert(&2u64, &6u64).is_err());
 			info!("insert 2")?;
-			let mut h = StaticBuilder::build_hashtable(config, Some(slabs.clone()))?;
+			let mut h = Builder::build_hashtable(config, Some(slabs.clone()))?;
 			h.insert(&2000u32, &1000u32)?;
 		}
 		Ok(())
 	}
+
+	/*
+	#[test]
+	fn test_sync_hashtable() -> Result<(), Error> {
+		let slab_size = 1024;
+		let slabs = Builder::build_slabs_ref();
+		let config = SlabAllocatorConfig {
+			slab_size,
+			slab_count: 1024,
+			..Default::default()
+		};
+		{
+			let mut slabs: RefMut<_> = slabs.borrow_mut();
+			slabs.init(config)?;
+		}
+
+		let config = StaticHashtableConfig {
+			max_entries: 1024,
+			..Default::default()
+		};
+
+		let mut h = Builder::build_hashtable(config, Some(slabs.clone()))?;
+		let mut h = lock!(h)?;
+
+		let tp = thread_pool!()?;
+
+		execute!(tp, {
+			let mut h = h.wlock()?;
+			(**h.guard()).insert(&2u64, &6u64)?;
+			Ok(())
+		})?;
+
+		Ok(())
+	}
+		*/
 }

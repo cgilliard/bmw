@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{PoolResult, ThreadPool, ThreadPoolBuilder, ThreadPoolConfig};
+use crate::{PoolResult, ThreadPool, ThreadPoolConfig};
 use bmw_deps::dyn_clone::clone_box;
 use bmw_deps::futures::executor::block_on;
 use bmw_err::{err, ErrKind, Error};
@@ -29,7 +29,7 @@ struct FutureWrapper<T> {
 	tx: SyncSender<PoolResult<T, Error>>,
 }
 
-struct ThreadPoolImpl<T: 'static + Send + Sync> {
+pub(crate) struct ThreadPoolImpl<T: 'static + Send + Sync> {
 	config: ThreadPoolConfig,
 	rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
 	tx: Option<SyncSender<FutureWrapper<T>>>,
@@ -55,7 +55,7 @@ struct ThreadPoolState {
 	stop: bool,
 }
 
-struct TestConfig {
+pub(crate) struct TestConfig {
 	debug_drop_error: bool,
 }
 
@@ -69,7 +69,10 @@ impl<T: 'static + Send + Sync> Drop for ThreadPoolImpl<T> {
 }
 
 impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
-	fn new(config: ThreadPoolConfig, test_config: Option<TestConfig>) -> Result<Self, Error> {
+	pub(crate) fn new(
+		config: ThreadPoolConfig,
+		test_config: Option<TestConfig>,
+	) -> Result<Self, Error> {
 		if config.min_size == 0 || config.min_size > config.max_size {
 			let fmt = "min_size must be > 0 and < max_size";
 			return Err(err!(ErrKind::Configuration, fmt));
@@ -228,23 +231,12 @@ impl<T: 'static + Send + Sync> ThreadPool<T> for ThreadPoolImpl<T> {
 	}
 }
 
-impl ThreadPoolBuilder {
-	/// Build a [`crate::ThreadPool`] based on the specified [`crate::ThreadPoolConfig`]. Note
-	/// that the thread pool will not be usable until the [`crate::ThreadPool::start`] function
-	/// has been called.
-	pub fn build<T: 'static + Send + Sync>(
-		config: ThreadPoolConfig,
-	) -> Result<impl ThreadPool<T>, Error> {
-		Ok(ThreadPoolImpl::new(config, None)?)
-	}
-}
-
 #[cfg(test)]
 mod test {
 	use crate::execute;
 	use crate::threadpool::TestConfig;
 	use crate::threadpool::ThreadPoolImpl;
-	use crate::{PoolResult, ThreadPool, ThreadPoolBuilder, ThreadPoolConfig};
+	use crate::{Builder, PoolResult, ThreadPool, ThreadPoolConfig};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
@@ -255,7 +247,7 @@ mod test {
 
 	#[test]
 	fn test_threadpool1() -> Result<(), Error> {
-		let mut tp = ThreadPoolBuilder::build(ThreadPoolConfig {
+		let mut tp = Builder::build_thread_pool(ThreadPoolConfig {
 			min_size: 10,
 			max_size: 10,
 			..Default::default()
@@ -463,7 +455,7 @@ mod test {
 
 	#[test]
 	fn test_stop() -> Result<(), Error> {
-		let mut tp = ThreadPoolBuilder::build(ThreadPoolConfig {
+		let mut tp = Builder::build_thread_pool(ThreadPoolConfig {
 			min_size: 2,
 			max_size: 4,
 			..Default::default()
@@ -544,7 +536,7 @@ mod test {
 
 	#[test]
 	fn pass_to_threads() -> Result<(), Error> {
-		let mut tp = ThreadPoolBuilder::build(ThreadPoolConfig {
+		let mut tp = Builder::build_thread_pool(ThreadPoolConfig {
 			min_size: 2,
 			max_size: 4,
 			..Default::default()
@@ -568,21 +560,21 @@ mod test {
 
 	#[test]
 	fn test_bad_configs() -> Result<(), Error> {
-		assert!(ThreadPoolBuilder::build::<()>(ThreadPoolConfig {
+		assert!(Builder::build_thread_pool::<()>(ThreadPoolConfig {
 			min_size: 5,
 			max_size: 4,
 			..Default::default()
 		})
 		.is_err());
 
-		assert!(ThreadPoolBuilder::build::<()>(ThreadPoolConfig {
+		assert!(Builder::build_thread_pool::<()>(ThreadPoolConfig {
 			min_size: 0,
 			max_size: 4,
 			..Default::default()
 		})
 		.is_err());
 
-		let tp = ThreadPoolBuilder::build::<()>(ThreadPoolConfig {
+		let tp = Builder::build_thread_pool::<()>(ThreadPoolConfig {
 			min_size: 5,
 			max_size: 6,
 			..Default::default()

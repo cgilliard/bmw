@@ -1021,7 +1021,7 @@ mod test {
 			slab_size,
 			..Default::default()
 		};
-		let slabs = bmw_util::SlabAllocatorBuilder::build_ref();
+		let slabs = bmw_util::Builder::build_slabs_ref();
 
 		{
 			let mut slabs_refmut: RefMut<_> = slabs.borrow_mut();

@@ -12,42 +12,20 @@
 // limitations under the License.
 
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
-use crate::{Array, ArrayBuilder, SlabAllocator, SlabAllocatorConfig};
+use crate::{Array, Builder, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
-use std::cell::RefCell;
 use std::cell::UnsafeCell;
-use std::rc::Rc;
 
 info!();
 
 #[cfg(not(tarpaulin_include))]
 thread_local! {
 	#[doc(hidden)]
-	pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> = SlabAllocatorBuilder::build_unsafe();
+	pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> = Builder::build_slabs_unsafe();
 }
 
-/// Builder struct used to build slab allocators. The build functions are generally called
-/// through the [`crate::slab_allocator`] macro to create instances of [`crate::SlabAllocator`]
-/// or through the [`crate::init_slab_allocator`] to configure the global thread local
-/// [`crate::SlabAllocator`].
-pub struct SlabAllocatorBuilder {}
-
-/// Struct that is used as a mutable refernce to data in a slab. See [`crate::SlabAllocator`] for
-/// further details.
-pub struct SlabMut<'a> {
-	pub(crate) data: &'a mut [u8],
-	pub(crate) id: usize,
-}
-
-/// Struct that is used as a immutable refernce to data in a slab. See [`crate::SlabAllocator`] for
-/// further details.
-pub struct Slab<'a> {
-	pub(crate) data: &'a [u8],
-	pub(crate) id: usize,
-}
-
-struct SlabAllocatorImpl {
+pub(crate) struct SlabAllocatorImpl {
 	config: Option<SlabAllocatorConfig>,
 	data: Array<u8>,
 	first_free: usize,
@@ -244,7 +222,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 					));
 				}
 				let mut data =
-					ArrayBuilder::build(config.slab_count * (config.slab_size + self.ptr_size))?;
+					Builder::build(config.slab_count * (config.slab_size + self.ptr_size))?;
 				for i in 0..data.size() {
 					data[i] = 0u8;
 				}
@@ -280,8 +258,8 @@ impl SlabAllocator for SlabAllocatorImpl {
 }
 
 impl SlabAllocatorImpl {
-	fn new() -> Self {
-		let data = ArrayBuilder::build(0).unwrap();
+	pub(crate) fn new() -> Self {
+		let data = Builder::build(0).unwrap();
 		Self {
 			config: None,
 			free_count: 0,
@@ -315,32 +293,11 @@ impl SlabAllocatorImpl {
 	}
 }
 
-impl SlabAllocatorBuilder {
-	/// Build a slab allocator on the heap in an [`std::cell::UnsafeCell`].
-	/// This function is used by the global thread local slab allocator to allocate
-	/// thread local slab allocators. Note that it calls unsafe functions. This
-	/// function should generally be called through the [`crate::init_slab_allocator`]
-	/// macro.
-	pub fn build_unsafe() -> UnsafeCell<Box<dyn SlabAllocator>> {
-		UnsafeCell::new(Box::new(SlabAllocatorImpl::new()))
-	}
-
-	/// Build a slab allocator on the heap. This function is used by [`crate::slab_allocator`]
-	/// to create slab allocators for use with the other macros.
-	pub fn build_ref() -> Rc<RefCell<dyn SlabAllocator>> {
-		Rc::new(RefCell::new(SlabAllocatorImpl::new()))
-	}
-
-	pub fn build() -> Box<dyn SlabAllocator> {
-		Box::new(SlabAllocatorImpl::new())
-	}
-}
-
 #[cfg(test)]
 mod test {
 	use crate::slabs::SlabMut;
 	use crate::types::SlabAllocatorConfig;
-	use crate::SlabAllocatorBuilder;
+	use crate::Builder;
 	use bmw_err::Error;
 	use bmw_log::*;
 
@@ -348,7 +305,7 @@ mod test {
 
 	#[test]
 	fn test_simple() -> Result<(), Error> {
-		let mut slabs = SlabAllocatorBuilder::build();
+		let mut slabs = Builder::build_slabs();
 
 		assert!(slabs.slab_count().is_err());
 		assert!(slabs.slab_size().is_err());
@@ -394,7 +351,7 @@ mod test {
 
 	#[test]
 	fn test_capacity() -> Result<(), Error> {
-		let mut slabs = SlabAllocatorBuilder::build();
+		let mut slabs = Builder::build_slabs();
 		slabs.init(SlabAllocatorConfig {
 			slab_count: 10,
 			..SlabAllocatorConfig::default()
@@ -412,7 +369,7 @@ mod test {
 
 	#[test]
 	fn test_error_conditions() -> Result<(), Error> {
-		let mut slabs = SlabAllocatorBuilder::build();
+		let mut slabs = Builder::build_slabs();
 		assert!(slabs.allocate().is_err());
 		assert!(slabs.free(0).is_err());
 		assert!(slabs.get(0).is_err());
@@ -430,7 +387,7 @@ mod test {
 
 	#[test]
 	fn test_double_free() -> Result<(), Error> {
-		let mut slabs = SlabAllocatorBuilder::build();
+		let mut slabs = Builder::build_slabs();
 		slabs.init(SlabAllocatorConfig::default())?;
 		let id = {
 			let slab = slabs.allocate()?;
@@ -454,38 +411,38 @@ mod test {
 
 	#[test]
 	fn test_other_slabs_configs() -> Result<(), Error> {
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig::default())
 			.is_ok());
 
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig {
 				slab_size: 100,
 				..SlabAllocatorConfig::default()
 			})
 			.is_ok());
 
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig {
 				slab_size: 48,
 				..SlabAllocatorConfig::default()
 			})
 			.is_ok());
 
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig {
 				slab_size: 7,
 				..SlabAllocatorConfig::default()
 			})
 			.is_err());
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig {
 				slab_count: 0,
 				..SlabAllocatorConfig::default()
 			})
 			.is_err());
 
-		let mut sh = SlabAllocatorBuilder::build();
+		let mut sh = Builder::build_slabs();
 		sh.init(SlabAllocatorConfig {
 			slab_count: 1,
 			..SlabAllocatorConfig::default()

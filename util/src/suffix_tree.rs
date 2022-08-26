@@ -11,17 +11,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{List, Match, MatchBuilder, Pattern, Reader, Serializable, SuffixTree, Writer};
+use crate::{List, Match, Pattern, Reader, Serializable, SuffixTree, Writer};
 use bmw_err::Error;
 
 struct Dictionary {}
 
-struct SuffixTreeImpl {
+pub(crate) struct SuffixTreeImpl {
 	_dictionary: Dictionary,
 }
 
 impl SuffixTreeImpl {
-	fn _new(_patterns: impl List<Pattern>) -> Result<Self, Error> {
+	pub(crate) fn _new(_patterns: impl List<Pattern>) -> Result<Self, Error> {
 		Ok(Self {
 			_dictionary: Dictionary {},
 		})
@@ -42,14 +42,14 @@ impl SuffixTree for SuffixTreeImpl {
 	}
 }
 
-struct MatchImpl {
+pub(crate) struct MatchImpl {
 	start: usize,
 	end: usize,
 	id: usize,
 }
 
 impl MatchImpl {
-	fn _new(start: usize, end: usize, id: usize) -> Self {
+	pub(crate) fn _new(start: usize, end: usize, id: usize) -> Self {
 		Self { start, end, id }
 	}
 }
@@ -79,7 +79,12 @@ impl Match for MatchImpl {
 }
 
 impl Pattern {
-	fn _new(regex: &str, is_case_sensitive: bool, is_termination_pattern: bool, id: usize) -> Self {
+	pub(crate) fn _new(
+		regex: &str,
+		is_case_sensitive: bool,
+		is_termination_pattern: bool,
+		id: usize,
+	) -> Self {
 		Self {
 			regex: regex.to_string(),
 			is_termination_pattern,
@@ -135,37 +140,18 @@ impl Serializable for Pattern {
 	}
 }
 
-impl MatchBuilder {
-	fn _build_match(start: usize, end: usize, id: usize) -> impl Match {
-		MatchImpl::_new(start, end, id)
-	}
-
-	fn _build_pattern(
-		regex: &str,
-		is_case_sensitive: bool,
-		is_termination_pattern: bool,
-		id: usize,
-	) -> Pattern {
-		Pattern::_new(regex, is_case_sensitive, is_termination_pattern, id)
-	}
-
-	fn _build_suffix_tree(patterns: impl List<Pattern>) -> Result<impl SuffixTree, Error> {
-		SuffixTreeImpl::_new(patterns)
-	}
-}
-
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::{list, MatchBuilder};
+	use crate::{list, Builder};
 	use bmw_err::*;
 
 	#[test]
 	fn test_suffix_tree() -> Result<(), Error> {
-		let _suffix_tree = MatchBuilder::_build_suffix_tree(list![
-			MatchBuilder::_build_pattern("p1", false, false, 0),
-			MatchBuilder::_build_pattern("p2", false, false, 1),
-			MatchBuilder::_build_pattern("p3", true, false, 2)
+		let _suffix_tree = Builder::_build_suffix_tree(list![
+			Builder::_build_pattern("p1", false, false, 0),
+			Builder::_build_pattern("p2", false, false, 1),
+			Builder::_build_pattern("p3", true, false, 2)
 		])?;
 		Ok(())
 	}

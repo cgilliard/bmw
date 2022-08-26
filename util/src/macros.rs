@@ -73,7 +73,7 @@ macro_rules! init_slab_allocator {
 #[macro_export]
 macro_rules! slab_allocator {
 ( $( $config:expr ),* ) => {{
-            let slabs = bmw_util::SlabAllocatorBuilder::build_ref();
+            let slabs = bmw_util::Builder::build_slabs_ref();
             let mut config = bmw_util::SlabAllocatorConfig::default();
             let mut error: Option<String> = None;
             let mut slab_size_specified = false;
@@ -183,7 +183,7 @@ macro_rules! hashtable {
 
                 match error {
                     Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
-                    None => bmw_util::StaticBuilder::build_hashtable(config, None),
+                    None => bmw_util::Builder::build_hashtable(config, None),
                 }
 	}};
 }
@@ -243,7 +243,7 @@ macro_rules! hashset {
 
                 match error {
                     Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
-                    None => bmw_util::StaticBuilder::build_hashset(config, None),
+                    None => bmw_util::Builder::build_hashset(config, None),
                 }
 	}};
 }
@@ -253,7 +253,7 @@ macro_rules! list {
     ( $( $x:expr ),* ) => {
         {
             use bmw_util::List;
-            let mut temp_list = bmw_util::StaticBuilder::build_list(bmw_util::ListConfig::default(), None)?;
+            let mut temp_list = bmw_util::Builder::build_list(bmw_util::ListConfig::default(), None)?;
             $(
                 temp_list.push($x)?;
             )*
@@ -267,7 +267,7 @@ macro_rules! list {
 macro_rules! thread_pool {
 	() => {{
                 let config = bmw_util::ThreadPoolConfig::default();
-                match bmw_util::ThreadPoolBuilder::build(config) {
+                match bmw_util::Builder::build_thread_pool(config) {
                         Ok(mut ret) => {
                                 ret.start()?;
                                 Ok(ret)
@@ -332,7 +332,7 @@ macro_rules! thread_pool {
                 match error {
                     Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
                     None => {
-                            let mut ret = bmw_util::ThreadPoolBuilder::build(config)?;
+                            let mut ret = bmw_util::Builder::build_thread_pool(config)?;
                             ret.start()?;
                             Ok(ret)
                     },

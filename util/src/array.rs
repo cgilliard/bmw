@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use crate::types::Direction;
-use crate::{Array, ArrayBuilder, ArrayList, List, Queue, Stack};
+use crate::{Array, ArrayList, List, Queue, Stack};
 use bmw_deps::try_traits::clone::TryClone;
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -30,7 +30,7 @@ impl<T> Array<T>
 where
 	T: Clone,
 {
-	fn new(size: usize) -> Result<Self, Error> {
+	pub(crate) fn new(size: usize) -> Result<Self, Error> {
 		let n = ::std::mem::size_of::<T>();
 		let layout = Layout::from_size_align(size * n, n).unwrap();
 		let data = unsafe { alloc(layout) };
@@ -59,7 +59,7 @@ where
 		let slice = unsafe { from_raw_parts_mut(ptr, self.size) };
 		slice
 	}
-	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
+	pub fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
 		Box::new(ArrayIterator {
 			cur: 0,
 			array_ref: self,
@@ -171,7 +171,7 @@ impl<T> ArrayList<T>
 where
 	T: Clone,
 {
-	fn new(size: usize) -> Result<Self, Error> {
+	pub(crate) fn new(size: usize) -> Result<Self, Error> {
 		let inner = Array::new(size)?;
 		Ok(Self {
 			inner,
@@ -374,42 +374,11 @@ where
 	}
 }
 
-impl ArrayBuilder {
-	pub fn build<T>(size: usize) -> Result<Array<T>, Error>
-	where
-		T: Clone,
-	{
-		Array::new(size)
-	}
-
-	pub fn build_array_list<T>(size: usize) -> Result<impl List<T>, Error>
-	where
-		T: Clone + Debug + PartialEq,
-	{
-		ArrayList::new(size)
-	}
-
-	pub fn build_queue<T>(size: usize) -> Result<impl Queue<T>, Error>
-	where
-		T: Clone,
-	{
-		ArrayList::new(size)
-	}
-
-	pub fn build_stack<T>(size: usize) -> Result<impl Stack<T>, Error>
-	where
-		T: Clone,
-	{
-		ArrayList::new(size)
-	}
-}
-
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
 	use crate::{
-		block_on, execute, thread_pool, Array, ArrayBuilder, List, PoolResult, Queue, Stack,
-		ThreadPool,
+		block_on, execute, thread_pool, Array, Builder, List, PoolResult, Queue, Stack, ThreadPool,
 	};
 	use bmw_deps::try_traits::clone::TryClone;
 	use bmw_err::{err, ErrKind, Error};
@@ -423,7 +392,7 @@ mod test {
 
 	#[test]
 	fn test_array_simple() -> Result<(), Error> {
-		let mut arr = ArrayBuilder::build(10)?;
+		let mut arr = Builder::build(10)?;
 		for i in 0..10 {
 			arr[i] = i as u64;
 		}
@@ -433,7 +402,7 @@ mod test {
 		}
 
 		let mut test = TestStruct {
-			arr: ArrayBuilder::build(40)?,
+			arr: Builder::build(40)?,
 		};
 
 		for i in 0..40 {
@@ -453,7 +422,7 @@ mod test {
 
 	#[test]
 	fn test_array_iterator() -> Result<(), Error> {
-		let mut arr = ArrayBuilder::build(10)?;
+		let mut arr = Builder::build(10)?;
 		for i in 0..10 {
 			arr[i] = i as u64;
 		}
@@ -471,7 +440,7 @@ mod test {
 		let tp = thread_pool!()?;
 
 		let handle = execute!(tp, {
-			let mut x = ArrayBuilder::build(10)?;
+			let mut x = Builder::build(10)?;
 			for i in 0..11 {
 				x[i] = i;
 			}
@@ -487,7 +456,7 @@ mod test {
 		);
 
 		let handle = execute!(tp, {
-			let mut x = ArrayBuilder::build(10)?;
+			let mut x = Builder::build(10)?;
 			for i in 0..10 {
 				x[i] = i;
 			}
@@ -501,8 +470,8 @@ mod test {
 
 	#[test]
 	fn test_array_partial_eq() -> Result<(), Error> {
-		let mut arr1 = ArrayBuilder::build(10)?;
-		let mut arr2 = ArrayBuilder::build(11)?;
+		let mut arr1 = Builder::build(10)?;
+		let mut arr2 = Builder::build(11)?;
 
 		for i in 0..10 {
 			arr1[i] = 7;
@@ -514,22 +483,22 @@ mod test {
 
 		assert_ne!(arr1, arr2);
 
-		let mut arr3 = ArrayBuilder::build(10)?;
+		let mut arr3 = Builder::build(10)?;
 		for i in 0..10 {
 			arr3[i] = 8;
 		}
 
 		assert_ne!(arr3, arr1);
 
-		let mut arr4 = ArrayBuilder::build(10)?;
+		let mut arr4 = Builder::build(10)?;
 		for i in 0..10 {
 			arr4[i] = 7;
 		}
 
 		assert_eq!(arr4, arr1);
 
-		let mut arr5 = ArrayBuilder::build(20)?;
-		let mut arr6 = ArrayBuilder::build(20)?;
+		let mut arr5 = Builder::build(20)?;
+		let mut arr6 = Builder::build(20)?;
 
 		info!("test 128")?;
 		for i in 0..20 {
@@ -550,8 +519,8 @@ mod test {
 
 	#[test]
 	fn test_array_list() -> Result<(), Error> {
-		let mut list1 = ArrayBuilder::build_array_list(10)?;
-		let mut list2 = ArrayBuilder::build_array_list(10)?;
+		let mut list1 = Builder::build_array_list(10)?;
+		let mut list2 = Builder::build_array_list(10)?;
 
 		list1.push(1usize)?;
 		list2.push(1usize)?;
@@ -576,7 +545,7 @@ mod test {
 		list2.push(10)?;
 		assert_eq!(list1, list2);
 
-		let mut list3 = ArrayBuilder::build_array_list(10)?;
+		let mut list3 = Builder::build_array_list(10)?;
 
 		for i in 0..5 {
 			list3.push(i)?;
@@ -587,7 +556,7 @@ mod test {
 		list2.append(&list3)?;
 		assert_eq!(list1, list2);
 
-		let mut list = ArrayBuilder::build_array_list(50)?;
+		let mut list = Builder::build_array_list(50)?;
 
 		let mut i = 0u64;
 		for _ in list.iter() {
@@ -618,7 +587,7 @@ mod test {
 	#[test]
 	fn test_as_slice_mut() -> Result<(), Error> {
 		let data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-		let mut array = ArrayBuilder::build(data.len())?;
+		let mut array = Builder::build(data.len())?;
 		array.as_mut().clone_from_slice(&data);
 
 		assert_eq!(array[3], 3u8);
@@ -628,7 +597,7 @@ mod test {
 
 	#[test]
 	fn test_queue() -> Result<(), Error> {
-		let mut queue = ArrayBuilder::build_queue(10)?;
+		let mut queue = Builder::build_queue(10)?;
 		queue.enqueue(1)?;
 		queue.enqueue(2)?;
 		queue.enqueue(3)?;
@@ -668,7 +637,7 @@ mod test {
 
 	#[test]
 	fn test_stack() -> Result<(), Error> {
-		let mut stack = ArrayBuilder::build_stack(10)?;
+		let mut stack = Builder::build_stack(10)?;
 		stack.push(1)?;
 		stack.push(2)?;
 		stack.push(3)?;

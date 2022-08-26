@@ -12,6 +12,7 @@
 // limitations under the License.
 
 mod array;
+mod builder;
 mod impls;
 mod macros;
 mod misc;
@@ -22,11 +23,11 @@ mod threadpool;
 mod types;
 
 pub use crate::ser::{deserialize, serialize, BinReader, BinWriter, SlabReader, SlabWriter};
-pub use crate::slabs::{Slab, SlabAllocatorBuilder, SlabMut, GLOBAL_SLAB_ALLOCATOR};
+pub use crate::slabs::GLOBAL_SLAB_ALLOCATOR;
 pub use crate::types::{
-	Array, ArrayBuilder, ArrayList, ConfigOption, HashsetIterator, HashtableIterator, List,
-	ListConfig, ListIterator, Match, MatchBuilder, Pattern, PoolResult, Queue, Reader,
-	Serializable, SlabAllocator, SlabAllocatorConfig, SortableList, Stack, StaticBuilder,
-	StaticHashset, StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, SuffixTree,
-	ThreadPool, ThreadPoolBuilder, ThreadPoolConfig, Writer,
+	Array, ArrayList, Builder, ConfigOption, HashsetIterator, HashtableIterator, List, ListConfig,
+	ListIterator, Match, MatchBuilder, Pattern, PoolResult, Queue, Reader, Serializable, Slab,
+	SlabAllocator, SlabAllocatorConfig, SlabMut, SortableList, Stack, StaticHashset,
+	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, SuffixTree, ThreadPool,
+	ThreadPoolConfig, Writer,
 };
