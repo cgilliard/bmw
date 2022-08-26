@@ -13,7 +13,6 @@
 
 use crate::types::Direction;
 use crate::{Array, ArrayList, List, Queue, Stack};
-use bmw_deps::try_traits::clone::TryClone;
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::alloc::{alloc, dealloc, Layout};
@@ -115,13 +114,12 @@ where
 	}
 }
 
-impl<T> TryClone for Array<T> {
-	type Error = Error;
-	fn try_clone(&self) -> Result<Self, Error> {
+impl<T> Clone for Array<T> {
+	fn clone(&self) -> Self {
 		let layout = self.layout;
 		let data = unsafe { alloc(layout) };
 		if data.is_null() {
-			return Err(err!(ErrKind::Alloc, "could not allocate memory for array"));
+			panic!("could not allocate array. Not enough memory.");
 		}
 		let size = self.size;
 		let size_of_type = self.size_of_type;
@@ -130,13 +128,13 @@ impl<T> TryClone for Array<T> {
 			copy_nonoverlapping(self.data, data, size * size_of_type);
 		}
 
-		Ok(Self {
+		Self {
 			data,
 			size_of_type,
 			layout,
 			size,
 			_phantom_data: PhantomData,
-		})
+		}
 	}
 }
 
@@ -252,18 +250,12 @@ where
 		self.size = 0;
 		Ok(())
 	}
-	fn append(&mut self, list: &impl List<T>) -> Result<(), Error> {
-		for x in list.iter() {
-			List::push(self, x)?;
-		}
-		Ok(())
-	}
-	fn copy(&self) -> Result<Self, Error> {
-		todo!()
-	}
 }
 
-impl<T> Queue<T> for ArrayList<T> {
+impl<T> Queue<T> for ArrayList<T>
+where
+	T: Clone,
+{
 	fn enqueue(&mut self, value: T) -> Result<(), Error> {
 		if self.size == self.inner.size {
 			let fmt = format!("capacity ({}) exceeded.", self.inner.size);
@@ -294,7 +286,10 @@ impl<T> Queue<T> for ArrayList<T> {
 	}
 }
 
-impl<T> Stack<T> for ArrayList<T> {
+impl<T> Stack<T> for ArrayList<T>
+where
+	T: Clone,
+{
 	fn push(&mut self, value: T) -> Result<(), Error> {
 		if self.size == self.inner.size {
 			let fmt = format!("capacity ({}) exceeded.", self.inner.size);
@@ -388,9 +383,10 @@ where
 mod test {
 	use crate as bmw_util;
 	use crate::{
-		block_on, execute, thread_pool, Array, Builder, List, PoolResult, Queue, Stack, ThreadPool,
+		block_on, execute, list_eq, thread_pool, Array, Builder, List, PoolResult, Queue, Stack,
+		ThreadPool,
 	};
-	use bmw_deps::try_traits::clone::TryClone;
+	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
 
@@ -419,7 +415,7 @@ mod test {
 			test.arr[i] = i as u32;
 		}
 
-		let test2 = test.arr.try_clone()?;
+		let test2 = test.arr.clone();
 
 		for i in 0..40 {
 			info!("i={}", i)?;
@@ -535,36 +531,31 @@ mod test {
 		list1.push(1usize)?;
 		list2.push(1usize)?;
 
-		assert_eq!(list1, list2);
+		assert!(list_eq!(&list1, &list2));
 
 		list1.push(2)?;
-		assert_ne!(list1, list2);
+		assert!(!list_eq!(&list1, &list2));
 
 		list2.push(2)?;
-		assert_eq!(list1, list2);
+		assert!(list_eq!(&list1, &list2));
 
 		list1.push(1)?;
 		list2.push(3)?;
-		assert_ne!(list1, list2);
+		assert!(!list_eq!(&list1, &list2));
 
 		list1.clear()?;
 		list2.clear()?;
-		assert_eq!(list1, list2);
+		assert!(list_eq!(&list1, &list2));
 
 		list1.push(10)?;
 		list2.push(10)?;
-		assert_eq!(list1, list2);
+		assert!(list_eq!(&list1, &list2));
 
 		let mut list3 = Builder::build_array_list(10)?;
 
 		for i in 0..5 {
 			list3.push(i)?;
 		}
-
-		list1.append(&list3)?;
-		assert_ne!(list1, list2);
-		list2.append(&list3)?;
-		assert_eq!(list1, list2);
 
 		let mut list = Builder::build_array_list(50)?;
 
@@ -718,9 +709,24 @@ mod test {
 
 	#[test]
 	fn test_queue_boxed() -> Result<(), Error> {
-		let queue = Builder::build_queue_boxed(10)?;
+		let queue = Builder::build_queue_box(10)?;
 		let mut test = TestBoxedQueue { queue };
 		test.queue.enqueue(1)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_queue_clone() -> Result<(), Error> {
+		let queue = Builder::build_queue_box(10)?;
+		let mut test = TestBoxedQueue { queue };
+		test.queue.enqueue(1)?;
+		let mut test2 = clone_box(&*test.queue);
+
+		assert_eq!(test.queue.dequeue(), Some(&1));
+		assert_eq!(test.queue.dequeue(), None);
+		assert_eq!(test2.dequeue(), Some(&1));
+		assert_eq!(test2.dequeue(), None);
+
 		Ok(())
 	}
 }

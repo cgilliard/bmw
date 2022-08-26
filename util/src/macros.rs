@@ -262,6 +262,36 @@ macro_rules! list {
     };
 }
 
+#[macro_export]
+macro_rules! list_append {
+	($list1:expr, $list2:expr) => {{
+		for x in $list2.iter() {
+			$list1.push(x)?;
+		}
+	}};
+}
+
+#[macro_export]
+macro_rules! list_eq {
+	($list1:expr, $list2:expr) => {{
+		if $list1.size() != $list2.size() {
+			false
+		} else {
+			let mut ret = true;
+			{
+				let mut itt1 = $list1.iter();
+				let mut itt2 = $list2.iter();
+				for _ in 0..$list1.size() {
+					if itt1.next() != itt2.next() {
+						ret = false;
+					}
+				}
+			}
+			ret
+		}
+	}};
+}
+
 /// Macro used to configure/build a thread pool. See [`crate::ThreadPool`] for working examples.
 #[macro_export]
 macro_rules! thread_pool {
@@ -434,11 +464,11 @@ mod test {
 	#[test]
 	fn test_list_macro() -> Result<(), bmw_err::Error> {
 		let mut list1 = list!['1', '2', '3'];
-		let list2 = list!['a', 'b', 'c'];
-		list1.append(&list2)?;
-		info!("list={:?}", list1)?;
-		assert_eq!(list1, list!['a', 'b', 'c', '1', '2', '3']);
-		assert_ne!(list1, list!['a', 'b', 'c', '1', '2']);
+		list_append!(list1, list!['a', 'b', 'c']);
+		let list2 = list!['1', '2', '3', 'a', 'b', 'c'];
+		assert!(list_eq!(list1, list2));
+		let list2 = list!['a', 'b', 'c', '1', '2'];
+		assert!(!list_eq!(list1, list2));
 
 		let list3 = list![1, 2, 3, 4, 5];
 		info!("list={:?}", list3)?;

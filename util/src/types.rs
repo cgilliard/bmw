@@ -12,6 +12,7 @@
 // limitations under the License.
 
 use crate::{SlabReader, SlabWriter};
+use bmw_deps::dyn_clone::{clone_trait_object, DynClone};
 use bmw_err::*;
 use bmw_log::*;
 use std::alloc::Layout;
@@ -107,6 +108,7 @@ pub struct SlabAllocatorConfig {
 	pub slab_count: usize,
 }
 
+#[derive(Clone)]
 pub struct ArrayList<T> {
 	pub(crate) inner: Array<T>,
 	pub(crate) size: usize,
@@ -125,10 +127,10 @@ pub struct Array<T> {
 #[derive(Debug, Clone)]
 pub struct ListConfig {}
 
-pub trait StaticHashtable<K, V>: PartialEq + Debug
+pub trait StaticHashtable<K, V>: Debug + DynClone
 where
-	K: Serializable + Hash + PartialEq + Debug,
-	V: Serializable,
+	K: Serializable + Hash + PartialEq + Debug + Clone,
+	V: Serializable + Clone,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
@@ -136,14 +138,11 @@ where
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
 	fn iter<'a>(&'a self) -> HashtableIterator<'a, K, V>;
-	fn copy(&self) -> Result<Self, Error>
-	where
-		Self: Sized;
 }
 
-pub trait StaticHashset<K>: PartialEq + Debug
+pub trait StaticHashset<K>: Debug + DynClone
 where
-	K: Serializable + Hash + PartialEq + Debug,
+	K: Serializable + Hash + PartialEq + Debug + Clone,
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
 	fn contains(&self, key: &K) -> Result<bool, Error>;
@@ -151,34 +150,33 @@ where
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
 	fn iter<'a>(&'a self) -> HashsetIterator<K>;
-	fn copy(&self) -> Result<Self, Error>
-	where
-		Self: Sized;
 }
 
-pub trait Queue<V> {
+pub trait Queue<V>: DynClone {
 	fn enqueue(&mut self, value: V) -> Result<(), Error>;
 	fn dequeue(&mut self) -> Option<&V>;
 	fn peek(&self) -> Option<&V>;
 }
 
-pub trait Stack<V> {
+pub trait Stack<V>: DynClone {
 	fn push(&mut self, value: V) -> Result<(), Error>;
 	fn pop(&mut self) -> Option<&V>;
 	fn peek(&self) -> Option<&V>;
 }
 
-pub trait List<V>: Debug + PartialEq {
+pub trait List<V>: Debug + DynClone {
 	fn push(&mut self, value: V) -> Result<(), Error>;
 	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
 	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
-	fn append(&mut self, list: &impl List<V>) -> Result<(), Error>;
-	fn copy(&self) -> Result<Self, Error>
-	where
-		Self: Sized;
 }
+
+clone_trait_object!(<V>Queue<V>);
+clone_trait_object!(<V>Stack<V>);
+clone_trait_object!(<V>StaticHashset<V>);
+clone_trait_object!(<K, V>StaticHashtable<K, V>);
+clone_trait_object!(<V>List<V>);
 
 pub trait SortableList<V>: List<V>
 where
@@ -543,7 +541,7 @@ pub trait Match {
 	fn set_id(&mut self, id: usize) -> Result<(), Error>;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Pattern {
 	pub(crate) regex: String,
 	pub(crate) is_case_sensitive: bool,
@@ -663,7 +661,7 @@ pub struct Builder {}
 
 pub struct HashtableIterator<'a, K, V>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	pub(crate) hashtable: &'a StaticImpl<K>,
 	pub(crate) cur: usize,
@@ -672,7 +670,7 @@ where
 
 pub struct HashsetIterator<'a, K>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	pub(crate) hashset: &'a StaticImpl<K>,
 	pub(crate) cur: usize,
@@ -682,7 +680,7 @@ where
 
 pub struct ListIterator<'a, V>
 where
-	V: Serializable,
+	V: Serializable + Clone,
 {
 	pub(crate) list: &'a StaticImpl<V>,
 	pub(crate) cur: usize,
@@ -691,16 +689,18 @@ where
 	pub(crate) slab_reader: SlabReader,
 }
 
+#[derive(Clone)]
 pub struct StaticImplSync<K>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	pub(crate) static_impl: StaticImpl<K>,
 }
 
+#[derive(Clone)]
 pub(crate) struct StaticImpl<K>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	pub(crate) slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	pub(crate) slab_reader: SlabReader,

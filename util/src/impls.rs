@@ -18,7 +18,6 @@ use crate::{
 	Serializable, SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, StaticHashset,
 	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, Writer, GLOBAL_SLAB_ALLOCATOR,
 };
-use bmw_deps::try_traits::clone::TryClone;
 use bmw_err::*;
 use bmw_log::*;
 use std::cell::{Ref, RefCell, RefMut};
@@ -36,8 +35,8 @@ info!();
 
 impl<'a, K, V> Iterator for HashtableIterator<'a, K, V>
 where
-	K: Serializable,
-	V: Serializable,
+	K: Serializable + Clone,
+	V: Serializable + Clone,
 {
 	type Item = (K, V);
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
@@ -53,7 +52,7 @@ where
 
 impl<'a, K> Iterator for HashsetIterator<'a, K>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	type Item = K;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
@@ -81,7 +80,7 @@ where
 
 impl<'a, V> Iterator for ListIterator<'a, V>
 where
-	V: Serializable,
+	V: Serializable + Clone,
 {
 	type Item = V;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
@@ -112,7 +111,7 @@ where
 
 impl<'a, K, V> HashtableIterator<'a, K, V>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	fn new(hashtable: &'a StaticImpl<K>, cur: usize) -> Self {
 		Self {
@@ -125,7 +124,7 @@ where
 
 impl<'a, K> HashsetIterator<'a, K>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	fn new(hashset: &'a StaticImpl<K>, cur: usize) -> Self {
 		Self {
@@ -139,7 +138,7 @@ where
 
 impl<'a, V> ListIterator<'a, V>
 where
-	V: Serializable,
+	V: Serializable + Clone,
 {
 	fn new(list: &'a StaticImpl<V>, cur: usize, direction: Direction) -> Self {
 		let _ = debug!("new list iter");
@@ -179,7 +178,7 @@ impl Default for ListConfig {
 
 impl<K> PartialEq for StaticImpl<K>
 where
-	K: Serializable + PartialEq,
+	K: Serializable + PartialEq + Clone,
 {
 	fn eq(&self, rhs: &Self) -> bool {
 		if self.size != rhs.size {
@@ -205,7 +204,7 @@ where
 
 impl<K> Debug for StaticImpl<K>
 where
-	K: Serializable + Debug,
+	K: Serializable + Debug + Clone,
 {
 	fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
 		if self.entry_array.is_some() {
@@ -239,13 +238,13 @@ where
 	}
 }
 
-unsafe impl<K> Send for StaticImplSync<K> where K: Serializable {}
+unsafe impl<K> Send for StaticImplSync<K> where K: Serializable + Clone {}
 
-unsafe impl<K> Sync for StaticImplSync<K> where K: Serializable {}
+unsafe impl<K> Sync for StaticImplSync<K> where K: Serializable + Clone {}
 
 impl<K> PartialEq for StaticImplSync<K>
 where
-	K: Serializable + PartialEq,
+	K: Serializable + PartialEq + Clone,
 {
 	fn eq(&self, rhs: &Self) -> bool {
 		self.static_impl == rhs.static_impl
@@ -254,7 +253,7 @@ where
 
 impl<K> Debug for StaticImplSync<K>
 where
-	K: Serializable + Debug,
+	K: Serializable + Debug + Clone,
 {
 	fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
 		write!(f, "{:?}", self.static_impl)
@@ -263,7 +262,7 @@ where
 
 impl<K> StaticImplSync<K>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	pub(crate) fn new(
 		hashtable_config: Option<StaticHashtableConfig>,
@@ -285,8 +284,8 @@ where
 
 impl<K, V> StaticHashtable<K, V> for StaticImplSync<K>
 where
-	K: Serializable + Hash + PartialEq + Debug,
-	V: Serializable,
+	K: Serializable + Hash + PartialEq + Debug + Clone,
+	V: Serializable + Clone,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error> {
 		let mut hasher = DefaultHasher::new();
@@ -327,15 +326,11 @@ where
 	fn iter<'b>(&'b self) -> HashtableIterator<'b, K, V> {
 		HashtableIterator::new(&self.static_impl, self.static_impl.tail)
 	}
-	fn copy(&self) -> Result<Self, Error> {
-		let static_impl = self.static_impl.copy_impl()?;
-		Ok(Self { static_impl })
-	}
 }
 
 impl<K> StaticHashset<K> for StaticImplSync<K>
 where
-	K: Serializable + Hash + PartialEq + Debug,
+	K: Serializable + Hash + PartialEq + Debug + Clone,
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error> {
 		let mut hasher = DefaultHasher::new();
@@ -375,16 +370,11 @@ where
 	fn iter<'b>(&'b self) -> HashsetIterator<'b, K> {
 		HashsetIterator::new(&self.static_impl, self.static_impl.tail)
 	}
-
-	fn copy(&self) -> Result<Self, Error> {
-		let static_impl = self.static_impl.copy_impl()?;
-		Ok(Self { static_impl })
-	}
 }
 
 impl<V> List<V> for StaticImplSync<V>
 where
-	V: Serializable + Debug + PartialEq,
+	V: Serializable + Debug + PartialEq + Clone,
 {
 	fn push(&mut self, value: V) -> Result<(), Error> {
 		self.static_impl.insert_impl::<V>(Some(&value), None, None)
@@ -410,21 +400,19 @@ where
 	fn clear(&mut self) -> Result<(), Error> {
 		self.static_impl.clear_impl()
 	}
+	/*
 	fn append(&mut self, list: &impl List<V>) -> Result<(), Error> {
 		for x in list.iter() {
 			self.static_impl.push(x)?;
 		}
 		Ok(())
 	}
-	fn copy(&self) -> Result<Self, Error> {
-		let static_impl = self.static_impl.copy_impl()?;
-		Ok(Self { static_impl })
-	}
+		*/
 }
 
 impl<K> StaticImpl<K>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	pub(crate) fn new(
 		hashtable_config: Option<StaticHashtableConfig>,
@@ -582,7 +570,7 @@ where
 		cur: &mut usize,
 	) -> Result<Option<<HashtableIterator<K, V> as Iterator>::Item>, Error>
 	where
-		V: Serializable,
+		V: Serializable + Clone,
 	{
 		let mut reader = self.slab_reader.clone();
 		match self.get_next_slot(cur, Direction::Backward, &mut reader)? {
@@ -717,7 +705,7 @@ where
 
 	fn get_impl(&self, key: &K, hash: usize) -> Result<Option<(usize, SlabReader)>, Error>
 	where
-		K: Serializable + PartialEq,
+		K: Serializable + PartialEq + Clone,
 	{
 		let entry_array_len = match self.entry_array.as_ref() {
 			Some(e) => e.size(),
@@ -769,8 +757,8 @@ where
 		hash: usize,
 	) -> Result<(), Error>
 	where
-		K: Serializable + Hash + PartialEq,
-		V: Serializable,
+		K: Serializable + Hash + PartialEq + Clone,
+		V: Serializable + Clone,
 	{
 		let entry_array_len = match self.entry_array.as_ref() {
 			Some(e) => e.size(),
@@ -833,7 +821,7 @@ where
 		entry: Option<usize>,
 	) -> Result<(), Error>
 	where
-		V: Serializable,
+		V: Serializable + Clone,
 	{
 		let ptr_size = self.ptr_size;
 		let max_value = self.max_value;
@@ -1134,32 +1122,11 @@ where
 
 		Ok(())
 	}
-
-	fn copy_impl(&self) -> Result<Self, Error> {
-		Ok(Self {
-			slabs: None,
-			bytes_per_slab: self.bytes_per_slab,
-			max_value: self.max_value,
-			slab_size: self.slab_size,
-			ptr_size: self.ptr_size,
-			entry_array: match &self.entry_array {
-				Some(entry_array) => Some(entry_array.try_clone()?),
-				None => None,
-			},
-			max_load_factor: self.max_load_factor,
-			size: self.size,
-			head: self.head,
-			tail: self.tail,
-			slab_reader: self.slab_reader.clone(),
-			slab_writer: self.slab_writer.clone(),
-			_phantom_data: PhantomData,
-		})
-	}
 }
 
 impl<K> Drop for StaticImpl<K>
 where
-	K: Serializable,
+	K: Serializable + Clone,
 {
 	fn drop(&mut self) {
 		match self.clear_impl() {
@@ -1173,8 +1140,8 @@ where
 
 impl<K, V> StaticHashtable<K, V> for StaticImpl<K>
 where
-	K: Serializable + Hash + PartialEq + Debug,
-	V: Serializable,
+	K: Serializable + Hash + PartialEq + Debug + Clone,
+	V: Serializable + Clone,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error> {
 		let mut hasher = DefaultHasher::new();
@@ -1214,15 +1181,11 @@ where
 	fn iter<'b>(&'b self) -> HashtableIterator<'b, K, V> {
 		HashtableIterator::new(self, self.tail)
 	}
-
-	fn copy(&self) -> Result<Self, Error> {
-		self.copy_impl()
-	}
 }
 
 impl<K> StaticHashset<K> for StaticImpl<K>
 where
-	K: Serializable + Hash + PartialEq + Debug,
+	K: Serializable + Hash + PartialEq + Debug + Clone,
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error> {
 		let mut hasher = DefaultHasher::new();
@@ -1261,15 +1224,11 @@ where
 	fn iter<'b>(&'b self) -> HashsetIterator<'b, K> {
 		HashsetIterator::new(self, self.tail)
 	}
-
-	fn copy(&self) -> Result<Self, Error> {
-		self.copy_impl()
-	}
 }
 
 impl<V> List<V> for StaticImpl<V>
 where
-	V: Serializable + Debug + PartialEq,
+	V: Serializable + Debug + PartialEq + Clone,
 {
 	fn push(&mut self, value: V) -> Result<(), Error> {
 		self.insert_impl::<V>(Some(&value), None, None)
@@ -1287,15 +1246,14 @@ where
 	fn clear(&mut self) -> Result<(), Error> {
 		self.clear_impl()
 	}
+	/*
 	fn append(&mut self, list: &impl List<V>) -> Result<(), Error> {
 		for x in list.iter() {
 			self.push(x)?;
 		}
 		Ok(())
 	}
-	fn copy(&self) -> Result<Self, Error> {
-		self.copy_impl()
-	}
+		*/
 }
 
 #[cfg(test)]
@@ -1566,6 +1524,7 @@ mod test {
 		Ok(())
 	}
 
+	/*
 	#[test]
 	fn test_append() -> Result<(), Error> {
 		let mut list = Builder::build_list(ListConfig::default(), None)?;
@@ -1594,6 +1553,7 @@ mod test {
 
 		Ok(())
 	}
+		*/
 
 	#[test]
 	fn test_small_slabs() -> Result<(), Error> {
@@ -1760,6 +1720,26 @@ mod test {
 
 		let h = h_clone.rlock()?;
 		assert_eq!((**h.guard()).size(), 1);
+
+		Ok(())
+	}
+
+	struct TestHashtableBox {
+		h: Box<dyn StaticHashtable<u32, u32>>,
+	}
+
+	#[test]
+	fn test_hashtable_box() -> Result<(), Error> {
+		let config = StaticHashtableConfig {
+			..Default::default()
+		};
+
+		let h = Builder::build_hashtable_box(config, None)?;
+		let mut thtb = TestHashtableBox { h };
+
+		let x = 1;
+		thtb.h.insert(&x, &2)?;
+		assert_eq!(thtb.h.get(&x)?, Some(2));
 
 		Ok(())
 	}
