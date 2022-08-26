@@ -11,8 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Serializable;
-use crate::{Array, ArrayBuilder, ArrayList, List, Queue};
+use crate::types::Direction;
+use crate::{Array, ArrayBuilder, ArrayList, List, Queue, Stack};
 use bmw_deps::try_traits::clone::TryClone;
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -20,13 +20,16 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
-use std::ops::{Index, IndexMut, Range};
+use std::ops::{Index, IndexMut};
 use std::ptr::copy_nonoverlapping;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
 info!();
 
-impl<T> Array<T> {
+impl<T> Array<T>
+where
+	T: Clone,
+{
 	fn new(size: usize) -> Result<Self, Error> {
 		let n = ::std::mem::size_of::<T>();
 		let layout = Layout::from_size_align(size * n, n).unwrap();
@@ -55,6 +58,12 @@ impl<T> Array<T> {
 		let ptr: *mut T = self.data as *mut T;
 		let slice = unsafe { from_raw_parts_mut(ptr, self.size) };
 		slice
+	}
+	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
+		Box::new(ArrayIterator {
+			cur: 0,
+			array_ref: self,
+		})
 	}
 }
 
@@ -158,10 +167,18 @@ impl<T> Index<usize> for Array<T> {
 	}
 }
 
-impl<T> ArrayList<T> {
+impl<T> ArrayList<T>
+where
+	T: Clone,
+{
 	fn new(size: usize) -> Result<Self, Error> {
 		let inner = Array::new(size)?;
-		Ok(Self { inner, size: 0 })
+		Ok(Self {
+			inner,
+			size: 0,
+			head: 0,
+			tail: 0,
+		})
 	}
 }
 
@@ -189,15 +206,9 @@ where
 	}
 }
 
-#[derive(PartialEq)]
-enum Direction {
-	Forward,
-	Backward,
-}
-
 impl<T> List<T> for ArrayList<T>
 where
-	T: PartialEq + Debug + Serializable + Clone,
+	T: Clone + Debug + PartialEq,
 {
 	fn push(&mut self, value: T) -> Result<(), Error> {
 		if self.size() >= self.inner.size {
@@ -233,7 +244,7 @@ where
 	}
 	fn append(&mut self, list: &impl List<T>) -> Result<(), Error> {
 		for x in list.iter() {
-			self.push(x)?;
+			List::push(self, x)?;
 		}
 		Ok(())
 	}
@@ -243,14 +254,73 @@ where
 }
 
 impl<T> Queue<T> for ArrayList<T> {
-	fn enqueue(&mut self, _value: &T) -> Result<(), Error> {
-		todo!()
+	fn enqueue(&mut self, value: T) -> Result<(), Error> {
+		if self.size == self.inner.size {
+			let fmt = format!("capacity ({}) exceeded.", self.inner.size);
+			Err(err!(ErrKind::CapacityExceeded, fmt))
+		} else {
+			self.inner[self.tail] = value;
+			self.tail = (self.tail + 1) % self.inner.size;
+			self.size += 1;
+			Ok(())
+		}
 	}
-	fn dequeue(&mut self) -> Result<Option<&T>, Error> {
-		todo!()
+	fn dequeue(&mut self) -> Option<&T> {
+		if self.size == 0 {
+			None
+		} else {
+			let ret = &self.inner[self.head];
+			self.head = (self.head + 1) % self.inner.size;
+			self.size = self.size.saturating_sub(1);
+			Some(ret)
+		}
 	}
-	fn peek(&self) -> Result<Option<&T>, Error> {
-		todo!()
+	fn peek(&self) -> Option<&T> {
+		if self.size == 0 {
+			None
+		} else {
+			Some(&self.inner[self.head])
+		}
+	}
+}
+
+impl<T> Stack<T> for ArrayList<T> {
+	fn push(&mut self, value: T) -> Result<(), Error> {
+		if self.size == self.inner.size {
+			let fmt = format!("capacity ({}) exceeded.", self.inner.size);
+			Err(err!(ErrKind::CapacityExceeded, fmt))
+		} else {
+			self.inner[self.tail] = value;
+			self.tail = (self.tail + 1) % self.inner.size;
+			self.size += 1;
+			Ok(())
+		}
+	}
+	fn pop(&mut self) -> Option<&T> {
+		if self.size == 0 {
+			None
+		} else {
+			if self.tail == 0 {
+				self.tail = self.inner.size.saturating_sub(1);
+			} else {
+				self.tail = self.tail - 1;
+			}
+			let ret = &self.inner[self.tail];
+			self.size = self.size.saturating_sub(1);
+			Some(ret)
+		}
+	}
+	fn peek(&self) -> Option<&T> {
+		if self.size == 0 {
+			None
+		} else {
+			let index = if self.tail == 0 {
+				self.inner.size.saturating_sub(1)
+			} else {
+				self.tail - 1
+			};
+			Some(&self.inner[index])
+		}
 	}
 }
 
@@ -289,35 +359,47 @@ where
 	}
 }
 
-impl<'a, T> Iterator for ArrayIterator<'a, T> {
-	type Item = &'a T;
+impl<'a, T> Iterator for ArrayIterator<'a, T>
+where
+	T: Clone,
+{
+	type Item = T;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
-		if self.cur >= self.array_ref.size {
+		if self.cur >= self.array_ref.size.clone() {
 			None
 		} else {
 			self.cur += 1;
-			Some(&self.array_ref[self.cur - 1])
-		}
-	}
-}
-
-impl<'a, T: 'static> IntoIterator for &'a Array<T> {
-	type Item = &'a T;
-	type IntoIter = ArrayIterator<'a, T>;
-	fn into_iter(self) -> ArrayIterator<'a, T> {
-		ArrayIterator {
-			cur: 0,
-			array_ref: self,
+			Some(self.array_ref[self.cur - 1].clone())
 		}
 	}
 }
 
 impl ArrayBuilder {
-	pub fn build<T>(size: usize) -> Result<Array<T>, Error> {
+	pub fn build<T>(size: usize) -> Result<Array<T>, Error>
+	where
+		T: Clone,
+	{
 		Array::new(size)
 	}
 
-	pub fn build_array_list<T>(size: usize) -> Result<ArrayList<T>, Error> {
+	pub fn build_array_list<T>(size: usize) -> Result<impl List<T>, Error>
+	where
+		T: Clone + Debug + PartialEq,
+	{
+		ArrayList::new(size)
+	}
+
+	pub fn build_queue<T>(size: usize) -> Result<impl Queue<T>, Error>
+	where
+		T: Clone,
+	{
+		ArrayList::new(size)
+	}
+
+	pub fn build_stack<T>(size: usize) -> Result<impl Stack<T>, Error>
+	where
+		T: Clone,
+	{
 		ArrayList::new(size)
 	}
 }
@@ -326,7 +408,8 @@ impl ArrayBuilder {
 mod test {
 	use crate as bmw_util;
 	use crate::{
-		block_on, execute, thread_pool, Array, ArrayBuilder, List, PoolResult, ThreadPool,
+		block_on, execute, thread_pool, Array, ArrayBuilder, List, PoolResult, Queue, Stack,
+		ThreadPool,
 	};
 	use bmw_deps::try_traits::clone::TryClone;
 	use bmw_err::{err, ErrKind, Error};
@@ -376,8 +459,8 @@ mod test {
 		}
 
 		let mut i = 0;
-		for x in &arr {
-			assert_eq!(*x, i as u64);
+		for x in arr.iter() {
+			assert_eq!(x, i as u64);
 			i += 1;
 		}
 		Ok(())
@@ -529,6 +612,96 @@ mod test {
 			assert_eq!(x, i);
 		}
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_as_slice_mut() -> Result<(), Error> {
+		let data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+		let mut array = ArrayBuilder::build(data.len())?;
+		array.as_mut().clone_from_slice(&data);
+
+		assert_eq!(array[3], 3u8);
+		assert_eq!(array.as_slice()[4], 4u8);
+		Ok(())
+	}
+
+	#[test]
+	fn test_queue() -> Result<(), Error> {
+		let mut queue = ArrayBuilder::build_queue(10)?;
+		queue.enqueue(1)?;
+		queue.enqueue(2)?;
+		queue.enqueue(3)?;
+
+		assert_eq!(queue.dequeue(), Some(&1));
+		assert_eq!(queue.peek(), Some(&2));
+		assert_eq!(queue.peek(), Some(&2));
+		assert_eq!(queue.dequeue(), Some(&2));
+		assert_eq!(queue.dequeue(), Some(&3));
+		assert_eq!(queue.dequeue(), None);
+		assert_eq!(queue.peek(), None);
+
+		for i in 0..9 {
+			queue.enqueue(i)?;
+		}
+
+		for i in 0..9 {
+			assert_eq!(queue.dequeue(), Some(&i));
+		}
+
+		for i in 0..10 {
+			queue.enqueue(i)?;
+		}
+
+		for i in 0..10 {
+			assert_eq!(queue.dequeue(), Some(&i));
+		}
+
+		for i in 0..10 {
+			queue.enqueue(i)?;
+		}
+
+		assert!(queue.enqueue(1).is_err());
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_stack() -> Result<(), Error> {
+		let mut stack = ArrayBuilder::build_stack(10)?;
+		stack.push(1)?;
+		stack.push(2)?;
+		stack.push(3)?;
+
+		assert_eq!(stack.pop(), Some(&3));
+		assert_eq!(stack.peek(), Some(&2));
+		assert_eq!(stack.peek(), Some(&2));
+		assert_eq!(stack.pop(), Some(&2));
+		assert_eq!(stack.pop(), Some(&1));
+		assert_eq!(stack.pop(), None);
+		assert_eq!(stack.peek(), None);
+
+		for i in 0..9 {
+			stack.push(i)?;
+		}
+
+		for i in (0..9).rev() {
+			assert_eq!(stack.pop(), Some(&i));
+		}
+
+		for i in 0..10 {
+			stack.push(i)?;
+		}
+
+		for i in (0..10).rev() {
+			assert_eq!(stack.pop(), Some(&i));
+		}
+
+		for i in 0..10 {
+			stack.push(i)?;
+		}
+
+		assert!(stack.push(1).is_err());
 		Ok(())
 	}
 }

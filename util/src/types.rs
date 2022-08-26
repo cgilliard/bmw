@@ -22,7 +22,6 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::ops::Range;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 
@@ -113,11 +112,8 @@ pub struct SlabAllocatorConfig {
 pub struct ArrayList<T> {
 	pub(crate) inner: Array<T>,
 	pub(crate) size: usize,
-}
-
-pub struct ArraySlice<'a, T> {
-	pub(crate) _array: &'a mut Array<T>,
-	pub(crate) _range: Range<usize>,
+	pub(crate) head: usize,
+	pub(crate) tail: usize,
 }
 
 pub struct Array<T> {
@@ -165,19 +161,15 @@ where
 }
 
 pub trait Queue<V> {
-	fn enqueue(&mut self, value: &V) -> Result<(), Error>;
-	fn dequeue(&mut self) -> Result<Option<&V>, Error>;
-	fn peek(&self) -> Result<Option<&V>, Error>;
+	fn enqueue(&mut self, value: V) -> Result<(), Error>;
+	fn dequeue(&mut self) -> Option<&V>;
+	fn peek(&self) -> Option<&V>;
 }
 
-/// TODO: not implemented
-pub trait StaticStack<V>
-where
-	V: Serializable,
-{
+pub trait Stack<V> {
 	fn push(&mut self, value: V) -> Result<(), Error>;
-	fn pop(&mut self) -> Result<Option<V>, Error>;
-	fn peek(&self) -> Result<Option<V>, Error>;
+	fn pop(&mut self) -> Option<&V>;
+	fn peek(&self) -> Option<&V>;
 }
 
 pub trait List<V>: PartialEq + Debug {
@@ -711,7 +703,7 @@ where
 	pub(crate) _phantom_data: PhantomData<K>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Direction {
 	Forward,
 	Backward,
