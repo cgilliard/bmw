@@ -667,7 +667,7 @@ pub struct HashtableIterator<'a, K, V>
 where
 	K: Serializable + Clone,
 {
-	pub(crate) hashtable: &'a StaticImpl<K>,
+	pub(crate) hashtable: &'a HashImpl<K>,
 	pub(crate) cur: usize,
 	pub(crate) _phantom_data: PhantomData<(K, V)>,
 }
@@ -676,7 +676,7 @@ pub struct HashsetIterator<'a, K>
 where
 	K: Serializable + Clone,
 {
-	pub(crate) hashset: &'a StaticImpl<K>,
+	pub(crate) hashset: &'a HashImpl<K>,
 	pub(crate) cur: usize,
 	pub(crate) _phantom_data: PhantomData<K>,
 	pub(crate) slab_reader: SlabReader,
@@ -686,7 +686,7 @@ pub struct ListIterator<'a, V>
 where
 	V: Serializable + Clone,
 {
-	pub(crate) list: &'a StaticImpl<V>,
+	pub(crate) list: &'a HashImpl<V>,
 	pub(crate) cur: usize,
 	pub(crate) direction: Direction,
 	pub(crate) _phantom_data: PhantomData<V>,
@@ -694,15 +694,15 @@ where
 }
 
 #[derive(Clone)]
-pub struct StaticImplSync<K>
+pub struct HashImplSync<K>
 where
 	K: Serializable + Clone,
 {
-	pub(crate) static_impl: StaticImpl<K>,
+	pub(crate) static_impl: HashImpl<K>,
 }
 
 #[derive(Clone)]
-pub(crate) struct StaticImpl<K>
+pub(crate) struct HashImpl<K>
 where
 	K: Serializable + Clone,
 {

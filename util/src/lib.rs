@@ -13,7 +13,7 @@
 
 mod array;
 mod builder;
-mod impls;
+mod hash;
 mod macros;
 mod misc;
 mod ser;

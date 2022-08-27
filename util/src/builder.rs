@@ -15,7 +15,7 @@ use crate::slabs::SlabAllocatorImpl;
 use crate::suffix_tree::{MatchImpl, SuffixTreeImpl};
 use crate::threadpool::ThreadPoolImpl;
 use crate::types::Builder;
-use crate::types::{StaticImpl, StaticImplSync};
+use crate::types::{HashImpl, HashImplSync};
 use crate::{
 	Array, ArrayList, ListConfig, Match, Pattern, Queue, Serializable, SlabAllocator,
 	SlabAllocatorConfig, SortableList, Stack, StaticHashset, StaticHashsetConfig, StaticHashtable,
@@ -94,7 +94,7 @@ impl Builder {
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 		V: Serializable + Clone,
 	{
-		StaticImplSync::new(Some(config), None, None, slab_config)
+		HashImplSync::new(Some(config), None, None, slab_config)
 	}
 
 	pub fn build_sync_hashtable_box<K, V>(
@@ -105,7 +105,7 @@ impl Builder {
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 		V: Serializable + Clone,
 	{
-		Ok(Box::new(StaticImplSync::new(
+		Ok(Box::new(HashImplSync::new(
 			Some(config),
 			None,
 			None,
@@ -121,7 +121,7 @@ impl Builder {
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 		V: Serializable + Clone,
 	{
-		StaticImpl::new(Some(config), None, None, slabs)
+		HashImpl::new(Some(config), None, None, slabs)
 	}
 
 	pub fn build_hashtable_box<K, V>(
@@ -132,7 +132,7 @@ impl Builder {
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 		V: Serializable + Clone,
 	{
-		Ok(Box::new(StaticImpl::new(Some(config), None, None, slabs)?))
+		Ok(Box::new(HashImpl::new(Some(config), None, None, slabs)?))
 	}
 
 	pub fn build_sync_hashset<K>(
@@ -142,7 +142,7 @@ impl Builder {
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 	{
-		StaticImplSync::new(None, Some(config), None, slab_config)
+		HashImplSync::new(None, Some(config), None, slab_config)
 	}
 
 	pub fn build_sync_hashset_box<K>(
@@ -152,7 +152,7 @@ impl Builder {
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 	{
-		Ok(Box::new(StaticImplSync::new(
+		Ok(Box::new(HashImplSync::new(
 			None,
 			Some(config),
 			None,
@@ -167,7 +167,7 @@ impl Builder {
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 	{
-		StaticImpl::new(None, Some(config), None, slabs)
+		HashImpl::new(None, Some(config), None, slabs)
 	}
 
 	pub fn build_hashset_box<K>(
@@ -177,7 +177,7 @@ impl Builder {
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 	{
-		Ok(Box::new(StaticImpl::new(None, Some(config), None, slabs)?))
+		Ok(Box::new(HashImpl::new(None, Some(config), None, slabs)?))
 	}
 
 	pub fn build_sync_list<V>(
@@ -187,7 +187,7 @@ impl Builder {
 	where
 		V: Serializable + Debug + PartialEq + Clone,
 	{
-		StaticImplSync::new(None, None, Some(config), slab_config)
+		HashImplSync::new(None, None, Some(config), slab_config)
 	}
 
 	pub fn build_sync_list_box<V>(
@@ -197,7 +197,7 @@ impl Builder {
 	where
 		V: Serializable + Debug + PartialEq + Clone + 'static,
 	{
-		Ok(Box::new(StaticImplSync::new(
+		Ok(Box::new(HashImplSync::new(
 			None,
 			None,
 			Some(config),
@@ -212,7 +212,7 @@ impl Builder {
 	where
 		V: Serializable + Debug + PartialEq + Clone,
 	{
-		StaticImpl::new(None, None, Some(config), slabs)
+		HashImpl::new(None, None, Some(config), slabs)
 	}
 
 	pub fn build_list_box<V>(
@@ -222,7 +222,7 @@ impl Builder {
 	where
 		V: Serializable + Debug + PartialEq + Clone + 'static,
 	{
-		Ok(Box::new(StaticImpl::new(None, None, Some(config), slabs)?))
+		Ok(Box::new(HashImpl::new(None, None, Some(config), slabs)?))
 	}
 
 	pub fn build_match(start: usize, end: usize, id: usize) -> impl Match {

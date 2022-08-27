@@ -13,7 +13,7 @@
 
 use crate::list_append;
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
-use crate::types::{Direction, StaticImpl, StaticImplSync};
+use crate::types::{Direction, HashImpl, HashImplSync};
 use crate::{
 	Builder, HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Reader,
 	Serializable, SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, SortableList,
@@ -122,7 +122,7 @@ impl<'a, K, V> HashtableIterator<'a, K, V>
 where
 	K: Serializable + Clone,
 {
-	fn new(hashtable: &'a StaticImpl<K>, cur: usize) -> Self {
+	fn new(hashtable: &'a HashImpl<K>, cur: usize) -> Self {
 		Self {
 			hashtable,
 			cur,
@@ -135,7 +135,7 @@ impl<'a, K> HashsetIterator<'a, K>
 where
 	K: Serializable + Clone,
 {
-	fn new(hashset: &'a StaticImpl<K>, cur: usize) -> Self {
+	fn new(hashset: &'a HashImpl<K>, cur: usize) -> Self {
 		Self {
 			hashset,
 			cur,
@@ -149,7 +149,7 @@ impl<'a, V> ListIterator<'a, V>
 where
 	V: Serializable + Clone,
 {
-	fn new(list: &'a StaticImpl<V>, cur: usize, direction: Direction) -> Self {
+	fn new(list: &'a HashImpl<V>, cur: usize, direction: Direction) -> Self {
 		let _ = debug!("new list iter");
 		Self {
 			list,
@@ -185,7 +185,7 @@ impl Default for ListConfig {
 	}
 }
 
-impl<K> PartialEq for StaticImpl<K>
+impl<K> PartialEq for HashImpl<K>
 where
 	K: Serializable + PartialEq + Clone,
 {
@@ -211,7 +211,7 @@ where
 	}
 }
 
-impl<V> SortableList<V> for StaticImpl<V>
+impl<V> SortableList<V> for HashImpl<V>
 where
 	V: Serializable + PartialEq + Debug + Clone,
 {
@@ -239,7 +239,7 @@ where
 	}
 }
 
-impl<K> Debug for StaticImpl<K>
+impl<K> Debug for HashImpl<K>
 where
 	K: Serializable + Debug + Clone,
 {
@@ -275,11 +275,11 @@ where
 	}
 }
 
-unsafe impl<K> Send for StaticImplSync<K> where K: Serializable + Clone {}
+unsafe impl<K> Send for HashImplSync<K> where K: Serializable + Clone {}
 
-unsafe impl<K> Sync for StaticImplSync<K> where K: Serializable + Clone {}
+unsafe impl<K> Sync for HashImplSync<K> where K: Serializable + Clone {}
 
-impl<V> SortableList<V> for StaticImplSync<V>
+impl<V> SortableList<V> for HashImplSync<V>
 where
 	V: Clone + PartialEq + Debug + Serializable,
 {
@@ -297,7 +297,7 @@ where
 	}
 }
 
-impl<K> PartialEq for StaticImplSync<K>
+impl<K> PartialEq for HashImplSync<K>
 where
 	K: Serializable + PartialEq + Clone,
 {
@@ -306,7 +306,7 @@ where
 	}
 }
 
-impl<K> Debug for StaticImplSync<K>
+impl<K> Debug for HashImplSync<K>
 where
 	K: Serializable + Debug + Clone,
 {
@@ -315,7 +315,7 @@ where
 	}
 }
 
-impl<K> StaticImplSync<K>
+impl<K> HashImplSync<K>
 where
 	K: Serializable + Clone,
 {
@@ -332,12 +332,12 @@ where
 		}
 
 		let static_impl =
-			StaticImpl::new(hashtable_config, hashset_config, list_config, Some(slabs))?;
+			HashImpl::new(hashtable_config, hashset_config, list_config, Some(slabs))?;
 		Ok(Self { static_impl })
 	}
 }
 
-impl<K, V> StaticHashtable<K, V> for StaticImplSync<K>
+impl<K, V> StaticHashtable<K, V> for HashImplSync<K>
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 	V: Serializable + Clone,
@@ -383,7 +383,7 @@ where
 	}
 }
 
-impl<K> StaticHashset<K> for StaticImplSync<K>
+impl<K> StaticHashset<K> for HashImplSync<K>
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 {
@@ -427,7 +427,7 @@ where
 	}
 }
 
-impl<V> List<V> for StaticImplSync<V>
+impl<V> List<V> for HashImplSync<V>
 where
 	V: Serializable + Debug + PartialEq + Clone,
 {
@@ -468,7 +468,7 @@ where
 		*/
 }
 
-impl<K> StaticImpl<K>
+impl<K> HashImpl<K>
 where
 	K: Serializable + Clone,
 {
@@ -757,7 +757,7 @@ where
 		let mut i = 0;
 		loop {
 			if i >= entry_array_len {
-				let msg = "StaticImpl: Capacity exceeded";
+				let msg = "HashImpl: Capacity exceeded";
 				return Err(err!(ErrKind::CapacityExceeded, msg));
 			}
 			if self.lookup_entry(entry) == SLOT_EMPTY {
@@ -814,7 +814,7 @@ where
 				let mut i = 0;
 				loop {
 					if i >= entry_array_len {
-						let msg = "StaticImpl: Capacity exceeded";
+						let msg = "HashImpl: Capacity exceeded";
 						return Err(err!(ErrKind::CapacityExceeded, msg));
 					}
 					let entry_value = self.lookup_entry(entry);
@@ -1097,7 +1097,7 @@ where
 	}
 }
 
-impl<K> Drop for StaticImpl<K>
+impl<K> Drop for HashImpl<K>
 where
 	K: Serializable + Clone,
 {
@@ -1111,7 +1111,7 @@ where
 	}
 }
 
-impl<K, V> StaticHashtable<K, V> for StaticImpl<K>
+impl<K, V> StaticHashtable<K, V> for HashImpl<K>
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 	V: Serializable + Clone,
@@ -1156,7 +1156,7 @@ where
 	}
 }
 
-impl<K> StaticHashset<K> for StaticImpl<K>
+impl<K> StaticHashset<K> for HashImpl<K>
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 {
@@ -1199,7 +1199,7 @@ where
 	}
 }
 
-impl<V> List<V> for StaticImpl<V>
+impl<V> List<V> for HashImpl<V>
 where
 	V: Serializable + Debug + PartialEq + Clone,
 {
