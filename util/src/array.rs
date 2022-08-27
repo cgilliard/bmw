@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::Direction;
+use crate::types::{ArrayIterator, ArrayListIterator, Direction};
 use crate::{Array, ArrayList, List, Queue, Serializable, SortableList, Stack};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -356,17 +356,6 @@ where
 			Some(&self.inner[index])
 		}
 	}
-}
-
-struct ArrayListIterator<'a, T> {
-	array_list_ref: &'a ArrayList<T>,
-	cur: usize,
-	direction: Direction,
-}
-
-pub struct ArrayIterator<'a, T> {
-	array_ref: &'a Array<T>,
-	cur: usize,
 }
 
 impl<'a, T> Iterator for ArrayListIterator<'a, T>

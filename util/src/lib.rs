@@ -22,12 +22,12 @@ mod suffix_tree;
 mod threadpool;
 mod types;
 
-pub use crate::ser::{deserialize, serialize, BinReader, BinWriter, SlabReader, SlabWriter};
+pub use crate::ser::{deserialize, serialize};
 pub use crate::slabs::GLOBAL_SLAB_ALLOCATOR;
 pub use crate::types::{
-	Array, ArrayList, Builder, ConfigOption, HashsetIterator, HashtableIterator, List, ListConfig,
-	ListIterator, Match, MatchBuilder, Pattern, PoolResult, Queue, Reader, Serializable, Slab,
-	SlabAllocator, SlabAllocatorConfig, SlabMut, SortableList, Stack, StaticHashset,
-	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, SuffixTree, ThreadPool,
-	ThreadPoolConfig, Writer,
+	Array, ArrayList, BinReader, BinWriter, Builder, ConfigOption, Hashset, HashsetConfig,
+	HashsetIterator, Hashtable, HashtableConfig, HashtableIterator, List, ListConfig, ListIterator,
+	Match, MatchBuilder, Pattern, PoolResult, Queue, Reader, Serializable, Slab, SlabAllocator,
+	SlabAllocatorConfig, SlabMut, SlabReader, SlabWriter, SortableList, Stack, SuffixTree,
+	ThreadPool, ThreadPoolConfig, Writer,
 };

@@ -11,15 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::slabs::SlabAllocatorImpl;
-use crate::suffix_tree::{MatchImpl, SuffixTreeImpl};
-use crate::threadpool::ThreadPoolImpl;
-use crate::types::Builder;
-use crate::types::{HashImpl, HashImplSync};
+use crate::types::{
+	Builder, HashImpl, HashImplSync, MatchImpl, SlabAllocatorImpl, SuffixTreeImpl, ThreadPoolImpl,
+};
 use crate::{
-	Array, ArrayList, ListConfig, Match, Pattern, Queue, Serializable, SlabAllocator,
-	SlabAllocatorConfig, SortableList, Stack, StaticHashset, StaticHashsetConfig, StaticHashtable,
-	StaticHashtableConfig, SuffixTree, ThreadPool, ThreadPoolConfig,
+	Array, ArrayList, Hashset, HashsetConfig, Hashtable, HashtableConfig, ListConfig, Match,
+	Pattern, Queue, Serializable, SlabAllocator, SlabAllocatorConfig, SortableList, Stack,
+	SuffixTree, ThreadPool, ThreadPoolConfig,
 };
 use bmw_err::Error;
 use std::cell::{RefCell, UnsafeCell};
@@ -87,9 +85,9 @@ impl Builder {
 	}
 
 	pub fn build_sync_hashtable<K, V>(
-		config: StaticHashtableConfig,
+		config: HashtableConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<impl StaticHashtable<K, V>, Error>
+	) -> Result<impl Hashtable<K, V>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 		V: Serializable + Clone,
@@ -98,9 +96,9 @@ impl Builder {
 	}
 
 	pub fn build_sync_hashtable_box<K, V>(
-		config: StaticHashtableConfig,
+		config: HashtableConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<Box<dyn StaticHashtable<K, V>>, Error>
+	) -> Result<Box<dyn Hashtable<K, V>>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 		V: Serializable + Clone,
@@ -114,9 +112,9 @@ impl Builder {
 	}
 
 	pub fn build_hashtable<K, V>(
-		config: StaticHashtableConfig,
+		config: HashtableConfig,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<impl StaticHashtable<K, V>, Error>
+	) -> Result<impl Hashtable<K, V>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 		V: Serializable + Clone,
@@ -125,9 +123,9 @@ impl Builder {
 	}
 
 	pub fn build_hashtable_box<K, V>(
-		config: StaticHashtableConfig,
+		config: HashtableConfig,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<Box<dyn StaticHashtable<K, V>>, Error>
+	) -> Result<Box<dyn Hashtable<K, V>>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 		V: Serializable + Clone,
@@ -136,9 +134,9 @@ impl Builder {
 	}
 
 	pub fn build_sync_hashset<K>(
-		config: StaticHashsetConfig,
+		config: HashsetConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<impl StaticHashset<K>, Error>
+	) -> Result<impl Hashset<K>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 	{
@@ -146,9 +144,9 @@ impl Builder {
 	}
 
 	pub fn build_sync_hashset_box<K>(
-		config: StaticHashsetConfig,
+		config: HashsetConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<Box<dyn StaticHashset<K>>, Error>
+	) -> Result<Box<dyn Hashset<K>>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 	{
@@ -161,9 +159,9 @@ impl Builder {
 	}
 
 	pub fn build_hashset<K>(
-		config: StaticHashsetConfig,
+		config: HashsetConfig,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<impl StaticHashset<K>, Error>
+	) -> Result<impl Hashset<K>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 	{
@@ -171,9 +169,9 @@ impl Builder {
 	}
 
 	pub fn build_hashset_box<K>(
-		config: StaticHashsetConfig,
+		config: HashsetConfig,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<Box<dyn StaticHashset<K>>, Error>
+	) -> Result<Box<dyn Hashset<K>>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 	{

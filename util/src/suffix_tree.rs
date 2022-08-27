@@ -11,15 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::types::{Dictionary, MatchImpl, SuffixTreeImpl};
 use crate::{List, Match, Pattern, Reader, Serializable, SuffixTree, Writer};
 use bmw_err::Error;
-
-struct Dictionary {}
-
-#[allow(dead_code)]
-pub(crate) struct SuffixTreeImpl {
-	dictionary: Dictionary,
-}
 
 impl SuffixTreeImpl {
 	pub(crate) fn new(_patterns: impl List<Pattern>) -> Result<Self, Error> {
@@ -41,12 +35,6 @@ impl SuffixTree for SuffixTreeImpl {
 	) -> Result<usize, Error> {
 		Ok(0)
 	}
-}
-
-pub(crate) struct MatchImpl {
-	start: usize,
-	end: usize,
-	id: usize,
 }
 
 impl MatchImpl {

@@ -11,7 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{SlabReader, SlabWriter};
 use bmw_deps::dyn_clone::{clone_trait_object, DynClone};
 use bmw_err::*;
 use bmw_log::*;
@@ -20,20 +19,23 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
+use std::io::{Read, Write};
 use std::marker::PhantomData;
+use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::{Arc, Mutex};
 
 info!();
 
 /// Configuration options used throughout this crate via macro.
 #[derive(Debug)]
 pub enum ConfigOption {
-	/// The maximum number of entries for a data structure. See [`crate::StaticHashtable`] and
-	/// [`crate::StaticHashset`].
+	/// The maximum number of entries for a data structure. See [`crate::Hashtable`] and
+	/// [`crate::Hashset`].
 	MaxEntries(usize),
-	/// The maximum load factor for a data structure. See [`crate::StaticHashtable`] and
-	/// [`crate::StaticHashset`].
+	/// The maximum load factor for a data structure. See [`crate::Hashtable`] and
+	/// [`crate::Hashset`].
 	MaxLoadFactor(f64),
 	/// The slab size for a slab allocator. See [`crate::SlabAllocator`].
 	SlabSize(usize),
@@ -45,6 +47,37 @@ pub enum ConfigOption {
 	MaxSize(usize),
 	/// The size of the sync channel for a thread pool. See [`crate::ThreadPool`].
 	SyncChannelSize(usize),
+}
+
+#[derive(Clone)]
+pub struct SlabWriter {
+	pub(crate) slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+	pub(crate) slab_id: usize,
+	pub(crate) offset: usize,
+	pub(crate) slab_size: usize,
+	pub(crate) bytes_per_slab: usize,
+}
+
+#[derive(Clone)]
+pub struct SlabReader {
+	pub(crate) slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+	pub(crate) slab_id: usize,
+	pub(crate) offset: usize,
+	pub(crate) slab_size: usize,
+	pub(crate) bytes_per_slab: usize,
+	pub(crate) max_value: usize,
+}
+
+/// Utility wrapper for an underlying byte Writer. Defines higher level methods
+/// to write numbers, byte vectors, hashes, etc.
+pub struct BinWriter<'a> {
+	pub(crate) sink: &'a mut dyn Write,
+}
+
+/// Utility wrapper for an underlying byte Reader. Defines higher level methods
+/// to write numbers, byte vectors, hashes, etc.
+pub struct BinReader<'a, R: Read> {
+	pub(crate) source: &'a mut R,
 }
 
 /// The configuration struct for a [`crate::ThreadPool`]. This struct is passed into the
@@ -62,33 +95,58 @@ pub struct ThreadPoolConfig {
 	pub sync_channel_size: usize,
 }
 
-/// The configuration struct for a [`StaticHashtable`]. This struct is passed
+#[derive(Debug, Clone)]
+pub(crate) struct ThreadPoolState {
+	pub(crate) waiting: usize,
+	pub(crate) cur_size: usize,
+	pub(crate) config: ThreadPoolConfig,
+	pub(crate) stop: bool,
+}
+
+pub(crate) struct FutureWrapper<T> {
+	pub(crate) f: Pin<Box<dyn Future<Output = Result<T, Error>> + Send + Sync + 'static>>,
+	pub(crate) tx: SyncSender<PoolResult<T, Error>>,
+}
+
+pub(crate) struct ThreadPoolImpl<T: 'static + Send + Sync> {
+	pub(crate) config: ThreadPoolConfig,
+	pub(crate) rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
+	pub(crate) tx: Option<SyncSender<FutureWrapper<T>>>,
+	pub(crate) state: Box<dyn LockBox<ThreadPoolState>>,
+	pub(crate) test_config: Option<ThreadPoolTestConfig>,
+}
+
+pub(crate) struct ThreadPoolTestConfig {
+	pub(crate) debug_drop_error: bool,
+}
+
+/// The configuration struct for a [`Hashtable`]. This struct is passed
 /// into the [`crate::Builder::build_hashtable`] function. The [`std::default::Default`]
 /// trait is implemented for this trait.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct StaticHashtableConfig {
-	/// The maximum number of entries that can exist in this [`StaticHashtable`].
+pub struct HashtableConfig {
+	/// The maximum number of entries that can exist in this [`Hashtable`].
 	/// The default is 1_000_000. Note that the overhead for this value is 8 bytes
-	/// per entry. The [`crate::StaticHashtableConfig::max_load_factor`] setting will
+	/// per entry. The [`crate::HashtableConfig::max_load_factor`] setting will
 	/// also affect how much memory is used by the entry array.
 	pub max_entries: usize,
-	/// The maximum load factor for this [`crate::StaticHashtable`]. This number
+	/// The maximum load factor for this [`crate::Hashtable`]. This number
 	/// incidicates how full the hashtable can be. This is an array based hashtable
 	/// and it is not possible to resize it after it is instantiated. The default value
 	/// is 0.75.
 	pub max_load_factor: f64,
 }
 
-/// The configuration struct for a [`StaticHashset`]. This struct is passed
+/// The configuration struct for a [`Hashset`]. This struct is passed
 /// into the [`crate::Builder::build_hashset`] function. The [`std::default::Default`]
 /// trait is implemented for this trait.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct StaticHashsetConfig {
-	/// The maximum number of entries that can exist in this [`StaticHashset`].
+pub struct HashsetConfig {
+	/// The maximum number of entries that can exist in this [`Hashset`].
 	/// The default is 1_000_000. Note that the overhead for this value is 8 bytes
 	/// per entry. So, by default 8 mb are allocated with this configuration.
 	pub max_entries: usize,
-	/// The maximum load factor for this [`crate::StaticHashset`]. This number
+	/// The maximum load factor for this [`crate::Hashset`]. This number
 	/// incidicates how full the hashset can be. This is an array based hashset
 	/// and it is not possible to resize it after it is instantiated. The default value
 	/// is 0.75.
@@ -127,7 +185,7 @@ pub struct Array<T> {
 #[derive(Debug, Clone)]
 pub struct ListConfig {}
 
-pub trait StaticHashtable<K, V>: Debug + DynClone
+pub trait Hashtable<K, V>: Debug + DynClone
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 	V: Serializable + Clone,
@@ -140,7 +198,7 @@ where
 	fn iter<'a>(&'a self) -> HashtableIterator<'a, K, V>;
 }
 
-pub trait StaticHashset<K>: Debug + DynClone
+pub trait Hashset<K>: Debug + DynClone
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 {
@@ -184,8 +242,8 @@ pub trait SortableList<V>: List<V> + DynClone {
 
 clone_trait_object!(<V>Queue<V>);
 clone_trait_object!(<V>Stack<V>);
-clone_trait_object!(<V>StaticHashset<V>);
-clone_trait_object!(<K, V>StaticHashtable<K, V>);
+clone_trait_object!(<V>Hashset<V>);
+clone_trait_object!(<K, V>Hashtable<K, V>);
 clone_trait_object!(<V>List<V>);
 clone_trait_object!(<V>SortableList<V>);
 
@@ -553,8 +611,21 @@ pub struct Pattern {
 	pub(crate) id: usize,
 }
 
+pub(crate) struct MatchImpl {
+	pub(crate) start: usize,
+	pub(crate) end: usize,
+	pub(crate) id: usize,
+}
+
 pub trait SuffixTree {
 	fn run_matches(&mut self, text: &[u8], matches: &mut [Box<dyn Match>]) -> Result<usize, Error>;
+}
+
+pub(crate) struct Dictionary {}
+
+#[allow(dead_code)]
+pub(crate) struct SuffixTreeImpl {
+	pub(crate) dictionary: Dictionary,
 }
 
 pub struct MatchBuilder {}
@@ -719,6 +790,26 @@ where
 	pub(crate) tail: usize,
 	pub(crate) max_load_factor: f64,
 	pub(crate) _phantom_data: PhantomData<K>,
+}
+
+pub(crate) struct SlabAllocatorImpl {
+	pub(crate) config: Option<SlabAllocatorConfig>,
+	pub(crate) data: Array<u8>,
+	pub(crate) first_free: usize,
+	pub(crate) free_count: usize,
+	pub(crate) ptr_size: usize,
+	pub(crate) max_value: usize,
+}
+
+pub(crate) struct ArrayListIterator<'a, T> {
+	pub(crate) array_list_ref: &'a ArrayList<T>,
+	pub(crate) cur: usize,
+	pub(crate) direction: Direction,
+}
+
+pub(crate) struct ArrayIterator<'a, T> {
+	pub(crate) array_ref: &'a Array<T>,
+	pub(crate) cur: usize,
 }
 
 #[derive(Clone, Copy, PartialEq)]

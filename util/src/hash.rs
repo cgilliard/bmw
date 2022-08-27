@@ -15,10 +15,9 @@ use crate::list_append;
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
 use crate::types::{Direction, HashImpl, HashImplSync};
 use crate::{
-	Builder, HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Reader,
-	Serializable, SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, SortableList,
-	StaticHashset, StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, Writer,
-	GLOBAL_SLAB_ALLOCATOR,
+	Builder, Hashset, HashsetConfig, HashsetIterator, Hashtable, HashtableConfig,
+	HashtableIterator, List, ListConfig, ListIterator, Reader, Serializable, SlabAllocator,
+	SlabAllocatorConfig, SlabReader, SlabWriter, SortableList, Writer, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::*;
 use bmw_log::*;
@@ -161,7 +160,7 @@ where
 	}
 }
 
-impl Default for StaticHashtableConfig {
+impl Default for HashtableConfig {
 	fn default() -> Self {
 		Self {
 			max_entries: 1_000_000,
@@ -170,7 +169,7 @@ impl Default for StaticHashtableConfig {
 	}
 }
 
-impl Default for StaticHashsetConfig {
+impl Default for HashsetConfig {
 	fn default() -> Self {
 		Self {
 			max_entries: 1_000_000,
@@ -320,8 +319,8 @@ where
 	K: Serializable + Clone,
 {
 	pub(crate) fn new(
-		hashtable_config: Option<StaticHashtableConfig>,
-		hashset_config: Option<StaticHashsetConfig>,
+		hashtable_config: Option<HashtableConfig>,
+		hashset_config: Option<HashsetConfig>,
 		list_config: Option<ListConfig>,
 		slab_allocator_config: SlabAllocatorConfig,
 	) -> Result<Self, Error> {
@@ -337,7 +336,7 @@ where
 	}
 }
 
-impl<K, V> StaticHashtable<K, V> for HashImplSync<K>
+impl<K, V> Hashtable<K, V> for HashImplSync<K>
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 	V: Serializable + Clone,
@@ -383,7 +382,7 @@ where
 	}
 }
 
-impl<K> StaticHashset<K> for HashImplSync<K>
+impl<K> Hashset<K> for HashImplSync<K>
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 {
@@ -473,8 +472,8 @@ where
 	K: Serializable + Clone,
 {
 	pub(crate) fn new(
-		hashtable_config: Option<StaticHashtableConfig>,
-		hashset_config: Option<StaticHashsetConfig>,
+		hashtable_config: Option<HashtableConfig>,
+		hashset_config: Option<HashsetConfig>,
 		list_config: Option<ListConfig>,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<Self, Error> {
@@ -1111,7 +1110,7 @@ where
 	}
 }
 
-impl<K, V> StaticHashtable<K, V> for HashImpl<K>
+impl<K, V> Hashtable<K, V> for HashImpl<K>
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 	V: Serializable + Clone,
@@ -1156,7 +1155,7 @@ where
 	}
 }
 
-impl<K> StaticHashset<K> for HashImpl<K>
+impl<K> Hashset<K> for HashImpl<K>
 where
 	K: Serializable + Hash + PartialEq + Debug + Clone,
 {
@@ -1235,12 +1234,12 @@ where
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::types::{List, StaticHashset};
+	use crate::types::{Hashset, List};
 	use crate::ConfigOption::SlabSize;
 	use crate::{
 		block_on, execute, list, list_append, list_eq, slab_allocator, thread_pool, Builder,
-		ListConfig, SlabAllocatorConfig, SortableList, StaticHashsetConfig, StaticHashtable,
-		StaticHashtableConfig, ThreadPool, GLOBAL_SLAB_ALLOCATOR,
+		HashsetConfig, Hashtable, HashtableConfig, ListConfig, SlabAllocatorConfig, SortableList,
+		ThreadPool, GLOBAL_SLAB_ALLOCATOR,
 	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
@@ -1253,7 +1252,7 @@ mod test {
 	#[test]
 	fn test_static_hashtable() -> Result<(), Error> {
 		let mut hashtable = Builder::build_hashtable(
-			StaticHashtableConfig {
+			HashtableConfig {
 				max_entries: 100,
 				..Default::default()
 			},
@@ -1268,7 +1267,7 @@ mod test {
 
 	#[test]
 	fn test_remove_static_hashtable() -> Result<(), Error> {
-		let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
 		hashtable.insert(&1, &2)?;
 		let v = hashtable.get(&1)?;
 		assert_eq!(v.unwrap(), 2);
@@ -1289,7 +1288,7 @@ mod test {
 			keys.push(random::<u32>());
 			values.push(random::<u32>());
 		}
-		let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
 		let mut hashmap = HashMap::new();
 		for i in 0..1_000 {
 			hashtable.insert(&keys[i], &values[i])?;
@@ -1317,7 +1316,7 @@ mod test {
 
 	#[test]
 	fn test_iterator() -> Result<(), Error> {
-		let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
 		hashtable.insert(&1, &10)?;
 		hashtable.insert(&2, &20)?;
 		hashtable.insert(&3, &30)?;
@@ -1360,7 +1359,7 @@ mod test {
 
 	#[test]
 	fn test_clear() -> Result<(), Error> {
-		let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
 		let free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 		})?;
@@ -1397,7 +1396,7 @@ mod test {
 	fn test_hashtable_drop() -> Result<(), Error> {
 		let free_count1;
 		{
-			let mut hashtable = Builder::build_hashtable(StaticHashtableConfig::default(), None)?;
+			let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
 			free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 			})?;
@@ -1430,7 +1429,7 @@ mod test {
 
 	#[test]
 	fn test_hashset1() -> Result<(), Error> {
-		let mut hashset = Builder::build_hashset::<i32>(StaticHashsetConfig::default(), None)?;
+		let mut hashset = Builder::build_hashset::<i32>(HashsetConfig::default(), None)?;
 		hashset.insert(&1)?;
 		hashset.insert(&2)?;
 		hashset.insert(&3)?;
@@ -1535,7 +1534,7 @@ mod test {
 	fn test_small_slabs() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(8))?;
 		let mut table = Builder::build_hashtable(
-			StaticHashtableConfig {
+			HashtableConfig {
 				max_entries: 100,
 				..Default::default()
 			},
@@ -1575,7 +1574,7 @@ mod test {
 		}
 
 		{
-			let config = StaticHashtableConfig {
+			let config = HashtableConfig {
 				max_entries: 1,
 				..Default::default()
 			};
@@ -1597,7 +1596,7 @@ mod test {
 			..Default::default()
 		};
 
-		let config = StaticHashtableConfig {
+		let config = HashtableConfig {
 			max_entries: 1024,
 			..Default::default()
 		};
@@ -1635,7 +1634,7 @@ mod test {
 			..Default::default()
 		};
 
-		let config = StaticHashsetConfig {
+		let config = HashsetConfig {
 			max_entries: 1024,
 			..Default::default()
 		};
@@ -1701,12 +1700,12 @@ mod test {
 	}
 
 	struct TestHashtableBox {
-		h: Box<dyn StaticHashtable<u32, u32>>,
+		h: Box<dyn Hashtable<u32, u32>>,
 	}
 
 	#[test]
 	fn test_hashtable_box() -> Result<(), Error> {
-		let config = StaticHashtableConfig {
+		let config = HashtableConfig {
 			..Default::default()
 		};
 

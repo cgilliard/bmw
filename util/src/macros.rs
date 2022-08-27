@@ -135,7 +135,7 @@ macro_rules! slab_allocator {
 #[macro_export]
 macro_rules! hashtable {
 	( $( $config:expr ),* ) => {{
-		let mut config = bmw_util::StaticHashtableConfig::default();
+		let mut config = bmw_util::HashtableConfig::default();
 		let mut error: Option<String> = None;
 		let mut max_entries_specified = false;
 		let mut max_load_factor_specified = false;
@@ -195,7 +195,7 @@ macro_rules! hashtable {
 #[macro_export]
 macro_rules! hashset {
 	( $( $config:expr ),* ) => {{
-		let mut config = bmw_util::StaticHashsetConfig::default();
+		let mut config = bmw_util::HashsetConfig::default();
 		let mut error: Option<String> = None;
 		let mut max_entries_specified = false;
 		let mut max_load_factor_specified = false;
@@ -402,9 +402,7 @@ macro_rules! block_on {
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::{
-		thread_pool, List, PoolResult, SortableList, StaticHashset, StaticHashtable, ThreadPool,
-	};
+	use crate::{thread_pool, Hashset, Hashtable, List, PoolResult, SortableList, ThreadPool};
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
 	use bmw_util::ConfigOption::*;

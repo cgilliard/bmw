@@ -11,31 +11,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::types::{FutureWrapper, ThreadPoolImpl, ThreadPoolState, ThreadPoolTestConfig};
 use crate::{PoolResult, ThreadPool, ThreadPoolConfig};
 use bmw_deps::dyn_clone::clone_box;
 use bmw_deps::futures::executor::block_on;
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::future::Future;
-use std::pin::Pin;
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
 info!();
-
-struct FutureWrapper<T> {
-	f: Pin<Box<dyn Future<Output = Result<T, Error>> + Send + Sync + 'static>>,
-	tx: SyncSender<PoolResult<T, Error>>,
-}
-
-pub(crate) struct ThreadPoolImpl<T: 'static + Send + Sync> {
-	config: ThreadPoolConfig,
-	rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
-	tx: Option<SyncSender<FutureWrapper<T>>>,
-	state: Box<dyn LockBox<ThreadPoolState>>,
-	test_config: Option<TestConfig>,
-}
 
 impl Default for ThreadPoolConfig {
 	fn default() -> Self {
@@ -45,18 +32,6 @@ impl Default for ThreadPoolConfig {
 			sync_channel_size: 7,
 		}
 	}
-}
-
-#[derive(Debug, Clone)]
-struct ThreadPoolState {
-	waiting: usize,
-	cur_size: usize,
-	config: ThreadPoolConfig,
-	stop: bool,
-}
-
-pub(crate) struct TestConfig {
-	debug_drop_error: bool,
 }
 
 impl<T: 'static + Send + Sync> Drop for ThreadPoolImpl<T> {
@@ -72,7 +47,7 @@ impl<T: 'static + Send + Sync> Drop for ThreadPoolImpl<T> {
 impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
 	pub(crate) fn new(
 		config: ThreadPoolConfig,
-		test_config: Option<TestConfig>,
+		test_config: Option<ThreadPoolTestConfig>,
 	) -> Result<Self, Error> {
 		if config.min_size == 0 || config.min_size > config.max_size {
 			let fmt = "min_size must be > 0 and < max_size";
@@ -237,8 +212,7 @@ impl<T: 'static + Send + Sync> ThreadPool<T> for ThreadPoolImpl<T> {
 #[cfg(test)]
 mod test {
 	use crate::execute;
-	use crate::threadpool::TestConfig;
-	use crate::threadpool::ThreadPoolImpl;
+	use crate::types::{ThreadPoolImpl, ThreadPoolTestConfig};
 	use crate::{Builder, PoolResult, ThreadPool, ThreadPoolConfig};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::{err, ErrKind, Error};
@@ -513,7 +487,7 @@ mod test {
 					max_size: 4,
 					..Default::default()
 				},
-				Some(TestConfig {
+				Some(ThreadPoolTestConfig {
 					debug_drop_error: true,
 				}),
 			)?;

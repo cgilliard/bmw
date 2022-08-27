@@ -14,8 +14,8 @@
 use crate::misc::set_max;
 use crate::misc::{slice_to_usize, usize_to_slice};
 use crate::{
-	Reader, Serializable, SlabAllocator, SlabAllocatorConfig, SlabMut, Writer,
-	GLOBAL_SLAB_ALLOCATOR,
+	BinReader, BinWriter, Reader, Serializable, SlabAllocator, SlabAllocatorConfig, SlabMut,
+	SlabReader, SlabWriter, Writer, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -136,15 +136,6 @@ impl Serializable for [u8; 8] {
 		reader.read_fixed_bytes(&mut r)?;
 		Ok(r)
 	}
-}
-
-#[derive(Clone)]
-pub struct SlabWriter {
-	slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	slab_id: usize,
-	offset: usize,
-	slab_size: usize,
-	bytes_per_slab: usize,
 }
 
 impl SlabWriter {
@@ -425,16 +416,6 @@ impl Writer for SlabWriter {
 	}
 }
 
-#[derive(Clone)]
-pub struct SlabReader {
-	slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	slab_id: usize,
-	offset: usize,
-	slab_size: usize,
-	bytes_per_slab: usize,
-	max_value: usize,
-}
-
 impl<'a> SlabReader {
 	pub fn new(
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
@@ -658,12 +639,6 @@ impl Reader for SlabReader {
 	}
 }
 
-/// Utility wrapper for an underlying byte Writer. Defines higher level methods
-/// to write numbers, byte vectors, hashes, etc.
-pub struct BinWriter<'a> {
-	sink: &'a mut dyn Write,
-}
-
 impl<'a> BinWriter<'a> {
 	/// Wraps a standard Write in a new BinWriter
 	pub fn new(sink: &'a mut dyn Write) -> BinWriter<'a> {
@@ -676,12 +651,6 @@ impl<'a> Writer for BinWriter<'a> {
 		self.sink.write_all(bytes.as_ref())?;
 		Ok(())
 	}
-}
-
-/// Utility wrapper for an underlying byte Reader. Defines higher level methods
-/// to write numbers, byte vectors, hashes, etc.
-pub struct BinReader<'a, R: Read> {
-	source: &'a mut R,
 }
 
 impl<'a, R: Read> BinReader<'a, R> {
@@ -939,17 +908,17 @@ mod test {
 	#[test]
 	fn test_hashtable_ser() -> Result<(), Error> {
 		let ctx = ctx!();
-		let mut hashtable = StaticHashtableBuilder::build(StaticHashtableConfig::default(), None)?;
+		let mut hashtable = HashtableBuilder::build(HashtableConfig::default(), None)?;
 		hashtable.insert(ctx, &1u32, &4u64)?;
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &hashtable)?;
-		let ser_in: Result<Box<dyn StaticHashtable<u32, u64>>, Error> = deserialize(&mut &v[..]);
+		let ser_in: Result<Box<dyn Hashtable<u32, u64>>, Error> = deserialize(&mut &v[..]);
 		let ser_in = ser_in.unwrap();
 		assert_eq!(ser_in.get(ctx, &1u32).unwrap().unwrap(), 4u64);
 
-		let config = StaticHashtableConfig {
+		let config = HashtableConfig {
 			debug_get_slab_error: true,
-			..StaticHashtableConfig::default()
+			..HashtableConfig::default()
 		};
 		ser_helper(config)?;
 
@@ -961,24 +930,24 @@ mod test {
 	#[test]
 	fn test_hashset_ser() -> Result<(), Error> {
 		let ctx = ctx!();
-		let mut hashset = StaticHashsetBuilder::build(
-			StaticHashsetConfig {
-				..StaticHashsetConfig::default()
+		let mut hashset = HashsetBuilder::build(
+			HashsetConfig {
+				..HashsetConfig::default()
 			},
 			None,
 		)?;
 		hashset.insert(ctx, &1u32)?;
 		let mut v: Vec<u8> = vec![];
 		serialize(&mut v, &hashset)?;
-		let ser_in: Result<Box<dyn StaticHashset<u32>>, Error> = deserialize(&mut &v[..]);
+		let ser_in: Result<Box<dyn Hashset<u32>>, Error> = deserialize(&mut &v[..]);
 		let ser_in = ser_in.unwrap();
 		assert!(ser_in.contains(ctx, &1u32).unwrap());
 		assert!(!ser_in.contains(ctx, &2u32).unwrap());
 		assert_eq!(ser_in.size(ctx), 1);
 
-		let config = StaticHashsetConfig {
+		let config = HashsetConfig {
 			debug_get_slab_error: true,
-			..StaticHashsetConfig::default()
+			..HashsetConfig::default()
 		};
 		ser_helper(config)?;
 

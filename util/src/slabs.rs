@@ -12,6 +12,7 @@
 // limitations under the License.
 
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
+use crate::types::SlabAllocatorImpl;
 use crate::{Array, Builder, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -23,15 +24,6 @@ info!();
 thread_local! {
 	#[doc(hidden)]
 	pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> = Builder::build_slabs_unsafe();
-}
-
-pub(crate) struct SlabAllocatorImpl {
-	config: Option<SlabAllocatorConfig>,
-	data: Array<u8>,
-	first_free: usize,
-	free_count: usize,
-	ptr_size: usize,
-	max_value: usize,
 }
 
 impl Default for SlabAllocatorConfig {

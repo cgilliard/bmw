@@ -54,7 +54,7 @@ fn main() -> Result<(), Error> {
 		let mut h = if global {
 			hashtable!(MaxEntries(itt))?
 		} else {
-			let config = StaticHashtableConfig {
+			let config = HashtableConfig {
 				max_entries: itt,
 				..Default::default()
 			};
