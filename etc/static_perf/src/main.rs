@@ -39,7 +39,7 @@ fn main() -> Result<(), Error> {
 	};
 
 	init_slab_allocator!(SlabSize(slab_size), SlabCount(itt))?;
-	let slabs = SlabAllocatorBuilder::build_ref();
+	let slabs = Builder::build_slabs_ref();
 	let config = SlabAllocatorConfig {
 		slab_size,
 		slab_count: itt,
@@ -58,7 +58,7 @@ fn main() -> Result<(), Error> {
 				max_entries: itt,
 				..Default::default()
 			};
-			StaticBuilder::build_hashtable(config, Some(slabs.clone()))?
+			Builder::build_hashtable(config, Some(slabs.clone()))?
 		};
 
 		let now = Instant::now();
@@ -106,7 +106,7 @@ fn main() -> Result<(), Error> {
 	}
 
 	let mut list = if !global {
-		StaticBuilder::build_list(StaticListConfig::default(), Some(slabs))?
+		Builder::build_list(ListConfig::default(), Some(slabs))?
 	} else {
 		list![]
 	};

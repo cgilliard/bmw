@@ -145,7 +145,6 @@ pub struct SlabWriter {
 	offset: usize,
 	slab_size: usize,
 	bytes_per_slab: usize,
-	first_allocation: usize,
 }
 
 impl SlabWriter {
@@ -202,27 +201,13 @@ impl SlabWriter {
 			offset: 0,
 			slab_size,
 			bytes_per_slab,
-			first_allocation: usize::MAX,
 		})
 	}
 
-	pub fn first_allocation(&self) -> usize {
-		self.first_allocation
-	}
-
 	pub fn seek(&mut self, slab_id: usize, offset: usize) -> Result<(), Error> {
-		debug!("setting slab_id={}", self.slab_id)?;
 		self.slab_id = slab_id;
 		self.offset = offset;
 		Ok(())
-	}
-
-	pub fn offset(&self) -> usize {
-		self.offset
-	}
-
-	pub fn slab_id(&self) -> usize {
-		self.slab_id
 	}
 
 	fn process_slab_mut(
@@ -258,15 +243,12 @@ impl SlabWriter {
 		bytes: T,
 		mut slabs: Option<RefMut<dyn SlabAllocator>>,
 	) -> Result<(), Error> {
-		self.first_allocation = usize::MAX; // mark as not allocated
 		let bytes = bytes.as_ref();
 		let bytes_len = bytes.len();
 		debug!("write blen={}", bytes_len)?;
 		if bytes_len == 0 {
 			return Ok(());
 		}
-
-		let mut is_first_allocation = true;
 
 		let mut bytes_offset = 0;
 		let slab_id = self.slab_id;
@@ -340,10 +322,6 @@ impl SlabWriter {
 							};
 							match slabs.allocate() {
 								Ok(mut slab) => {
-									if is_first_allocation {
-										self.first_allocation = slab.id();
-										is_first_allocation = false;
-									}
 									debug!(
 										"allocate slab id={},bytes_offset={}",
 										slab.id(),
@@ -377,10 +355,6 @@ impl SlabWriter {
 							debug!("wlen={}", wlen)?;
 							match slabs.allocate() {
 								Ok(mut slab) => {
-									if is_first_allocation {
-										self.first_allocation = slab.id();
-										is_first_allocation = false;
-									}
 									debug!("allocate slab")?;
 									Self::process_slab_mut(
 										&mut slab,
@@ -524,7 +498,6 @@ impl<'a> SlabReader {
 	}
 
 	pub fn seek(&mut self, slab_id: usize, offset: usize) -> Result<(), Error> {
-		debug!("seek setting slab_id = {}, offset={}", slab_id, offset)?;
 		self.slab_id = slab_id;
 		self.offset = offset;
 		Ok(())
@@ -808,6 +781,7 @@ pub fn deserialize<T: Serializable, R: Read>(source: &mut R) -> Result<T, Error>
 mod test {
 	use crate as bmw_util;
 	use crate::ser::{SlabReader, SlabWriter};
+	use crate::Builder;
 	use crate::ConfigOption::*;
 	use crate::*;
 	use bmw_deps::rand;
@@ -1021,7 +995,7 @@ mod test {
 			slab_size,
 			..Default::default()
 		};
-		let slabs = bmw_util::Builder::build_slabs_ref();
+		let slabs = Builder::build_slabs_ref();
 
 		{
 			let mut slabs_refmut: RefMut<_> = slabs.borrow_mut();
