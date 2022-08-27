@@ -18,7 +18,7 @@ use crate::types::Builder;
 use crate::types::{StaticImpl, StaticImplSync};
 use crate::{
 	Array, ArrayList, List, ListConfig, Match, Pattern, Queue, Serializable, SlabAllocator,
-	SlabAllocatorConfig, Stack, StaticHashset, StaticHashsetConfig, StaticHashtable,
+	SlabAllocatorConfig, SortableList, Stack, StaticHashset, StaticHashsetConfig, StaticHashtable,
 	StaticHashtableConfig, SuffixTree, ThreadPool, ThreadPoolConfig,
 };
 use bmw_err::Error;
@@ -47,6 +47,13 @@ impl Builder {
 	pub fn build_array_list<T>(size: usize) -> Result<impl List<T>, Error>
 	where
 		T: Clone + Debug + PartialEq,
+	{
+		ArrayList::new(size)
+	}
+
+	pub fn build_sortable_array_list<T>(size: usize) -> Result<impl SortableList<T>, Error>
+	where
+		T: Clone + Debug + PartialEq + Ord + Serializable,
 	{
 		ArrayList::new(size)
 	}
@@ -225,21 +232,21 @@ impl Builder {
 		Ok(Box::new(StaticImpl::new(None, None, Some(config), slabs)?))
 	}
 
-	pub fn _build_match(start: usize, end: usize, id: usize) -> impl Match {
-		MatchImpl::_new(start, end, id)
+	pub fn build_match(start: usize, end: usize, id: usize) -> impl Match {
+		MatchImpl::new(start, end, id)
 	}
 
-	pub fn _build_pattern(
+	pub fn build_pattern(
 		regex: &str,
 		is_case_sensitive: bool,
 		is_termination_pattern: bool,
 		id: usize,
 	) -> Pattern {
-		Pattern::_new(regex, is_case_sensitive, is_termination_pattern, id)
+		Pattern::new(regex, is_case_sensitive, is_termination_pattern, id)
 	}
 
-	pub fn _build_suffix_tree(patterns: impl List<Pattern>) -> Result<impl SuffixTree, Error> {
-		SuffixTreeImpl::_new(patterns)
+	pub fn build_suffix_tree(patterns: impl List<Pattern>) -> Result<impl SuffixTree, Error> {
+		SuffixTreeImpl::new(patterns)
 	}
 
 	/// Build a slab allocator on the heap in an [`std::cell::UnsafeCell`].

@@ -401,6 +401,9 @@ where
 			Direction::Backward,
 		))
 	}
+	fn delete_head(&mut self) -> Result<(), Error> {
+		self.static_impl.delete_head()
+	}
 	fn size(&self) -> usize {
 		self.static_impl.size
 	}
@@ -621,6 +624,15 @@ where
 		Ok(true)
 	}
 
+	fn delete_head_impl(&mut self) -> Result<(), Error> {
+		if self.size == 0 {
+			return Err(err!(ErrKind::IllegalState, "list empty"));
+		} else {
+			self.remove_impl(self.head)?;
+		}
+		Ok(())
+	}
+
 	fn clear_impl(&mut self) -> Result<(), Error> {
 		let mut cur = self.tail;
 		loop {
@@ -635,6 +647,7 @@ where
 
 			if cur < self.max_value {
 				let entry = self.lookup_entry(cur);
+				debug!("free chain = {}", entry)?;
 				self.free_chain(entry)?;
 			} else {
 				break;
@@ -954,7 +967,7 @@ where
 				}),
 			}?
 			.clone();
-
+			debug!("free id = {}", id)?;
 			self.free(id)?;
 
 			if next_bytes >= self.max_value {
@@ -1152,6 +1165,9 @@ where
 	fn iter_rev<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
 		Box::new(ListIterator::new(self, self.tail, Direction::Backward))
 	}
+	fn delete_head(&mut self) -> Result<(), Error> {
+		self.delete_head_impl()
+	}
 	fn size(&self) -> usize {
 		self.size
 	}
@@ -1174,9 +1190,9 @@ mod test {
 	use crate::types::{List, StaticHashset};
 	use crate::ConfigOption::SlabSize;
 	use crate::{
-		block_on, execute, slab_allocator, thread_pool, Builder, ListConfig, SlabAllocatorConfig,
-		StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, ThreadPool,
-		GLOBAL_SLAB_ALLOCATOR,
+		block_on, execute, list, list_append, list_eq, slab_allocator, thread_pool, Builder,
+		ListConfig, SlabAllocatorConfig, StaticHashsetConfig, StaticHashtable,
+		StaticHashtableConfig, ThreadPool, GLOBAL_SLAB_ALLOCATOR,
 	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
@@ -1653,6 +1669,54 @@ mod test {
 		thtb.h.insert(&x, &2)?;
 		assert_eq!(thtb.h.get(&x)?, Some(2));
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_list_boxed() -> Result<(), Error> {
+		let mut list1 = Builder::build_list_box(ListConfig {}, None)?;
+		list1.push(1)?;
+		list1.push(2)?;
+
+		let mut list2 = Builder::build_list(ListConfig {}, None)?;
+		list2.push(1)?;
+		list2.push(2)?;
+
+		//list_append!(list1, list2);
+
+		assert!(list_eq!(list1, list2));
+
+		let list3 = list![1, 2, 1, 2];
+		list_append!(list1, list2);
+		assert!(list_eq!(list1, list3));
+
+		let mut list4 = Builder::build_array_list(100)?;
+		list4.push(1)?;
+		list4.push(2)?;
+		list4.push(1)?;
+		list4.push(2)?;
+		assert!(list_eq!(list1, list4));
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_delete_head() -> Result<(), Error> {
+		let free_count1;
+		{
+			let mut list = list![1, 2, 3, 4];
+			free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+			})? + 4;
+
+			list.delete_head()?;
+		}
+
+		let free_count2 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+		})?;
+
+		assert_eq!(free_count1, free_count2);
 		Ok(())
 	}
 }

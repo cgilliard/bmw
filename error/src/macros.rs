@@ -119,6 +119,11 @@ macro_rules! err {
 				let error: bmw_err::Error = bmw_err::ErrorKind::Alloc($msg.to_string()).into();
 				error
 			}
+			bmw_err::ErrKind::OperationNotSupported => {
+				let error: bmw_err::Error =
+					bmw_err::ErrorKind::OperationNotSupported($msg.to_string()).into();
+				error
+			}
 		}
 	}};
 }
@@ -197,6 +202,9 @@ macro_rules! map_err {
 				}
 				bmw_err::ErrKind::Alloc => {
 					bmw_err::ErrorKind::Alloc(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::OperationNotSupported => {
+					bmw_err::ErrorKind::OperationNotSupported(format!("{}: {}", $msg, e)).into()
 				}
 			};
 			error

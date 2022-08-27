@@ -69,5 +69,5 @@ pub use crate::log::LogBuilder;
 pub use crate::lock::{
 	Lock, LockBox, LockBuilder, RwLockReadGuardWrapper, RwLockWriteGuardWrapper,
 };
-pub use crate::macros::STATIC_LOG;
+pub use crate::macros::{LogHolder, LOG_REF, STATIC_LOG};
 pub use crate::types::{Log, LogConfig, LogConfigOption, LogConfigOptionName, LogLevel};

@@ -24,9 +24,11 @@ use bmw_deps::chrono::{DateTime, Local};
 use bmw_deps::colored::Colorize;
 use bmw_deps::rand::random;
 use bmw_err::{err, ErrKind, Error};
+use std::cell::RefCell;
 use std::fs::{canonicalize, remove_file, rename, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Instant;
 
 const NEWLINE: &[u8] = &['\n' as u8];
@@ -38,14 +40,18 @@ enum LogType {
 	Plain,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct LogImpl {
 	config: LogConfig,
 	init: bool,
-	file: Option<File>,
+	file: Option<Rc<RefCell<File>>>,
 	cur_size: u64,
 	last_rotation: Instant,
 }
+
+unsafe impl Send for LogImpl {}
+
+unsafe impl Sync for LogImpl {}
 
 impl Log for LogImpl {
 	fn log_all(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error> {
@@ -153,7 +159,7 @@ impl Log for LogImpl {
 		let open_options = open_options.append(true).create(true);
 		let mut file = open_options.open(&original_file_path)?;
 		self.check_open(&mut file, &original_file_path)?;
-		self.file = Some(file);
+		self.file = Some(Rc::new(RefCell::new(file)));
 
 		Ok(())
 	}
@@ -212,7 +218,7 @@ impl Log for LogImpl {
 							.open(file_path.clone())
 					}?;
 					self.check_open(&mut file, &file_path)?;
-					self.file = Some(file);
+					self.file = Some(Rc::new(RefCell::new(file)));
 				}
 				None => {}
 			},
@@ -416,7 +422,11 @@ impl LogImpl {
 			if file_is_some {
 				let formatted_timestamp = format!("[{}]: ", formatted_timestamp);
 				let formatted_timestamp = formatted_timestamp.as_bytes();
-				self.file.as_ref().unwrap().write(formatted_timestamp)?;
+				self.file
+					.as_mut()
+					.unwrap()
+					.borrow_mut()
+					.write(formatted_timestamp)?;
 				let formatted_len: u64 = u64!(formatted_timestamp.len());
 				self.cur_size += formatted_len;
 			}
@@ -433,7 +443,11 @@ impl LogImpl {
 			if file_is_some {
 				let formatted_level = format!("({}) ", level);
 				let formatted_level = formatted_level.as_bytes();
-				self.file.as_ref().unwrap().write(formatted_level)?;
+				self.file
+					.as_mut()
+					.unwrap()
+					.borrow_mut()
+					.write(formatted_level)?;
 				let formatted_len: u64 = u64!(formatted_level.len());
 				self.cur_size += formatted_len;
 			}
@@ -528,10 +542,13 @@ impl LogImpl {
 			}
 
 			if file_is_some {
-				let mut file = self.file.as_ref().unwrap();
 				let logged_from_file = format!("[{}]: ", logged_from_file);
 				let logged_from_file = logged_from_file.as_bytes();
-				file.write(logged_from_file)?;
+				self.file
+					.as_mut()
+					.unwrap()
+					.borrow_mut()
+					.write(logged_from_file)?;
 				let logged_from_file_len: u64 = u64!(logged_from_file.len());
 				self.cur_size += logged_from_file_len;
 			}
@@ -547,7 +564,8 @@ impl LogImpl {
 
 		if file_is_some {
 			let line_bytes = line.as_bytes();
-			let mut file = self.file.as_ref().unwrap();
+			let mut file = self.file.as_mut().unwrap().borrow_mut();
+
 			file.write(line_bytes)?;
 			file.write(NEWLINE)?;
 			let mut line_bytes_len: u64 = u64!(line_bytes.len());
@@ -831,7 +849,11 @@ pub struct LogBuilder {}
 impl LogBuilder {
 	/// Build a [`crate::Log`] based on specified [`crate::LogConfig`] or return a
 	/// [`bmw_err::Error`] if the configuration is invalid.
-	pub fn build(config: LogConfig) -> Result<Box<dyn Log + Send + Sync>, Error> {
+	pub fn build_send_sync(config: LogConfig) -> Result<Box<dyn Log + Send + Sync>, Error> {
+		Ok(Box::new(LogImpl::new(config)?))
+	}
+
+	pub fn build(config: LogConfig) -> Result<Box<dyn Log>, Error> {
 		Ok(Box::new(LogImpl::new(config)?))
 	}
 }

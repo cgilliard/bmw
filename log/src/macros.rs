@@ -14,11 +14,23 @@
 
 use crate::Log;
 use bmw_deps::lazy_static::lazy_static;
+use std::cell::UnsafeCell;
 use std::sync::{Arc, RwLock};
+
+/// Internal struct used for global logger
+#[doc(hidden)]
+pub struct LogHolder {
+	pub log: Option<Box<dyn Log + Send + Sync>>,
+}
 
 lazy_static! {
 	#[doc(hidden)]
 	pub static ref STATIC_LOG: Arc<RwLock<Option<Box<dyn Log + Send + Sync>>>> = Arc::new(RwLock::new(None));
+}
+
+thread_local! {
+	#[doc(hidden)]
+	pub static LOG_REF: UnsafeCell<LogHolder> =  UnsafeCell::new(LogHolder {log: None});
 }
 
 /// Set [`crate::LogLevel`] to [`crate::LogLevel::Fatal`] or log at the [`crate::LogLevel::Fatal`] log level.
@@ -660,8 +672,37 @@ macro_rules! log_all {
 #[macro_export]
 macro_rules! do_log {
 	($flavor:expr, $level:expr, $a:expr) => {{
+                let ret = bmw_log::LOG_REF.with(|f| -> Option<Result<(), bmw_err::Error>> {
+                        let mut r = unsafe { f.get().as_mut() };
+                        if r.as_mut().unwrap().log.is_some() {
+                                let ret = if $flavor == 0 {
+                                        r.as_mut().unwrap().log.as_mut().unwrap().log($level, $a, None)
+                                } else if $flavor == 1 {
+                                        r.as_mut().unwrap().log.as_mut().unwrap().log_plain($level, $a, None)
+                                } else {
+                                        r.as_mut().unwrap().log.as_mut().unwrap().log_all($level, $a, None)
+                                };
+                                Some(ret)
+                        } else {
+                                None
+                        }
+                });
+
+                if ret.is_some() {
+                        ret.unwrap()
+                } else {
                 match bmw_log::lockw!(bmw_log::STATIC_LOG) {
                     Ok(mut static_log) => {
+                        bmw_log::LOG_REF.with(|f| {
+                                let mut r = unsafe { f.get().as_mut() };
+                                match (*static_log).as_mut() {
+                                    Some(log) => {
+                                        r.as_mut().unwrap().log = Some(log.clone());
+                                    }
+                                    None => {}
+                                };
+                        });
+
                         let (ret, log) = match (*static_log).as_mut() {
                             Some(log) => {
                                 if $flavor == 0 {
@@ -673,10 +714,17 @@ macro_rules! do_log {
                                 }
                             },
                             None => {
-                                match bmw_log::LogBuilder::build(bmw_log::LogConfig::default()) {
+                                match bmw_log::LogBuilder::build_send_sync(bmw_log::LogConfig::default()) {
                                     Ok(mut log) => {
                                         match log.init() {
                                             Ok(_) => {
+
+                                                bmw_log::LOG_REF.with(|f| {
+                                                        let mut r = unsafe { f.get().as_mut() };
+                                                        r.as_mut().unwrap().log = Some(log.clone());
+                                                });
+
+
                                                 if $flavor == 0 {
                                                     (log.log($level, $a, None), Some(log))
                                                 } else if $flavor == 1 {
@@ -711,10 +759,16 @@ macro_rules! do_log {
                         if log.is_some() {
                             (*static_log) = log;
                         }
+
+                        bmw_log::LOG_REF.with(|f| {
+                                let mut r = unsafe { f.get().as_mut() };
+                                r.as_mut().unwrap().log = None;
+                        });
                     ret
                 },
                 Err(e) => Err(e),
             }
+                }
         }};
         ($flavor:expr, $level:expr, $a:expr, $($b:tt)*) => {
                 do_log!($flavor, $level, &format!($a, $($b)*)[..])
@@ -851,7 +905,7 @@ macro_rules! log_init {
 				if (*static_log).is_some() {
 					Err(bmw_err::err!(bmw_err::ErrKind::Log, "already initialized"))
 				} else {
-					match bmw_log::LogBuilder::build($config) {
+					match bmw_log::LogBuilder::build_send_sync($config) {
 						Ok(mut log) => {
 							log.init().unwrap();
 							*static_log = Some(log);
@@ -908,7 +962,7 @@ macro_rules! need_rotate {
 	}};
 }
 
-/// A macro that is used to lock a rwlock in write mode and return the appropriate error if the lock is poisoned.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! lockw {
 	($a:expr) => {{
@@ -917,12 +971,11 @@ macro_rules! lockw {
 				bmw_err::ErrorKind::Poison(format!("Poison Error: {}", e.to_string())).into();
 			error
 		});
-
 		res
 	}};
 }
 
-/// A macro that is used to lock a rwlock in read mode and return the appropriate error if the lock is poisoned.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! lockr {
 	($a:expr) => {{
@@ -963,6 +1016,7 @@ mod test {
 	use bmw_err::Error;
 	use bmw_log::LogConfig;
 	use bmw_test::testdir::{setup_test_dir, tear_down_test_dir};
+	use std::fmt::{Debug, Formatter};
 	use std::fs::read_to_string;
 	use std::path::PathBuf;
 	use std::sync::{Arc, RwLock};
@@ -1050,6 +1104,10 @@ mod test {
 		let need_rotate = need_rotate!()?;
 		assert_eq!(need_rotate, false);
 
+		let recursive = Recursive {};
+		info_all!("{:?}", recursive)?;
+		info_all!("another {:?}", recursive)?;
+
 		test_log_macros_expect();
 
 		tear_down_test_dir(test_dir)?;
@@ -1057,21 +1115,6 @@ mod test {
 	}
 
 	fn test_log_macros_expect() {
-		/*
-		let test_dir = ".test_macros_expect.bmw";
-		setup_test_dir(test_dir).expect("ok");
-
-		let log_file = format!("{}/test.log", test_dir);
-		log_init!(LogConfig {
-			file_path: LogConfigOption::FilePath(Some(PathBuf::from(log_file.clone()))),
-			max_size_bytes: LogConfigOption::MaxSizeBytes(100),
-			auto_rotate: LogConfigOption::AutoRotate(false),
-			show_bt: LogConfigOption::ShowBt(false),
-			..Default::default()
-		})
-		.expect("init");
-			*/
-
 		trace!("1").expect("");
 		debug!("2").expect("");
 		info!("3").expect("");
@@ -1094,5 +1137,16 @@ mod test {
 		info!("need_rotate={}", need_rotate).expect("");
 		log_rotate!().expect("");
 		need_rotate!().expect("");
+	}
+	struct Recursive {}
+
+	impl Debug for Recursive {
+		fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+			let _ = info!("test {}", "ok");
+			let _ = info_all!("test all {}", "ok");
+			let _ = info_plain!("test plain {}", "ok");
+			write!(f, "done")?;
+			Ok(())
+		}
 	}
 }

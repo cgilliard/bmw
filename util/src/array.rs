@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use crate::types::Direction;
-use crate::{Array, ArrayList, List, Queue, Stack};
+use crate::{Array, ArrayList, List, Queue, Serializable, SortableList, Stack};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::alloc::{alloc, dealloc, Layout};
@@ -190,12 +190,29 @@ where
 	}
 }
 
+impl<T> SortableList<T> for ArrayList<T>
+where
+	T: Clone + Debug + Serializable + Ord,
+{
+	fn sort(&mut self) -> Result<(), Error> {
+		let size = self.size();
+		self.inner.as_mut()[0..size].sort();
+		Ok(())
+	}
+	fn sort_unstable(&mut self) -> Result<(), Error> {
+		let size = self.size();
+		self.inner.as_mut()[0..size].sort_unstable();
+		Ok(())
+	}
+}
+
 impl<T> Debug for ArrayList<T>
 where
-	T: Debug,
+	T: Debug + Clone,
 {
 	fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-		write!(fmt, "{:?}", self.inner)
+		let size = self.size;
+		write!(fmt, "{:?}", &self.inner.as_slice()[0..size])
 	}
 }
 
@@ -242,6 +259,12 @@ where
 			cur: self.size.saturating_sub(1),
 			direction: Direction::Backward,
 		})
+	}
+	fn delete_head(&mut self) -> Result<(), Error> {
+		return Err(err!(
+			ErrKind::OperationNotSupported,
+			"arraylist doesn't support delete_head"
+		));
 	}
 	fn size(&self) -> usize {
 		self.size
@@ -383,8 +406,8 @@ where
 mod test {
 	use crate as bmw_util;
 	use crate::{
-		block_on, execute, list_eq, thread_pool, Array, Builder, List, PoolResult, Queue, Stack,
-		ThreadPool,
+		block_on, execute, list, list_eq, thread_pool, Array, Builder, List, PoolResult, Queue,
+		Stack, ThreadPool,
 	};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::{err, ErrKind, Error};
@@ -726,6 +749,28 @@ mod test {
 		assert_eq!(test.queue.dequeue(), None);
 		assert_eq!(test2.dequeue(), Some(&1));
 		assert_eq!(test2.dequeue(), None);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_sort() -> Result<(), Error> {
+		use crate::SortableList;
+		let mut list = Builder::build_sortable_array_list(10)?;
+
+		list.push(1)?;
+		list.push(3)?;
+		list.push(2)?;
+
+		let other_list = list![1, 3, 2];
+		info!("list={:?}", list)?;
+		assert!(list_eq!(list, other_list));
+
+		list.sort()?;
+
+		let other_list = list![1, 2, 3];
+		info!("list={:?}", list)?;
+		assert!(list_eq!(list, other_list));
 
 		Ok(())
 	}

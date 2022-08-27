@@ -63,7 +63,8 @@ impl<T: 'static + Send + Sync> Drop for ThreadPoolImpl<T> {
 	fn drop(&mut self) {
 		let stop = self.stop();
 		if stop.is_err() {
-			let _ = error!("unexpected error calling drop: {}", stop.unwrap_err());
+			let e = stop.unwrap_err();
+			let _ = error!("unexpected error calling drop: {}", e);
 		}
 	}
 }
@@ -155,7 +156,8 @@ impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
 							Ok(res) => {
 								let send_res = next.tx.send(PoolResult::Ok(res));
 								if send_res.is_err() {
-									debug!("error sending response: {}", send_res.unwrap_err())?;
+									let e = send_res.unwrap_err();
+									debug!("error sending response: {}", e)?;
 								}
 							}
 							Err(e) => {
@@ -163,7 +165,8 @@ impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
 								let send_res = next.tx.send(PoolResult::Err(e));
 								debug!("sending an err")?;
 								if send_res.is_err() {
-									debug!("error sending response: {}", send_res.unwrap_err())?;
+									let e = send_res.unwrap_err();
+									debug!("error sending response: {}", e)?;
 								} else {
 									debug!("sent response ok")?;
 								}

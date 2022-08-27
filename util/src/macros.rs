@@ -274,14 +274,15 @@ macro_rules! list_append {
 #[macro_export]
 macro_rules! list_eq {
 	($list1:expr, $list2:expr) => {{
-		if $list1.size() != $list2.size() {
+		let list1_size = $list1.size();
+		if list1_size != $list2.size() {
 			false
 		} else {
 			let mut ret = true;
 			{
 				let mut itt1 = $list1.iter();
 				let mut itt2 = $list2.iter();
-				for _ in 0..$list1.size() {
+				for _ in 0..list1_size {
 					if itt1.next() != itt2.next() {
 						ret = false;
 					}

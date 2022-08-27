@@ -16,18 +16,19 @@ use bmw_err::Error;
 
 struct Dictionary {}
 
+#[allow(dead_code)]
 pub(crate) struct SuffixTreeImpl {
-	_dictionary: Dictionary,
+	dictionary: Dictionary,
 }
 
 impl SuffixTreeImpl {
-	pub(crate) fn _new(_patterns: impl List<Pattern>) -> Result<Self, Error> {
+	pub(crate) fn new(_patterns: impl List<Pattern>) -> Result<Self, Error> {
 		Ok(Self {
-			_dictionary: Dictionary {},
+			dictionary: Dictionary {},
 		})
 	}
 
-	fn _add(&mut self, _pattern: Pattern) -> Result<(), Error> {
+	pub fn _add(&mut self, _pattern: Pattern) -> Result<(), Error> {
 		Ok(())
 	}
 }
@@ -49,7 +50,7 @@ pub(crate) struct MatchImpl {
 }
 
 impl MatchImpl {
-	pub(crate) fn _new(start: usize, end: usize, id: usize) -> Self {
+	pub(crate) fn new(start: usize, end: usize, id: usize) -> Self {
 		Self { start, end, id }
 	}
 }
@@ -79,7 +80,7 @@ impl Match for MatchImpl {
 }
 
 impl Pattern {
-	pub(crate) fn _new(
+	pub(crate) fn new(
 		regex: &str,
 		is_case_sensitive: bool,
 		is_termination_pattern: bool,
@@ -92,16 +93,16 @@ impl Pattern {
 			id,
 		}
 	}
-	fn _regex(&self) -> &String {
+	pub fn regex(&self) -> &String {
 		&self.regex
 	}
-	fn _is_case_sensitive(&self) -> bool {
+	pub fn is_case_sensitive(&self) -> bool {
 		self.is_case_sensitive
 	}
-	fn _is_termination_pattern(&self) -> bool {
+	pub fn is_termination_pattern(&self) -> bool {
 		self.is_termination_pattern
 	}
-	fn _id(&self) -> usize {
+	pub fn id(&self) -> usize {
 		self.id
 	}
 }
@@ -148,10 +149,10 @@ mod test {
 
 	#[test]
 	fn test_suffix_tree() -> Result<(), Error> {
-		let _suffix_tree = Builder::_build_suffix_tree(list![
-			Builder::_build_pattern("p1", false, false, 0),
-			Builder::_build_pattern("p2", false, false, 1),
-			Builder::_build_pattern("p3", true, false, 2)
+		let _suffix_tree = Builder::build_suffix_tree(list![
+			Builder::build_pattern("p1", false, false, 0),
+			Builder::build_pattern("p2", false, false, 1),
+			Builder::build_pattern("p3", true, false, 2)
 		])?;
 		Ok(())
 	}

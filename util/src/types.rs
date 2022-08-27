@@ -168,6 +168,7 @@ pub trait List<V>: Debug + DynClone {
 	fn push(&mut self, value: V) -> Result<(), Error>;
 	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
 	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
+	fn delete_head(&mut self) -> Result<(), Error>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
 }
@@ -180,9 +181,10 @@ clone_trait_object!(<V>List<V>);
 
 pub trait SortableList<V>: List<V>
 where
-	V: Serializable + Ord,
+	V: Ord,
 {
 	fn sort(&mut self) -> Result<(), Error>;
+	fn sort_unstable(&mut self) -> Result<(), Error>;
 }
 
 /// The result returned from a call to [`crate::ThreadPool::execute`]. This is

@@ -87,6 +87,9 @@ pub enum ErrorKind {
 	/// Memmory Allocation Error
 	#[fail(display = "memory allocation error: {}", _0)]
 	Alloc(String),
+	/// Operation not supported
+	#[fail(display = "operation not supported error: {}", _0)]
+	OperationNotSupported(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
@@ -127,6 +130,8 @@ pub enum ErrKind {
 	ThreadPanic,
 	/// Memory allocation error
 	Alloc,
+	/// Operation not supported
+	OperationNotSupported,
 }
 
 impl Display for Error {
