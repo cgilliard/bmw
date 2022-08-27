@@ -192,14 +192,20 @@ where
 
 impl<T> SortableList<T> for ArrayList<T>
 where
-	T: Clone + Debug + Serializable + Ord,
+	T: Clone + Debug + Serializable + PartialEq,
 {
-	fn sort(&mut self) -> Result<(), Error> {
+	fn sort(&mut self) -> Result<(), Error>
+	where
+		T: Ord,
+	{
 		let size = self.size();
 		self.inner.as_mut()[0..size].sort();
 		Ok(())
 	}
-	fn sort_unstable(&mut self) -> Result<(), Error> {
+	fn sort_unstable(&mut self) -> Result<(), Error>
+	where
+		T: Ord,
+	{
 		let size = self.size();
 		self.inner.as_mut()[0..size].sort_unstable();
 		Ok(())
@@ -756,7 +762,7 @@ mod test {
 	#[test]
 	fn test_sort() -> Result<(), Error> {
 		use crate::SortableList;
-		let mut list = Builder::build_sortable_array_list(10)?;
+		let mut list = Builder::build_array_list(10)?;
 
 		list.push(1)?;
 		list.push(3)?;

@@ -11,6 +11,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bmw_log::*;
+
+info!();
+
 #[macro_export]
 macro_rules! init_slab_allocator {
 ( $( $config:expr ),* ) => {{
@@ -274,14 +278,16 @@ macro_rules! list_append {
 #[macro_export]
 macro_rules! list_eq {
 	($list1:expr, $list2:expr) => {{
-		let list1_size = $list1.size();
-		if list1_size != $list2.size() {
+		let list1 = &$list1;
+		let list2 = &$list2;
+		let list1_size = list1.size();
+		if list1_size != list2.size() {
 			false
 		} else {
 			let mut ret = true;
 			{
-				let mut itt1 = $list1.iter();
-				let mut itt2 = $list2.iter();
+				let mut itt1 = list1.iter();
+				let mut itt2 = list2.iter();
 				for _ in 0..list1_size {
 					if itt1.next() != itt2.next() {
 						ret = false;
@@ -396,7 +402,9 @@ macro_rules! block_on {
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::{thread_pool, List, PoolResult, StaticHashset, StaticHashtable, ThreadPool};
+	use crate::{
+		thread_pool, List, PoolResult, SortableList, StaticHashset, StaticHashtable, ThreadPool,
+	};
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
 	use bmw_util::ConfigOption::*;
@@ -533,6 +541,20 @@ mod test {
 		}
 		sleep(Duration::from_millis(2_000));
 		assert_eq!(tp.size()?, 5);
+		Ok(())
+	}
+
+	#[test]
+	fn test_list_eq() -> Result<(), Error> {
+		let list1 = list![1, 2, 3];
+		let eq = list_eq!(list1, list![1, 2, 3]);
+		let mut list2 = list![4, 5, 6];
+		list_append!(list2, list![5, 5, 5]);
+		assert!(eq);
+		assert!(list_eq!(list2, list![4, 5, 6, 5, 5, 5]));
+		list2.sort_unstable()?;
+		assert!(list_eq!(list2, list![4, 5, 5, 5, 5, 6]));
+		assert!(!list_eq!(list2, list![1, 2, 3]));
 		Ok(())
 	}
 }

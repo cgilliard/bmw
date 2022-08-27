@@ -44,23 +44,16 @@ impl Builder {
 		Array::new(size)
 	}
 
-	pub fn build_array_list<T>(size: usize) -> Result<impl List<T>, Error>
+	pub fn build_array_list<T>(size: usize) -> Result<impl SortableList<T>, Error>
 	where
-		T: Clone + Debug + PartialEq,
+		T: Clone + Debug + PartialEq + Serializable,
 	{
 		ArrayList::new(size)
 	}
 
-	pub fn build_sortable_array_list<T>(size: usize) -> Result<impl SortableList<T>, Error>
+	pub fn build_array_list_box<T>(size: usize) -> Result<Box<dyn SortableList<T>>, Error>
 	where
-		T: Clone + Debug + PartialEq + Ord + Serializable,
-	{
-		ArrayList::new(size)
-	}
-
-	pub fn build_array_list_box<T>(size: usize) -> Result<Box<dyn List<T>>, Error>
-	where
-		T: Clone + Debug + PartialEq + 'static,
+		T: Clone + Debug + PartialEq + Serializable + 'static,
 	{
 		Ok(Box::new(ArrayList::new(size)?))
 	}
@@ -215,7 +208,7 @@ impl Builder {
 	pub fn build_list<V>(
 		config: ListConfig,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<impl List<V>, Error>
+	) -> Result<impl SortableList<V>, Error>
 	where
 		V: Serializable + Debug + PartialEq + Clone,
 	{

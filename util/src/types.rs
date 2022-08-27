@@ -173,19 +173,21 @@ pub trait List<V>: Debug + DynClone {
 	fn clear(&mut self) -> Result<(), Error>;
 }
 
+pub trait SortableList<V>: List<V> + DynClone {
+	fn sort(&mut self) -> Result<(), Error>
+	where
+		V: Ord;
+	fn sort_unstable(&mut self) -> Result<(), Error>
+	where
+		V: Ord;
+}
+
 clone_trait_object!(<V>Queue<V>);
 clone_trait_object!(<V>Stack<V>);
 clone_trait_object!(<V>StaticHashset<V>);
 clone_trait_object!(<K, V>StaticHashtable<K, V>);
 clone_trait_object!(<V>List<V>);
-
-pub trait SortableList<V>: List<V>
-where
-	V: Ord,
-{
-	fn sort(&mut self) -> Result<(), Error>;
-	fn sort_unstable(&mut self) -> Result<(), Error>;
-}
+clone_trait_object!(<V>SortableList<V>);
 
 /// The result returned from a call to [`crate::ThreadPool::execute`]. This is
 /// similar to [`std::result::Result`] except that it implements [`std::marker::Send`]

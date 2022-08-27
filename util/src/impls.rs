@@ -11,12 +11,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::list_append;
 use crate::misc::{set_max, slice_to_usize, usize_to_slice};
 use crate::types::{Direction, StaticImpl, StaticImplSync};
 use crate::{
 	Builder, HashsetIterator, HashtableIterator, List, ListConfig, ListIterator, Reader,
-	Serializable, SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, StaticHashset,
-	StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, Writer, GLOBAL_SLAB_ALLOCATOR,
+	Serializable, SlabAllocator, SlabAllocatorConfig, SlabReader, SlabWriter, SortableList,
+	StaticHashset, StaticHashsetConfig, StaticHashtable, StaticHashtableConfig, Writer,
+	GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::*;
 use bmw_log::*;
@@ -206,6 +208,34 @@ where
 
 			true
 		}
+	}
+}
+
+impl<V> SortableList<V> for StaticImpl<V>
+where
+	V: Serializable + PartialEq + Debug + Clone,
+{
+	fn sort(&mut self) -> Result<(), Error>
+	where
+		V: Ord,
+	{
+		let mut list = Builder::build_array_list::<V>(self.size)?;
+		list_append!(list, self);
+		list.sort()?;
+		self.clear()?;
+		list_append!(self, list);
+		Ok(())
+	}
+	fn sort_unstable(&mut self) -> Result<(), Error>
+	where
+		V: Ord,
+	{
+		let mut list = Builder::build_array_list::<V>(self.size)?;
+		list_append!(list, self);
+		list.sort_unstable()?;
+		self.clear()?;
+		list_append!(self, list);
+		Ok(())
 	}
 }
 
@@ -1191,7 +1221,7 @@ mod test {
 	use crate::ConfigOption::SlabSize;
 	use crate::{
 		block_on, execute, list, list_append, list_eq, slab_allocator, thread_pool, Builder,
-		ListConfig, SlabAllocatorConfig, StaticHashsetConfig, StaticHashtable,
+		ListConfig, SlabAllocatorConfig, SortableList, StaticHashsetConfig, StaticHashtable,
 		StaticHashtableConfig, ThreadPool, GLOBAL_SLAB_ALLOCATOR,
 	};
 	use bmw_deps::rand::random;
@@ -1717,6 +1747,17 @@ mod test {
 		})?;
 
 		assert_eq!(free_count1, free_count2);
+		Ok(())
+	}
+
+	#[test]
+	fn test_sort_linked() -> Result<(), Error> {
+		let mut list = list![1, 2, 3, 7, 5];
+		list.sort()?;
+		info!("list={:?}", list)?;
+
+		let other_list = list![1, 2, 3, 5, 7];
+		assert!(list_eq!(other_list, list));
 		Ok(())
 	}
 }
