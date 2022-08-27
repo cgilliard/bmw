@@ -17,7 +17,7 @@ use crate::threadpool::ThreadPoolImpl;
 use crate::types::Builder;
 use crate::types::{StaticImpl, StaticImplSync};
 use crate::{
-	Array, ArrayList, List, ListConfig, Match, Pattern, Queue, Serializable, SlabAllocator,
+	Array, ArrayList, ListConfig, Match, Pattern, Queue, Serializable, SlabAllocator,
 	SlabAllocatorConfig, SortableList, Stack, StaticHashset, StaticHashsetConfig, StaticHashtable,
 	StaticHashtableConfig, SuffixTree, ThreadPool, ThreadPoolConfig,
 };
@@ -183,7 +183,7 @@ impl Builder {
 	pub fn build_sync_list<V>(
 		config: ListConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<impl List<V>, Error>
+	) -> Result<impl SortableList<V>, Error>
 	where
 		V: Serializable + Debug + PartialEq + Clone,
 	{
@@ -193,7 +193,7 @@ impl Builder {
 	pub fn build_sync_list_box<V>(
 		config: ListConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<Box<dyn List<V>>, Error>
+	) -> Result<Box<dyn SortableList<V>>, Error>
 	where
 		V: Serializable + Debug + PartialEq + Clone + 'static,
 	{
@@ -218,7 +218,7 @@ impl Builder {
 	pub fn build_list_box<V>(
 		config: ListConfig,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
-	) -> Result<Box<dyn List<V>>, Error>
+	) -> Result<Box<dyn SortableList<V>>, Error>
 	where
 		V: Serializable + Debug + PartialEq + Clone + 'static,
 	{
@@ -238,7 +238,9 @@ impl Builder {
 		Pattern::new(regex, is_case_sensitive, is_termination_pattern, id)
 	}
 
-	pub fn build_suffix_tree(patterns: impl List<Pattern>) -> Result<impl SuffixTree, Error> {
+	pub fn build_suffix_tree(
+		patterns: impl SortableList<Pattern>,
+	) -> Result<impl SuffixTree, Error> {
 		SuffixTreeImpl::new(patterns)
 	}
 

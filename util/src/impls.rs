@@ -279,6 +279,24 @@ unsafe impl<K> Send for StaticImplSync<K> where K: Serializable + Clone {}
 
 unsafe impl<K> Sync for StaticImplSync<K> where K: Serializable + Clone {}
 
+impl<V> SortableList<V> for StaticImplSync<V>
+where
+	V: Clone + PartialEq + Debug + Serializable,
+{
+	fn sort(&mut self) -> Result<(), Error>
+	where
+		V: Ord,
+	{
+		self.static_impl.sort()
+	}
+	fn sort_unstable(&mut self) -> Result<(), Error>
+	where
+		V: Ord,
+	{
+		self.static_impl.sort_unstable()
+	}
+}
+
 impl<K> PartialEq for StaticImplSync<K>
 where
 	K: Serializable + PartialEq + Clone,
