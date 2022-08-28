@@ -11,29 +11,330 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::{Dictionary, MatchImpl, SuffixTreeImpl};
-use crate::{List, Match, Pattern, Reader, Serializable, SuffixTree, Writer};
-use bmw_err::Error;
+use crate::types::{Dictionary, MatchImpl, Node, SuffixTreeImpl};
+use crate::{List, Match, Pattern, Reader, Serializable, Stack, SuffixTree, Writer};
+use bmw_err::{err, ErrKind, Error};
 
-impl SuffixTreeImpl {
-	pub(crate) fn new(_patterns: impl List<Pattern>) -> Result<Self, Error> {
+impl Default for Node {
+	fn default() -> Self {
+		Self {
+			next: [u32::MAX; 257],
+			pattern_id: usize::MAX,
+			is_multi: false,
+			is_term: false,
+			is_start_only: false,
+			is_multi_line: true,
+		}
+	}
+}
+
+impl Dictionary {
+	fn new() -> Result<Self, Error> {
 		Ok(Self {
-			dictionary: Dictionary {},
+			nodes: vec![Node::default()],
+			next: 0,
 		})
 	}
 
-	pub fn _add(&mut self, _pattern: Pattern) -> Result<(), Error> {
+	fn add(&mut self, pattern: Pattern) -> Result<(), Error> {
+		if pattern.regex.len() == 0 {
+			return Err(err!(
+				ErrKind::IllegalArgument,
+				"regex length must be greater than 0"
+			));
+		}
+
+		let lower;
+		let mut regex = if pattern.is_case_sensitive {
+			pattern.regex.as_str().bytes().peekable()
+		} else {
+			lower = pattern.regex.to_lowercase();
+			lower.as_str().bytes().peekable()
+		};
+		let mut cur_byte = regex.next().unwrap();
+		let mut cur_node = &mut self.nodes[0];
+		let mut is_start_only = false;
+
+		if cur_byte == '^' as u8 {
+			cur_byte = match regex.next() {
+				Some(cur_byte) => {
+					is_start_only = true;
+					cur_byte
+				}
+				None => {
+					return Err(err!(
+						ErrKind::IllegalArgument,
+						"Regex must be at least one byte long not including the ^ character"
+					));
+				}
+			}
+		}
+
+		loop {
+			let (check_index, is_multi) = if cur_byte == '.' as u8 {
+				let peek = regex.peek();
+				let is_multi = match peek {
+					Some(peek) => {
+						if *peek == '*' as u8 {
+							regex.next();
+							true
+						} else {
+							false
+						}
+					}
+					_ => false,
+				};
+				(256usize, is_multi) // wild card is 256
+			} else if cur_byte == '\\' as u8 {
+				let next = regex.next();
+				match next {
+					Some(next) => {
+						if next == '\\' as u8 {
+							(cur_byte as usize, false)
+						} else if next == '.' as u8 {
+							(next as usize, false)
+						} else {
+							return Err(err!(
+								ErrKind::IllegalArgument,
+								&format!("Illegal escape character '{}'", next as char)[..]
+							));
+						}
+					}
+					None => {
+						return Err(err!(
+							ErrKind::IllegalArgument,
+							"Illegal escape character at termination of string"
+						));
+					}
+				}
+			} else {
+				(cur_byte as usize, false)
+			};
+			let index = match cur_node.next[check_index] {
+				u32::MAX => {
+					cur_node.next[check_index] = self.next + 1;
+					self.next += 1;
+					self.next
+				}
+				_ => cur_node.next[check_index],
+			};
+
+			if index >= self.nodes.len().try_into()? {
+				self.nodes.push(Node::default());
+			}
+			cur_node = &mut self.nodes[index as usize];
+			cur_node.is_multi = is_multi;
+			cur_byte = match regex.next() {
+				Some(cur_byte) => cur_byte,
+				None => {
+					cur_node.pattern_id = pattern.id;
+					cur_node.is_term = pattern.is_termination_pattern;
+					cur_node.is_start_only = is_start_only;
+					cur_node.is_multi_line = pattern.is_multi_line;
+					break;
+				}
+			};
+		}
+
 		Ok(())
 	}
 }
 
 impl SuffixTree for SuffixTreeImpl {
-	fn run_matches(
-		&mut self,
-		_text: &[u8],
-		_matches: &mut [Box<dyn Match>],
+	fn tmatch(
+		&self,
+		text: &[u8],
+		matches: &mut [impl Match],
+		branch_stack: &mut Box<dyn Stack<(usize, usize)>>,
 	) -> Result<usize, Error> {
-		Ok(0)
+		let match_count = 0;
+		let max_wildcard_length = self.max_wildcard_length;
+		let dictionary = &self.dictionary_case_insensitive;
+		loop {
+			if branch_stack.pop().is_none() {
+				break;
+			}
+		}
+		let match_count = self.tmatch_impl(
+			text,
+			matches,
+			match_count,
+			dictionary,
+			false,
+			max_wildcard_length,
+			branch_stack,
+		)?;
+		let dictionary = &self.dictionary_case_sensitive;
+		loop {
+			if branch_stack.pop().is_none() {
+				break;
+			}
+		}
+		self.tmatch_impl(
+			text,
+			matches,
+			match_count,
+			dictionary,
+			true,
+			max_wildcard_length,
+			branch_stack,
+		)
+	}
+}
+
+impl SuffixTreeImpl {
+	pub(crate) fn new(
+		patterns: impl List<Pattern>,
+		termination_length: usize,
+		max_wildcard_length: usize,
+	) -> Result<Self, Error> {
+		let mut dictionary_case_insensitive = Dictionary::new()?;
+		let mut dictionary_case_sensitive = Dictionary::new()?;
+		for pattern in patterns.iter() {
+			if pattern.is_case_sensitive {
+				dictionary_case_sensitive.add(pattern)?;
+			} else {
+				dictionary_case_insensitive.add(pattern)?;
+			}
+		}
+		Ok(Self {
+			dictionary_case_insensitive,
+			dictionary_case_sensitive,
+			termination_length,
+			max_wildcard_length,
+		})
+	}
+
+	fn tmatch_impl(
+		&self,
+		text: &[u8],
+		matches: &mut [impl Match],
+		mut match_count: usize,
+		dictionary: &Dictionary,
+		case_sensitive: bool,
+		max_wildcard_length: usize,
+		branch_stack: &mut Box<dyn Stack<(usize, usize)>>,
+	) -> Result<usize, Error> {
+		let mut itt = 0;
+		let len = text.len();
+		let mut cur_node = &dictionary.nodes[0];
+		let mut start = 0;
+		let mut multi_counter = 0;
+		let mut is_branch = false;
+		let mut has_newline = false;
+
+		loop {
+			if start >= len || start >= self.termination_length {
+				break;
+			}
+			if is_branch {
+				is_branch = false;
+			} else {
+				has_newline = false;
+				itt = start;
+			}
+
+			let mut last_multi: Option<&Node> = None;
+			loop {
+				if itt >= len {
+					break;
+				}
+
+				let byte = if case_sensitive {
+					text[itt]
+				} else {
+					if text[itt] >= 'A' as u8 && text[itt] <= 'Z' as u8 {
+						text[itt] + 32
+					} else {
+						text[itt]
+					}
+				};
+
+				if byte == '\r' as u8 || byte == '\n' as u8 {
+					has_newline = true;
+				}
+
+				if !cur_node.is_multi {
+					multi_counter = 0;
+				}
+
+				match cur_node.next[byte as usize] {
+					u32::MAX => {
+						if cur_node.is_multi {
+							last_multi = Some(cur_node);
+							multi_counter += 1;
+							if multi_counter >= max_wildcard_length {
+								// wild card max length. break as no
+								// match and continue
+								break;
+							}
+							itt += 1;
+							continue;
+						}
+						// check wildcard
+						match cur_node.next[256] {
+							u32::MAX => {
+								if last_multi.is_some() {
+									cur_node = last_multi.unwrap();
+									continue;
+								}
+								break;
+							}
+							_ => cur_node = &dictionary.nodes[cur_node.next[256] as usize],
+						}
+					}
+					_ => {
+						match cur_node.next[256] {
+							u32::MAX => {}
+							_ => {
+								// we have a branch here. Add it to the stack.
+								branch_stack.push((itt, cur_node.next[256] as usize))?;
+							}
+						}
+						cur_node = &dictionary.nodes[cur_node.next[byte as usize] as usize]
+					}
+				}
+
+				match cur_node.pattern_id {
+					usize::MAX => {}
+					_ => {
+						if !(cur_node.is_start_only && start != 0) {
+							if match_count >= matches.len() {
+								// too many matches return with the
+								// first set of matches
+								return Ok(match_count);
+							}
+
+							if !has_newline || cur_node.is_multi_line {
+								matches[match_count].set_id(cur_node.pattern_id);
+								matches[match_count].set_end(itt + 1);
+								matches[match_count].set_start(start);
+								last_multi = None;
+								match_count += 1;
+								if cur_node.is_term {
+									return Ok(match_count);
+								}
+							}
+						}
+					}
+				}
+
+				itt += 1;
+			}
+
+			match branch_stack.pop() {
+				Some(br) => {
+					cur_node = &dictionary.nodes[br.1];
+					itt = br.0;
+					is_branch = true;
+				}
+				None => {
+					start += 1;
+					cur_node = &dictionary.nodes[0];
+				}
+			}
+		}
+		Ok(match_count)
 	}
 }
 
@@ -53,17 +354,14 @@ impl Match for MatchImpl {
 	fn id(&self) -> usize {
 		self.id
 	}
-	fn set_start(&mut self, start: usize) -> Result<(), Error> {
+	fn set_start(&mut self, start: usize) {
 		self.start = start;
-		Ok(())
 	}
-	fn set_end(&mut self, end: usize) -> Result<(), Error> {
+	fn set_end(&mut self, end: usize) {
 		self.end = end;
-		Ok(())
 	}
-	fn set_id(&mut self, id: usize) -> Result<(), Error> {
+	fn set_id(&mut self, id: usize) {
 		self.id = id;
-		Ok(())
 	}
 }
 
@@ -72,12 +370,14 @@ impl Pattern {
 		regex: &str,
 		is_case_sensitive: bool,
 		is_termination_pattern: bool,
+		is_multi_line: bool,
 		id: usize,
 	) -> Self {
 		Self {
 			regex: regex.to_string(),
 			is_termination_pattern,
 			is_case_sensitive,
+			is_multi_line,
 			id,
 		}
 	}
@@ -106,11 +406,16 @@ impl Serializable for Pattern {
 			0 => false,
 			_ => true,
 		};
+		let is_multi_line = match reader.read_u8()? {
+			0 => false,
+			_ => true,
+		};
 		let id = reader.read_usize()?;
 		Ok(Self {
 			regex,
 			is_case_sensitive,
 			is_termination_pattern,
+			is_multi_line,
 			id,
 		})
 	}
@@ -124,6 +429,10 @@ impl Serializable for Pattern {
 			false => writer.write_u8(0)?,
 			true => writer.write_u8(1)?,
 		}
+		match self.is_multi_line {
+			false => writer.write_u8(0)?,
+			true => writer.write_u8(1)?,
+		}
 		writer.write_usize(self.id)?;
 		Ok(())
 	}
@@ -132,16 +441,36 @@ impl Serializable for Pattern {
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::{list, Builder};
+	use crate::{list, Builder, Match, SuffixTree};
 	use bmw_err::*;
+	use bmw_log::*;
+
+	info!();
 
 	#[test]
 	fn test_suffix_tree() -> Result<(), Error> {
-		let _suffix_tree = Builder::build_suffix_tree(list![
-			Builder::build_pattern("p1", false, false, 0),
-			Builder::build_pattern("p2", false, false, 1),
-			Builder::build_pattern("p3", true, false, 2)
-		])?;
+		let mut branch_stack = Builder::build_stack_box(3)?;
+		let suffix_tree = Builder::build_suffix_tree(
+			list![
+				Builder::build_pattern("p1", false, false, false, 0),
+				Builder::build_pattern("p2", false, false, false, 1),
+				Builder::build_pattern("p3", true, false, false, 2)
+			],
+			1_000,
+			100,
+		)?;
+
+		let mut matches = [Builder::build_match_default(); 10];
+		let count = suffix_tree.tmatch(b"p1p2", &mut matches, &mut branch_stack)?;
+		info!("count={}", count)?;
+		assert_eq!(count, 2);
+		assert_eq!(matches[0].id(), 0);
+		assert_eq!(matches[0].start(), 0);
+		assert_eq!(matches[0].end(), 2);
+		assert_eq!(matches[1].id(), 1);
+		assert_eq!(matches[1].start(), 2);
+		assert_eq!(matches[1].end(), 4);
+
 		Ok(())
 	}
 }

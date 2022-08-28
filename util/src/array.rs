@@ -327,6 +327,9 @@ where
 			Some(&self.inner[self.head])
 		}
 	}
+	fn length(&self) -> usize {
+		self.size
+	}
 }
 
 impl<T> Stack<T> for ArrayList<T>
@@ -370,33 +373,10 @@ where
 			Some(&self.inner[index])
 		}
 	}
-}
-
-/*
-impl<'a, T> Iterator for ArrayListIterator<'a, T>
-where
-	T: Clone,
-{
-	type Item = T;
-	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
-		if self.array_list_ref.size == 0 {
-			None
-		} else if self.direction == Direction::Forward && self.cur >= self.array_list_ref.size {
-			None
-		} else if self.direction == Direction::Backward && self.cur <= 0 {
-			None
-		} else {
-			let ret = Some(self.array_list_ref.inner[self.cur].clone());
-			if self.direction == Direction::Forward {
-				self.cur += 1;
-			} else {
-				self.cur = self.cur.saturating_sub(1);
-			}
-			ret
-		}
+	fn length(&self) -> usize {
+		self.size
 	}
 }
-*/
 
 impl<'a, T> Iterator for ArrayIterator<'a, T>
 where

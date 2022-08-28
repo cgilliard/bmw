@@ -227,19 +227,32 @@ impl Builder {
 		MatchImpl::new(start, end, id)
 	}
 
+	pub fn build_match_default() -> impl Match {
+		MatchImpl::new(0, 0, 0)
+	}
+
 	pub fn build_pattern(
 		regex: &str,
 		is_case_sensitive: bool,
 		is_termination_pattern: bool,
+		is_multi_line: bool,
 		id: usize,
 	) -> Pattern {
-		Pattern::new(regex, is_case_sensitive, is_termination_pattern, id)
+		Pattern::new(
+			regex,
+			is_case_sensitive,
+			is_termination_pattern,
+			is_multi_line,
+			id,
+		)
 	}
 
 	pub fn build_suffix_tree(
 		patterns: impl SortableList<Pattern>,
+		termination_length: usize,
+		max_wildcard_length: usize,
 	) -> Result<impl SuffixTree, Error> {
-		SuffixTreeImpl::new(patterns)
+		SuffixTreeImpl::new(patterns, termination_length, max_wildcard_length)
 	}
 
 	/// Build a slab allocator on the heap in an [`std::cell::UnsafeCell`].

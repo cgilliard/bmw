@@ -275,12 +275,14 @@ pub trait Queue<V>: DynClone {
 	fn enqueue(&mut self, value: V) -> Result<(), Error>;
 	fn dequeue(&mut self) -> Option<&V>;
 	fn peek(&self) -> Option<&V>;
+	fn length(&self) -> usize;
 }
 
 pub trait Stack<V>: DynClone {
 	fn push(&mut self, value: V) -> Result<(), Error>;
 	fn pop(&mut self) -> Option<&V>;
 	fn peek(&self) -> Option<&V>;
+	fn length(&self) -> usize;
 }
 
 pub trait List<V>: DynClone + Debug {
@@ -661,13 +663,13 @@ pub trait SlabAllocator: DynClone + Debug {
 
 clone_trait_object!(SlabAllocator);
 
-pub trait Match {
+pub trait Match: Clone + Copy {
 	fn start(&self) -> usize;
 	fn end(&self) -> usize;
 	fn id(&self) -> usize;
-	fn set_start(&mut self, start: usize) -> Result<(), Error>;
-	fn set_end(&mut self, end: usize) -> Result<(), Error>;
-	fn set_id(&mut self, id: usize) -> Result<(), Error>;
+	fn set_start(&mut self, start: usize);
+	fn set_end(&mut self, end: usize);
+	fn set_id(&mut self, id: usize);
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -675,9 +677,11 @@ pub struct Pattern {
 	pub(crate) regex: String,
 	pub(crate) is_case_sensitive: bool,
 	pub(crate) is_termination_pattern: bool,
+	pub(crate) is_multi_line: bool,
 	pub(crate) id: usize,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct MatchImpl {
 	pub(crate) start: usize,
 	pub(crate) end: usize,
@@ -685,14 +689,34 @@ pub(crate) struct MatchImpl {
 }
 
 pub trait SuffixTree {
-	fn run_matches(&mut self, text: &[u8], matches: &mut [Box<dyn Match>]) -> Result<usize, Error>;
+	fn tmatch(
+		&self,
+		text: &[u8],
+		matches: &mut [impl Match],
+		branch_stack: &mut Box<dyn Stack<(usize, usize)>>,
+	) -> Result<usize, Error>;
 }
 
-pub(crate) struct Dictionary {}
+#[derive(Clone, Debug)]
+pub(crate) struct Node {
+	pub(crate) next: [u32; 257],
+	pub(crate) pattern_id: usize,
+	pub(crate) is_multi: bool,
+	pub(crate) is_term: bool,
+	pub(crate) is_start_only: bool,
+	pub(crate) is_multi_line: bool,
+}
 
-#[allow(dead_code)]
+pub(crate) struct Dictionary {
+	pub(crate) nodes: Vec<Node>,
+	pub(crate) next: u32,
+}
+
 pub(crate) struct SuffixTreeImpl {
-	pub(crate) dictionary: Dictionary,
+	pub(crate) dictionary_case_insensitive: Dictionary,
+	pub(crate) dictionary_case_sensitive: Dictionary,
+	pub(crate) termination_length: usize,
+	pub(crate) max_wildcard_length: usize,
 }
 
 pub struct MatchBuilder {}
