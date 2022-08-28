@@ -19,7 +19,6 @@ use std::alloc::Layout;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::future::Future;
-use std::hash::Hash;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -249,8 +248,8 @@ pub struct ListConfig {}
 
 pub trait Hashtable<K, V>: Debug + DynClone
 where
-	K: Serializable + Hash + PartialEq + Debug + Clone,
-	V: Serializable + Clone,
+	K: Serializable + Clone,
+	V: Serializable,
 {
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
@@ -262,14 +261,14 @@ where
 
 pub trait Hashset<K>: Debug + DynClone
 where
-	K: Serializable + Hash + PartialEq + Debug + Clone,
+	K: Serializable + Clone,
 {
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
 	fn contains(&self, key: &K) -> Result<bool, Error>;
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
-	fn iter<'a>(&'a self) -> HashsetIterator<K>;
+	fn iter<'a>(&'a self) -> HashsetIterator<'a, K>;
 }
 
 pub trait Queue<V>: DynClone {
@@ -284,10 +283,14 @@ pub trait Stack<V>: DynClone {
 	fn peek(&self) -> Option<&V>;
 }
 
-pub trait List<V>: Debug + DynClone {
+pub trait List<V>: DynClone + Debug {
 	fn push(&mut self, value: V) -> Result<(), Error>;
-	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
-	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>;
+	fn iter<'a>(&'a self) -> ListIterator<'a, V>
+	where
+		V: Serializable + Clone;
+	fn iter_rev<'a>(&'a self) -> ListIterator<'a, V>
+	where
+		V: Serializable + Clone;
 	fn delete_head(&mut self) -> Result<(), Error>;
 	fn size(&self) -> usize;
 	fn clear(&mut self) -> Result<(), Error>;
@@ -821,11 +824,12 @@ pub struct ListIterator<'a, V>
 where
 	V: Serializable + Clone,
 {
-	pub(crate) list: &'a HashImpl<V>,
+	pub(crate) linked_list_ref: Option<&'a HashImpl<V>>,
+	pub(crate) array_list_ref: Option<&'a ArrayList<V>>,
 	pub(crate) cur: usize,
 	pub(crate) direction: Direction,
 	pub(crate) _phantom_data: PhantomData<V>,
-	pub(crate) slab_reader: SlabReader,
+	pub(crate) slab_reader: Option<SlabReader>,
 }
 
 #[derive(Clone)]
@@ -866,13 +870,7 @@ pub(crate) struct SlabAllocatorImpl {
 	pub(crate) max_value: usize,
 }
 
-pub(crate) struct ArrayListIterator<'a, T> {
-	pub(crate) array_list_ref: &'a ArrayList<T>,
-	pub(crate) cur: usize,
-	pub(crate) direction: Direction,
-}
-
-pub(crate) struct ArrayIterator<'a, T> {
+pub struct ArrayIterator<'a, T> {
 	pub(crate) array_ref: &'a Array<T>,
 	pub(crate) cur: usize,
 }

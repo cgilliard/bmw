@@ -85,33 +85,55 @@ where
 {
 	type Item = V;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
-		if self.list.size == 0 {
-			return None;
-		}
-		let slot = self.cur;
-		match self
-			.list
-			.get_next_slot(&mut self.cur, self.direction, &mut self.slab_reader)
-		{
-			Ok(ret) => match ret {
-				true => match self.slab_reader.seek(slot, self.list.ptr_size * 2) {
-					Ok(_) => match V::read(&mut self.slab_reader) {
-						Ok(v) => Some(v),
-						Err(e) => {
-							let _ = warn!("deserialization generated error: {}", e);
-							None
-						}
+		match self.linked_list_ref {
+			Some(list) => {
+				let mut slab_reader = self.slab_reader.as_mut().unwrap();
+				// linked list
+				if list.size == 0 {
+					return None;
+				}
+				let slot = self.cur;
+				match list.get_next_slot(&mut self.cur, self.direction, &mut slab_reader) {
+					Ok(ret) => match ret {
+						true => match slab_reader.seek(slot, list.ptr_size * 2) {
+							Ok(_) => match V::read(slab_reader) {
+								Ok(v) => Some(v),
+								Err(e) => {
+									let _ = warn!("deserialization generated error: {}", e);
+									None
+								}
+							},
+							Err(e) => {
+								let _ = warn!("slab_reader.seek generated error: {}", e);
+								None
+							}
+						},
+						false => None,
 					},
 					Err(e) => {
-						let _ = warn!("slab_reader.seek generated error: {}", e);
+						let _ = warn!("get_next_slot generated error: {}", e);
 						None
 					}
-				},
-				false => None,
-			},
-			Err(e) => {
-				let _ = warn!("get_next_slot generated error: {}", e);
-				None
+				}
+			}
+			None => {
+				// array list
+				let array_list_ref = self.array_list_ref.unwrap();
+				if array_list_ref.size == 0 {
+					None
+				} else if self.direction == Direction::Forward && self.cur >= array_list_ref.size {
+					None
+				} else if self.direction == Direction::Backward && self.cur <= 0 {
+					None
+				} else {
+					let ret = Some(array_list_ref.inner[self.cur].clone());
+					if self.direction == Direction::Forward {
+						self.cur += 1;
+					} else {
+						self.cur = self.cur.saturating_sub(1);
+					}
+					ret
+				}
 			}
 		}
 	}
@@ -151,11 +173,12 @@ where
 	fn new(list: &'a HashImpl<V>, cur: usize, direction: Direction) -> Self {
 		let _ = debug!("new list iter");
 		Self {
-			list,
+			linked_list_ref: Some(list),
 			cur,
 			direction,
 			_phantom_data: PhantomData,
-			slab_reader: list.slab_reader.clone(),
+			slab_reader: Some(list.slab_reader.clone()),
+			array_list_ref: None,
 		}
 	}
 }
@@ -434,19 +457,15 @@ where
 		self.static_impl.insert_impl::<V>(Some(&value), None, None)
 	}
 
-	fn iter<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
-		Box::new(ListIterator::new(
-			&self.static_impl,
-			self.static_impl.head,
-			Direction::Forward,
-		))
+	fn iter<'b>(&'b self) -> ListIterator<'b, V> {
+		ListIterator::new(&self.static_impl, self.static_impl.head, Direction::Forward)
 	}
-	fn iter_rev<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
-		Box::new(ListIterator::new(
+	fn iter_rev<'b>(&'b self) -> ListIterator<'b, V> {
+		ListIterator::new(
 			&self.static_impl,
 			self.static_impl.tail,
 			Direction::Backward,
-		))
+		)
 	}
 	fn delete_head(&mut self) -> Result<(), Error> {
 		self.static_impl.delete_head()
@@ -457,14 +476,6 @@ where
 	fn clear(&mut self) -> Result<(), Error> {
 		self.static_impl.clear_impl()
 	}
-	/*
-	fn append(&mut self, list: &impl List<V>) -> Result<(), Error> {
-		for x in list.iter() {
-			self.static_impl.push(x)?;
-		}
-		Ok(())
-	}
-		*/
 }
 
 impl<K> HashImpl<K>
@@ -1204,11 +1215,11 @@ where
 		self.insert_impl::<V>(Some(&value), None, None)
 	}
 
-	fn iter<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
-		Box::new(ListIterator::new(self, self.head, Direction::Forward))
+	fn iter<'b>(&'b self) -> ListIterator<'b, V> {
+		ListIterator::new(self, self.head, Direction::Forward)
 	}
-	fn iter_rev<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
-		Box::new(ListIterator::new(self, self.tail, Direction::Backward))
+	fn iter_rev<'b>(&'b self) -> ListIterator<'b, V> {
+		ListIterator::new(self, self.tail, Direction::Backward)
 	}
 	fn delete_head(&mut self) -> Result<(), Error> {
 		self.delete_head_impl()

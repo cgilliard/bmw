@@ -11,8 +11,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::{ArrayIterator, ArrayListIterator, Direction};
-use crate::{Array, ArrayList, List, Queue, Serializable, SortableList, Stack};
+use crate::types::Direction;
+use crate::{
+	Array, ArrayIterator, ArrayList, List, ListIterator, Queue, Serializable, SortableList, Stack,
+};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::alloc::{alloc, dealloc, Layout};
@@ -61,11 +63,11 @@ where
 		let slice = unsafe { from_raw_parts_mut(ptr, self.size) };
 		slice
 	}
-	pub fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
-		Box::new(ArrayIterator {
+	pub fn iter<'a>(&'a self) -> ArrayIterator<'a, T> {
+		ArrayIterator {
 			cur: 0,
 			array_ref: self,
-		})
+		}
 	}
 }
 
@@ -252,19 +254,31 @@ where
 		self.size += 1;
 		Ok(())
 	}
-	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
-		Box::new(ArrayListIterator {
-			array_list_ref: &self,
+	fn iter<'a>(&'a self) -> ListIterator<'a, T>
+	where
+		T: Serializable,
+	{
+		ListIterator {
+			linked_list_ref: None,
+			array_list_ref: Some(&self),
+			_phantom_data: PhantomData,
+			slab_reader: None,
 			cur: 0,
 			direction: Direction::Forward,
-		})
+		}
 	}
-	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
-		Box::new(ArrayListIterator {
-			array_list_ref: &self,
+	fn iter_rev<'a>(&'a self) -> ListIterator<'a, T>
+	where
+		T: Serializable,
+	{
+		ListIterator {
+			linked_list_ref: None,
+			array_list_ref: Some(&self),
+			_phantom_data: PhantomData,
+			slab_reader: None,
 			cur: self.size.saturating_sub(1),
 			direction: Direction::Backward,
-		})
+		}
 	}
 	fn delete_head(&mut self) -> Result<(), Error> {
 		return Err(err!(
@@ -358,6 +372,7 @@ where
 	}
 }
 
+/*
 impl<'a, T> Iterator for ArrayListIterator<'a, T>
 where
 	T: Clone,
@@ -381,6 +396,7 @@ where
 		}
 	}
 }
+*/
 
 impl<'a, T> Iterator for ArrayIterator<'a, T>
 where
