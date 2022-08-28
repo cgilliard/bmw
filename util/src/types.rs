@@ -857,6 +857,7 @@ where
 	pub(crate) head: usize,
 	pub(crate) tail: usize,
 	pub(crate) max_load_factor: f64,
+	pub(crate) is_hashtable: bool,
 	pub(crate) _phantom_data: PhantomData<K>,
 }
 

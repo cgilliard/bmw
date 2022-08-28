@@ -272,9 +272,19 @@ where
 			let mut i = 0;
 			for x in itt {
 				if i == 0 {
-					write!(f, "{:?}", x)?;
+					write!(
+						f,
+						"{:?}{}",
+						x,
+						if self.is_hashtable { "=VALUE" } else { "" }
+					)?;
 				} else {
-					write!(f, ", {:?}", x)?;
+					write!(
+						f,
+						", {:?}{}",
+						x,
+						if self.is_hashtable { "=VALUE" } else { "" }
+					)?;
 				}
 				i += 1;
 			}
@@ -630,6 +640,7 @@ where
 			slab_reader,
 			slab_writer,
 			_phantom_data: PhantomData,
+			is_hashtable: hashtable_config.is_some(),
 		})
 	}
 
@@ -834,8 +845,7 @@ where
 					match self.read_key(entry_value)? {
 						Some((k, _reader)) => {
 							if &k == key {
-								self.size = self.size.saturating_sub(1);
-								self.free_chain(entry_value)?;
+								self.remove_impl(entry)?;
 								break;
 							}
 						}
@@ -1246,9 +1256,9 @@ mod test {
 	use crate::types::{Hashset, List};
 	use crate::ConfigOption::SlabSize;
 	use crate::{
-		block_on, execute, list, list_append, list_eq, slab_allocator, thread_pool, Builder,
-		HashsetConfig, Hashtable, HashtableConfig, ListConfig, SlabAllocatorConfig, SortableList,
-		ThreadPool, GLOBAL_SLAB_ALLOCATOR,
+		block_on, execute, hashset, hashtable, list, list_append, list_eq, slab_allocator,
+		thread_pool, Builder, HashsetConfig, Hashtable, HashtableConfig, ListConfig,
+		SlabAllocatorConfig, SortableList, ThreadPool, GLOBAL_SLAB_ALLOCATOR,
 	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
@@ -1784,6 +1794,22 @@ mod test {
 
 		let other_list = list![1, 2, 3, 5, 7];
 		assert!(list_eq!(other_list, list));
+		Ok(())
+	}
+
+	#[test]
+	fn test_debug() -> Result<(), Error> {
+		let mut hashset = hashset!()?;
+		hashset.insert(&1)?;
+		hashset.insert(&2)?;
+		hashset.insert(&1)?;
+		info!("hashset={:?}", hashset)?;
+
+		let mut hashtable = hashtable!()?;
+		hashtable.insert(&1, &10)?;
+		hashtable.insert(&2, &20)?;
+		hashtable.insert(&1, &10)?;
+		info!("hashtable={:?}", hashtable)?;
 		Ok(())
 	}
 }
