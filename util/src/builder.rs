@@ -84,7 +84,7 @@ impl Builder {
 		Ok(Box::new(ArrayList::new(size)?))
 	}
 
-	pub fn build_sync_hashtable<K, V>(
+	pub fn build_hashtable_sync<K, V>(
 		config: HashtableConfig,
 		slab_config: SlabAllocatorConfig,
 	) -> Result<impl Hashtable<K, V>, Error>
@@ -95,10 +95,10 @@ impl Builder {
 		HashImplSync::new(Some(config), None, None, slab_config)
 	}
 
-	pub fn build_sync_hashtable_box<K, V>(
+	pub fn build_hashtable_sync_box<K, V>(
 		config: HashtableConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<Box<dyn Hashtable<K, V>>, Error>
+	) -> Result<Box<dyn Hashtable<K, V> + Send + Sync>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 		V: Serializable + Clone,
@@ -133,7 +133,7 @@ impl Builder {
 		Ok(Box::new(HashImpl::new(Some(config), None, None, slabs)?))
 	}
 
-	pub fn build_sync_hashset<K>(
+	pub fn build_hashset_sync<K>(
 		config: HashsetConfig,
 		slab_config: SlabAllocatorConfig,
 	) -> Result<impl Hashset<K>, Error>
@@ -143,10 +143,10 @@ impl Builder {
 		HashImplSync::new(None, Some(config), None, slab_config)
 	}
 
-	pub fn build_sync_hashset_box<K>(
+	pub fn build_hashset_sync_box<K>(
 		config: HashsetConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<Box<dyn Hashset<K>>, Error>
+	) -> Result<Box<dyn Hashset<K> + Send + Sync>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 	{
@@ -178,7 +178,7 @@ impl Builder {
 		Ok(Box::new(HashImpl::new(None, Some(config), None, slabs)?))
 	}
 
-	pub fn build_sync_list<V>(
+	pub fn build_list_sync<V>(
 		config: ListConfig,
 		slab_config: SlabAllocatorConfig,
 	) -> Result<impl SortableList<V>, Error>
@@ -188,7 +188,7 @@ impl Builder {
 		HashImplSync::new(None, None, Some(config), slab_config)
 	}
 
-	pub fn build_sync_list_box<V>(
+	pub fn build_list_sync_box<V>(
 		config: ListConfig,
 		slab_config: SlabAllocatorConfig,
 	) -> Result<Box<dyn SortableList<V>>, Error>
@@ -208,7 +208,7 @@ impl Builder {
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<impl SortableList<V>, Error>
 	where
-		V: Serializable + Debug + PartialEq + Clone,
+		V: Serializable + Debug + Clone,
 	{
 		HashImpl::new(None, None, Some(config), slabs)
 	}
@@ -251,7 +251,7 @@ impl Builder {
 		UnsafeCell::new(Box::new(SlabAllocatorImpl::new()))
 	}
 
-	/// Build a slab allocator on the heap. This function is used by [`crate::slab_allocator`]
+	/// Build a slab allocator in a Rc/RefCell. This function is used by [`crate::slab_allocator`]
 	/// to create slab allocators for use with the other macros.
 	pub fn build_slabs_ref() -> Rc<RefCell<dyn SlabAllocator>> {
 		Rc::new(RefCell::new(SlabAllocatorImpl::new()))

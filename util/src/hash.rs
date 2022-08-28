@@ -212,7 +212,7 @@ where
 
 impl<V> SortableList<V> for HashImpl<V>
 where
-	V: Serializable + PartialEq + Debug + Clone,
+	V: Serializable + Debug + Clone,
 {
 	fn sort(&mut self) -> Result<(), Error>
 	where
@@ -672,9 +672,7 @@ where
 	}
 
 	fn delete_head_impl(&mut self) -> Result<(), Error> {
-		if self.size == 0 {
-			return Err(err!(ErrKind::IllegalState, "list empty"));
-		} else {
+		if self.size != 0 {
 			self.remove_impl(self.head)?;
 		}
 		Ok(())
@@ -1200,7 +1198,7 @@ where
 
 impl<V> List<V> for HashImpl<V>
 where
-	V: Serializable + Debug + PartialEq + Clone,
+	V: Serializable + Debug + Clone,
 {
 	fn push(&mut self, value: V) -> Result<(), Error> {
 		self.insert_impl::<V>(Some(&value), None, None)
@@ -1601,7 +1599,7 @@ mod test {
 			..Default::default()
 		};
 
-		let h = Builder::build_sync_hashtable(config, slab_config)?;
+		let h = Builder::build_hashtable_sync(config, slab_config)?;
 		let mut h = lock!(h)?;
 		let h_clone = h.clone();
 
@@ -1639,7 +1637,7 @@ mod test {
 			..Default::default()
 		};
 
-		let h = Builder::build_sync_hashset(config, slab_config)?;
+		let h = Builder::build_hashset_sync(config, slab_config)?;
 		let mut h = lock!(h)?;
 		let h_clone = h.clone();
 
@@ -1674,7 +1672,7 @@ mod test {
 
 		let config = ListConfig {};
 
-		let h = Builder::build_sync_list(config, slab_config)?;
+		let h = Builder::build_list_sync(config, slab_config)?;
 		let mut h = lock!(h)?;
 		let h_clone = h.clone();
 

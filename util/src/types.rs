@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::types::ConfigOption::*;
 use bmw_deps::dyn_clone::{clone_trait_object, DynClone};
 use bmw_err::*;
 use bmw_log::*;
@@ -29,7 +30,7 @@ use std::sync::{Arc, Mutex};
 info!();
 
 /// Configuration options used throughout this crate via macro.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ConfigOption {
 	/// The maximum number of entries for a data structure. See [`crate::Hashtable`] and
 	/// [`crate::Hashset`].
@@ -47,6 +48,67 @@ pub enum ConfigOption {
 	MaxSize(usize),
 	/// The size of the sync channel for a thread pool. See [`crate::ThreadPool`].
 	SyncChannelSize(usize),
+	/// Slab allocator to be used by this data structure.
+	Slabs(Rc<RefCell<dyn SlabAllocator>>),
+}
+
+impl Serializable for ConfigOption {
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		match reader.read_u8()? {
+			0 => Ok(MaxEntries(reader.read_usize()?)),
+			1 => Ok(MaxLoadFactor(f64::read(reader)?)),
+			2 => Ok(SlabSize(reader.read_usize()?)),
+			3 => Ok(SlabCount(reader.read_usize()?)),
+			4 => Ok(MinSize(reader.read_usize()?)),
+			5 => Ok(MaxSize(reader.read_usize()?)),
+			6 => Ok(SyncChannelSize(reader.read_usize()?)),
+			// note: slabs is an error must prevent it from
+			// being written
+			_ => Err(err!(
+				ErrKind::CorruptedData,
+				"invalid type for config option!"
+			)),
+		}
+	}
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		match self {
+			MaxEntries(size) => {
+				writer.write_u8(0)?;
+				writer.write_usize(*size)?;
+			}
+			MaxLoadFactor(lf) => {
+				writer.write_u8(1)?;
+				f64::write(lf, writer)?;
+			}
+			SlabSize(ss) => {
+				writer.write_u8(2)?;
+				writer.write_usize(*ss)?;
+			}
+			SlabCount(sc) => {
+				writer.write_u8(3)?;
+				writer.write_usize(*sc)?;
+			}
+			MinSize(mins) => {
+				writer.write_u8(4)?;
+				writer.write_usize(*mins)?;
+			}
+			MaxSize(maxs) => {
+				writer.write_u8(5)?;
+				writer.write_usize(*maxs)?;
+			}
+			SyncChannelSize(scs) => {
+				writer.write_u8(6)?;
+				writer.write_usize(*scs)?;
+			}
+			Slabs(_) => {
+				return Err(err!(
+					ErrKind::OperationNotSupported,
+					"can't serialize slab allocator"
+				))
+			}
+		}
+		Ok(())
+	}
 }
 
 #[derive(Clone)]
@@ -158,7 +220,7 @@ pub struct HashsetConfig {
 /// which is the size of the slabs in bytes allocated by this
 /// [`crate::SlabAllocator`] and `slab_count` which is the number of slabs
 /// that can be allocated by this [`crate::SlabAllocator`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SlabAllocatorConfig {
 	/// The size, in bytes, of a slab
 	pub slab_size: usize,
@@ -420,7 +482,7 @@ pub struct Slab<'a> {
 ///     Ok(())
 /// }
 ///```
-pub trait SlabAllocator {
+pub trait SlabAllocator: DynClone + Debug {
 	/// Allocate a slab and return a [`crate::SlabMut`] on success.
 	/// On failure, return an [`bmw_err::Error`].
 	///
@@ -593,6 +655,8 @@ pub trait SlabAllocator {
 	/// [`crate::SlabAllocatorConfig`] for further details.
 	fn init(&mut self, config: SlabAllocatorConfig) -> Result<(), Error>;
 }
+
+clone_trait_object!(SlabAllocator);
 
 pub trait Match {
 	fn start(&self) -> usize;
@@ -792,6 +856,7 @@ where
 	pub(crate) _phantom_data: PhantomData<K>,
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct SlabAllocatorImpl {
 	pub(crate) config: Option<SlabAllocatorConfig>,
 	pub(crate) data: Array<u8>,
