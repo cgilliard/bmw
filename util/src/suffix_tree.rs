@@ -238,7 +238,6 @@ impl SuffixTreeImpl {
 				itt = start;
 			}
 
-			let mut last_multi: Option<&Node> = None;
 			loop {
 				if itt >= len {
 					break;
@@ -265,7 +264,6 @@ impl SuffixTreeImpl {
 				match cur_node.next[byte as usize] {
 					u32::MAX => {
 						if cur_node.is_multi {
-							last_multi = Some(cur_node);
 							multi_counter += 1;
 							if multi_counter >= max_wildcard_length {
 								// wild card max length. break as no
@@ -278,10 +276,6 @@ impl SuffixTreeImpl {
 						// check wildcard
 						match cur_node.next[256] {
 							u32::MAX => {
-								if last_multi.is_some() {
-									cur_node = last_multi.unwrap();
-									continue;
-								}
 								break;
 							}
 							_ => cur_node = &dictionary.nodes[cur_node.next[256] as usize],
@@ -313,7 +307,6 @@ impl SuffixTreeImpl {
 								matches[match_count].set_id(cur_node.pattern_id);
 								matches[match_count].set_end(itt + 1);
 								matches[match_count].set_start(start);
-								last_multi = None;
 								match_count += 1;
 								if cur_node.is_term {
 									return Ok(match_count);
@@ -415,13 +408,15 @@ impl Serializable for Pattern {
 			_ => true,
 		};
 		let id = reader.read_usize()?;
-		Ok(Self {
+
+		let ret = Self {
 			regex,
 			is_case_sensitive,
 			is_termination_pattern,
 			is_multi_line,
 			id,
-		})
+		};
+		Ok(ret)
 	}
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 		String::write(&self.regex, writer)?;
@@ -446,11 +441,30 @@ impl Serializable for Pattern {
 mod test {
 	use crate as bmw_util;
 	use crate::PatternParam::*;
-	use crate::{list, pattern, suffix_tree, Builder, Match, SuffixTree};
+	use crate::{list, pattern, suffix_tree, Builder, Match, Pattern, SuffixTree};
 	use bmw_err::*;
 	use bmw_log::*;
 
 	info!();
+
+	#[test]
+	fn test_pattern() -> Result<(), Error> {
+		/*pub(crate) fn new(
+				regex: &str,
+				is_case_sensitive: bool,
+				is_termination_pattern: bool,
+				is_multi_line: bool,
+				id: usize,
+		) -> Self {
+			*/
+		let pattern = Pattern::new("abc", true, true, true, 0);
+		assert_eq!(pattern.regex(), "abc");
+		assert_eq!(pattern.is_case_sensitive(), true);
+		assert_eq!(pattern.is_termination_pattern(), true);
+		assert_eq!(pattern.id(), 0);
+
+		Ok(())
+	}
 
 	#[test]
 	fn test_suffix_tree1() -> Result<(), Error> {
