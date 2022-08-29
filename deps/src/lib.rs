@@ -20,6 +20,7 @@ pub use failure;
 pub use failure_derive;
 pub use futures;
 pub use lazy_static;
+pub use num_format;
 pub use rand;
 pub use substring;
 pub use try_traits;
