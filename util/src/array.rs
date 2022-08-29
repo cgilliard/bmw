@@ -32,20 +32,28 @@ where
 	T: Clone,
 {
 	pub(crate) fn new(size: usize) -> Result<Self, Error> {
+		if size == 0 {
+			return Err(err!(ErrKind::IllegalArgument, "size must not be 0"));
+		}
 		let n = ::std::mem::size_of::<T>();
-		let layout = Layout::from_size_align(size * n, n).unwrap();
+		debug!("sizeofmem={}", n)?;
+		let size_u128: u128 = size as u128;
+		let size_u128 = size_u128 * n as u128;
+		let layout = Layout::from_size_align(size_u128.try_into()?, n)?;
 		let data = unsafe { alloc(layout) };
 		if data.is_null() {
 			return Err(err!(ErrKind::Alloc, "could not allocate memory for array"));
 		}
-		debug!("n={}", n)?;
-		Ok(Self {
+
+		let ret = Self {
 			data,
 			size_of_type: n,
 			size,
 			layout,
 			_phantom_data: PhantomData,
-		})
+			debug_panic: false,
+		};
+		Ok(ret)
 	}
 
 	pub fn size(&self) -> usize {
@@ -54,20 +62,22 @@ where
 
 	pub fn as_slice<'a>(&'a self) -> &'a [T] {
 		let ptr: *mut T = self.data as *mut T;
-		let slice = unsafe { from_raw_parts(ptr, self.size) };
-		slice
+		unsafe { from_raw_parts(ptr, self.size) }
 	}
 
 	pub fn as_mut<'a>(&'a mut self) -> &'a mut [T] {
 		let ptr: *mut T = self.data as *mut T;
-		let slice = unsafe { from_raw_parts_mut(ptr, self.size) };
-		slice
+		unsafe { from_raw_parts_mut(ptr, self.size) }
 	}
 	pub fn iter<'a>(&'a self) -> ArrayIterator<'a, T> {
 		ArrayIterator {
 			cur: 0,
 			array_ref: self,
 		}
+	}
+
+	fn set_debug_panic(&mut self, debug: bool) {
+		self.debug_panic = debug;
 	}
 }
 
@@ -120,7 +130,7 @@ impl<T> Clone for Array<T> {
 	fn clone(&self) -> Self {
 		let layout = self.layout;
 		let data = unsafe { alloc(layout) };
-		if data.is_null() {
+		if data.is_null() || self.debug_panic {
 			panic!("could not allocate array. Not enough memory.");
 		}
 		let size = self.size;
@@ -134,6 +144,7 @@ impl<T> Clone for Array<T> {
 			data,
 			size_of_type,
 			layout,
+			debug_panic: false,
 			size,
 			_phantom_data: PhantomData,
 		}
@@ -151,11 +162,7 @@ impl<T> Drop for Array<T> {
 impl<T> IndexMut<usize> for Array<T> {
 	fn index_mut(&mut self, index: usize) -> &mut <Self as Index<usize>>::Output {
 		if index >= self.size {
-			let fmt = format!(
-				"ArrayIndexOutOfBounds: index = {}, size = {}",
-				index, self.size
-			);
-			panic!("{}", fmt);
+			panic!("ArrayIndexOutOfBounds: {} >= {}", index, self.size);
 		}
 		let ptr = unsafe { self.data.add(index * self.size_of_type) };
 		unsafe { ptr.cast::<T>().as_mut().unwrap() }
@@ -166,11 +173,7 @@ impl<T> Index<usize> for Array<T> {
 	type Output = T;
 	fn index(&self, index: usize) -> &<Self as Index<usize>>::Output {
 		if index >= self.size {
-			let fmt = format!(
-				"ArrayIndexOutOfBounds: index = {}, size = {}",
-				index, self.size
-			);
-			panic!("{}", fmt);
+			panic!("ArrayIndexOutOfBounds: {} >= {}", index, self.size);
 		}
 		let ptr = unsafe { self.data.add(index * self.size_of_type) };
 		unsafe { ptr.cast::<T>().as_ref().unwrap() }
@@ -182,13 +185,17 @@ where
 	T: Clone,
 {
 	pub(crate) fn new(size: usize) -> Result<Self, Error> {
+		if size == 0 {
+			return Err(err!(ErrKind::IllegalArgument, "size must not be 0"));
+		}
 		let inner = Array::new(size)?;
-		Ok(Self {
+		let ret = Self {
 			inner,
 			size: 0,
 			head: 0,
 			tail: 0,
-		})
+		};
+		Ok(ret)
 	}
 }
 
@@ -245,10 +252,8 @@ where
 {
 	fn push(&mut self, value: T) -> Result<(), Error> {
 		if self.size() >= self.inner.size {
-			return Err(err!(
-				ErrKind::CapacityExceeded,
-				format!("ArrayList capacity exceeded: {}", self.inner.size)
-			));
+			let fmt = format!("ArrayList capacity exceeded: {}", self.inner.size);
+			return Err(err!(ErrKind::CapacityExceeded, fmt));
 		}
 		self.inner[self.size] = value;
 		self.size += 1;
@@ -281,10 +286,8 @@ where
 		}
 	}
 	fn delete_head(&mut self) -> Result<(), Error> {
-		return Err(err!(
-			ErrKind::OperationNotSupported,
-			"arraylist doesn't support delete_head"
-		));
+		let fmt = "arraylist doesn't support delete_head";
+		return Err(err!(ErrKind::OperationNotSupported, fmt));
 	}
 	fn size(&self) -> usize {
 		self.size
@@ -365,12 +368,7 @@ where
 		if self.size == 0 {
 			None
 		} else {
-			let index = if self.tail == 0 {
-				self.inner.size.saturating_sub(1)
-			} else {
-				self.tail - 1
-			};
-			Some(&self.inner[index])
+			Some(&self.inner[self.tail.saturating_sub(1)])
 		}
 	}
 	fn length(&self) -> usize {
@@ -397,8 +395,8 @@ where
 mod test {
 	use crate as bmw_util;
 	use crate::{
-		block_on, execute, list, list_eq, thread_pool, Array, Builder, List, PoolResult, Queue,
-		Stack, ThreadPool,
+		block_on, execute, list, list_eq, thread_pool, Array, ArrayList, Builder, List, PoolResult,
+		Queue, Stack, ThreadPool,
 	};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::{err, ErrKind, Error};
@@ -437,6 +435,8 @@ mod test {
 			assert_eq!(test2[i], i as u32);
 		}
 
+		assert!(Builder::build_array::<u8>(0).is_err());
+
 		Ok(())
 	}
 
@@ -461,10 +461,10 @@ mod test {
 
 		let handle = execute!(tp, {
 			let mut x = Builder::build_array(10)?;
-			for i in 0..11 {
+			for i in 0..10 {
 				x[i] = i;
 			}
-			Ok(())
+			Ok(x[10] = 10)
 		})?;
 
 		assert_eq!(
@@ -484,6 +484,22 @@ mod test {
 		})?;
 
 		assert_eq!(block_on!(handle), PoolResult::Ok(()));
+
+		let tp = thread_pool!()?;
+
+		let handle = execute!(tp, {
+			let mut x = Builder::build_array(10)?;
+			x[1] = 1;
+			Ok(x[10])
+		})?;
+
+		assert_eq!(
+			block_on!(handle),
+			PoolResult::Err(err!(
+				ErrKind::ThreadPanic,
+				"thread pool panic: receiving on a closed channel"
+			))
+		);
 
 		Ok(())
 	}
@@ -538,6 +554,30 @@ mod test {
 	}
 
 	#[test]
+	fn test_raw_array_list() -> Result<(), Error> {
+		let mut list1 = ArrayList::new(10)?;
+		let mut list2 = ArrayList::new(10)?;
+
+		assert!(list1 == list2);
+
+		List::push(&mut list1, 1)?;
+		List::push(&mut list2, 1)?;
+
+		List::push(&mut list1, 2)?;
+		assert!(list1 != list2);
+
+		List::push(&mut list2, 2)?;
+		assert!(list1 == list2);
+
+		List::push(&mut list1, 1)?;
+		List::push(&mut list2, 3)?;
+
+		assert!(list1 != list2);
+
+		Ok(())
+	}
+
+	#[test]
 	fn test_array_list() -> Result<(), Error> {
 		let mut list1 = Builder::build_array_list(10)?;
 		let mut list2 = Builder::build_array_list(10)?;
@@ -573,18 +613,11 @@ mod test {
 
 		let mut list = Builder::build_array_list(50)?;
 
-		let mut i = 0u64;
-		for _ in list.iter() {
-			i += 1;
-		}
-		for _ in list.iter_rev() {
-			i += 1;
-		}
-
 		for i in 0..5 {
 			list.push(i as u64)?;
 		}
 
+		let mut i = 0;
 		for x in list.iter() {
 			assert_eq!(x, i);
 			i += 1;
@@ -595,6 +628,15 @@ mod test {
 			i -= 1;
 			assert_eq!(x, i);
 		}
+
+		let mut list = Builder::build_array_list(5)?;
+		for _ in 0..5 {
+			list.push(1)?;
+		}
+		assert!(list.push(1).is_err());
+		assert!(list.delete_head().is_err());
+
+		assert!(Builder::build_array_list::<u8>(0).is_err());
 
 		Ok(())
 	}
@@ -613,9 +655,12 @@ mod test {
 	#[test]
 	fn test_queue() -> Result<(), Error> {
 		let mut queue = Builder::build_queue(10)?;
+
+		assert_eq!(queue.length(), 0);
 		queue.enqueue(1)?;
 		queue.enqueue(2)?;
 		queue.enqueue(3)?;
+		assert_eq!(queue.length(), 3);
 
 		assert_eq!(queue.dequeue(), Some(&1));
 		assert_eq!(queue.peek(), Some(&2));
@@ -653,9 +698,12 @@ mod test {
 	#[test]
 	fn test_stack() -> Result<(), Error> {
 		let mut stack = Builder::build_stack(10)?;
+
+		assert_eq!(stack.length(), 0);
 		stack.push(1)?;
 		stack.push(2)?;
 		stack.push(3)?;
+		assert_eq!(stack.length(), 3);
 
 		assert_eq!(stack.pop(), Some(&3));
 		assert_eq!(stack.peek(), Some(&2));
@@ -686,6 +734,8 @@ mod test {
 		}
 
 		assert!(stack.push(1).is_err());
+		assert_eq!(stack.pop(), Some(&9));
+
 		Ok(())
 	}
 
@@ -713,6 +763,25 @@ mod test {
 		let array_processed = lock_clone.rlock()?;
 		assert_eq!((**array_processed.guard())[0], 2);
 		assert_eq!((**array_processed.guard())[1], 20);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_array_panic() -> Result<(), Error> {
+		let mut arr = Array::new(10)?;
+		arr[0] = 1;
+		arr.set_debug_panic(true);
+		let tp = thread_pool!()?;
+		let handle = execute!(tp, Ok(arr.clone()))?;
+		let res = block_on!(handle);
+		assert_eq!(
+			res,
+			PoolResult::Err(err!(
+				ErrKind::ThreadPanic,
+				"thread pool panic: receiving on a closed channel"
+			))
+		);
 
 		Ok(())
 	}
@@ -763,6 +832,20 @@ mod test {
 		info!("list={:?}", list)?;
 		assert!(list_eq!(list, other_list));
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_large_memory_allocation() -> Result<(), Error> {
+		let res: Result<Array<u32>, Error> = Array::new(usize::MAX / 4);
+		assert_eq!(
+			res.unwrap_err(),
+			err!(ErrKind::Alloc, "could not allocate memory for array")
+		);
+		let mut res: Array<u32> = Array::new(4)?;
+		res[0] = 1;
+		res[1] = 2;
+		info!("res={:?}", res)?;
 		Ok(())
 	}
 }

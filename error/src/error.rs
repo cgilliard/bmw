@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use bmw_deps::failure::{Backtrace, Context, Fail};
+use std::alloc::LayoutError;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
 use std::num::{ParseIntError, TryFromIntError};
@@ -247,6 +248,14 @@ impl<T> From<SendError<T>> for Error {
 	fn from(e: SendError<T>) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::IllegalState(format!("Send error: {}", e))),
+		}
+	}
+}
+
+impl From<LayoutError> for Error {
+	fn from(e: LayoutError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Alloc(format!("Layout error: {}", e))),
 		}
 	}
 }

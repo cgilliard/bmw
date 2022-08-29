@@ -251,7 +251,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 
 impl SlabAllocatorImpl {
 	pub(crate) fn new() -> Self {
-		let data = Builder::build_array(0).unwrap();
+		let data = Builder::build_array(1).unwrap();
 		Self {
 			config: None,
 			free_count: 0,

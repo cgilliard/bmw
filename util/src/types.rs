@@ -241,6 +241,7 @@ pub struct Array<T> {
 	pub(crate) size: usize,
 	pub(crate) layout: Layout,
 	pub(crate) _phantom_data: PhantomData<T>,
+	pub(crate) debug_panic: bool,
 }
 
 #[derive(Debug, Clone)]
