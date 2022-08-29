@@ -134,14 +134,6 @@ macro_rules! slab_allocator {
 }
 
 #[macro_export]
-macro_rules! branch_stack {
-	($size:expr) => {{
-		let branch_stack = Builder::build_stack_box($size);
-		branch_stack
-	}};
-}
-
-#[macro_export]
 macro_rules! pattern {
 	( $( $pattern_items:expr ),* ) => {{
                 let mut regex: Option<&str> = None;
@@ -174,6 +166,16 @@ macro_rules! suffix_tree {
 	( $patterns:expr, $( $suffix_items:expr ),* ) => {{
                 let mut termination_length = usize::MAX;
                 let mut max_wildcard_length = usize::MAX;
+
+                // compiler reports these as not needing to be mut so
+                // add these lines to satisfy the comipler
+                if termination_length != usize::MAX {
+                        termination_length = usize::MAX;
+                }
+                if max_wildcard_length != usize::MAX {
+                        max_wildcard_length = usize::MAX;
+                }
+
                 $(
                         match $suffix_items {
                                 bmw_util::SuffixParam::TerminationLength(t) => { termination_length = t; },
@@ -1383,9 +1385,6 @@ mod test {
 
 	#[test]
 	fn test_pattern_suffix_macros() -> Result<(), Error> {
-		// create branch_stack
-		let mut branch_stack = branch_stack!(2)?;
-
 		// create matches array
 		let mut matches = [Builder::build_match_default(); 10];
 
@@ -1397,7 +1396,7 @@ mod test {
 		);
 
 		// test suffix tree
-		let suffix_tree = suffix_tree!(
+		let mut suffix_tree = suffix_tree!(
 			list![
 				pattern!(Regex("abc"), Id(0))?,
 				pattern!(Regex("def"), Id(1))?
@@ -1405,7 +1404,24 @@ mod test {
 			TerminationLength(100),
 			MaxWildcardLength(50)
 		)?;
-		let match_count = suffix_tree.tmatch(b"abc", &mut matches, &mut branch_stack)?;
+		let match_count = suffix_tree.tmatch(b"abc", &mut matches)?;
+		assert_eq!(match_count, 1);
+		Ok(())
+	}
+
+	#[test]
+	fn test_simple_suffix_tree() -> Result<(), Error> {
+		// create matches array
+		let mut matches = [Builder::build_match_default(); 10];
+
+		// create a suffix tree
+		let mut suffix_tree = suffix_tree!(list![
+			pattern!(Regex("aaa"), Id(0))?,
+			pattern!(Regex("bbb"), Id(1))?
+		],)?;
+
+		// match
+		let match_count = suffix_tree.tmatch(b"aaa", &mut matches)?;
 		assert_eq!(match_count, 1);
 		Ok(())
 	}

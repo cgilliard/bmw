@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use crate::types::{Dictionary, MatchImpl, Node, SuffixTreeImpl};
-use crate::{List, Match, Pattern, Reader, Serializable, Stack, SuffixTree, Writer};
+use crate::{Builder, List, Match, Pattern, Reader, Serializable, Stack, SuffixTree, Writer};
 use bmw_err::{err, ErrKind, Error};
 
 impl Default for Node {
@@ -141,43 +141,41 @@ impl Dictionary {
 }
 
 impl SuffixTree for SuffixTreeImpl {
-	fn tmatch(
-		&self,
-		text: &[u8],
-		matches: &mut [impl Match],
-		branch_stack: &mut Box<dyn Stack<(usize, usize)>>,
-	) -> Result<usize, Error> {
+	fn tmatch(&mut self, text: &[u8], matches: &mut [impl Match]) -> Result<usize, Error> {
 		let match_count = 0;
 		let max_wildcard_length = self.max_wildcard_length;
+		let termination_length = self.termination_length;
 		let dictionary = &self.dictionary_case_insensitive;
 		loop {
-			if branch_stack.pop().is_none() {
+			if self.branch_stack.pop().is_none() {
 				break;
 			}
 		}
-		let match_count = self.tmatch_impl(
+		let match_count = Self::tmatch_impl(
 			text,
 			matches,
 			match_count,
 			dictionary,
 			false,
 			max_wildcard_length,
-			branch_stack,
+			&mut self.branch_stack,
+			termination_length,
 		)?;
 		let dictionary = &self.dictionary_case_sensitive;
 		loop {
-			if branch_stack.pop().is_none() {
+			if self.branch_stack.pop().is_none() {
 				break;
 			}
 		}
-		self.tmatch_impl(
+		Self::tmatch_impl(
 			text,
 			matches,
 			match_count,
 			dictionary,
 			true,
 			max_wildcard_length,
-			branch_stack,
+			&mut self.branch_stack,
+			termination_length,
 		)
 	}
 }
@@ -190,6 +188,9 @@ impl SuffixTreeImpl {
 	) -> Result<Self, Error> {
 		let mut dictionary_case_insensitive = Dictionary::new()?;
 		let mut dictionary_case_sensitive = Dictionary::new()?;
+
+		let branch_stack = Builder::build_stack_box(patterns.size())?;
+
 		for pattern in patterns.iter() {
 			if pattern.is_case_sensitive {
 				dictionary_case_sensitive.add(pattern)?;
@@ -197,16 +198,17 @@ impl SuffixTreeImpl {
 				dictionary_case_insensitive.add(pattern)?;
 			}
 		}
+
 		Ok(Self {
 			dictionary_case_insensitive,
 			dictionary_case_sensitive,
 			termination_length,
 			max_wildcard_length,
+			branch_stack,
 		})
 	}
 
 	fn tmatch_impl(
-		&self,
 		text: &[u8],
 		matches: &mut [impl Match],
 		mut match_count: usize,
@@ -214,6 +216,7 @@ impl SuffixTreeImpl {
 		case_sensitive: bool,
 		max_wildcard_length: usize,
 		branch_stack: &mut Box<dyn Stack<(usize, usize)>>,
+		termination_length: usize,
 	) -> Result<usize, Error> {
 		let mut itt = 0;
 		let len = text.len();
@@ -224,7 +227,7 @@ impl SuffixTreeImpl {
 		let mut has_newline = false;
 
 		loop {
-			if start >= len || start >= self.termination_length {
+			if start >= len || start >= termination_length {
 				break;
 			}
 			if is_branch {
@@ -449,8 +452,7 @@ mod test {
 
 	#[test]
 	fn test_suffix_tree1() -> Result<(), Error> {
-		let mut branch_stack = Builder::build_stack_box(3)?;
-		let suffix_tree = Builder::build_suffix_tree(
+		let mut suffix_tree = Builder::build_suffix_tree(
 			list![
 				Builder::build_pattern("p1", false, false, false, 0),
 				Builder::build_pattern("p2", false, false, false, 1),
@@ -461,7 +463,7 @@ mod test {
 		)?;
 
 		let mut matches = [Builder::build_match_default(); 10];
-		let count = suffix_tree.tmatch(b"p1p2", &mut matches, &mut branch_stack)?;
+		let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
 		info!("count={}", count)?;
 		assert_eq!(count, 2);
 		assert_eq!(matches[0].id(), 0);
@@ -476,8 +478,7 @@ mod test {
 
 	#[test]
 	fn test_suffix_tree_wildcard() -> Result<(), Error> {
-		let mut branch_stack = Builder::build_stack_box(3)?;
-		let suffix_tree = Builder::build_suffix_tree(
+		let mut suffix_tree = Builder::build_suffix_tree(
 			list![
 				Builder::build_pattern("p1.*abc", false, false, false, 0),
 				Builder::build_pattern("p2", false, false, false, 1),
@@ -488,7 +489,7 @@ mod test {
 		)?;
 
 		let mut matches = [Builder::build_match_default(); 10];
-		let count = suffix_tree.tmatch(b"p1xyz123abcp2", &mut matches, &mut branch_stack)?;
+		let count = suffix_tree.tmatch(b"p1xyz123abcp2", &mut matches)?;
 		assert_eq!(count, 2);
 		assert_eq!(matches[0].id(), 0);
 		assert_eq!(matches[0].start(), 0);
@@ -501,11 +502,7 @@ mod test {
 		}
 
 		// try a wildcard that is too long
-		let count = suffix_tree.tmatch(
-			b"p1xyzxxxxxxxxxxxxxxxxxxxxxxxx123abcp2",
-			&mut matches,
-			&mut branch_stack,
-		)?;
+		let count = suffix_tree.tmatch(b"p1xyzxxxxxxxxxxxxxxxxxxxxxxxx123abcp2", &mut matches)?;
 		assert_eq!(count, 1);
 		assert_eq!(matches[0].id(), 1);
 		assert_eq!(matches[0].start(), 35);
@@ -515,11 +512,8 @@ mod test {
 		}
 
 		// test termination
-		let count = suffix_tree.tmatch(
-			b"p1xyzxxxxxxxxxxxxxxxxxxxxxxxxxxx123abcp2",
-			&mut matches,
-			&mut branch_stack,
-		)?;
+		let count =
+			suffix_tree.tmatch(b"p1xyzxxxxxxxxxxxxxxxxxxxxxxxxxxx123abcp2", &mut matches)?;
 		assert_eq!(count, 0);
 
 		Ok(())
@@ -531,20 +525,13 @@ mod test {
 		let pattern1 = Builder::build_pattern("AaAaA", true, false, false, 0);
 		let pattern2 = Builder::build_pattern("AaAaA", false, false, false, 0);
 
-		let mut branch_stack = Builder::build_stack_box(3)?;
-		let suffix_tree = Builder::build_suffix_tree(list![pattern1], 100, 100)?;
+		let mut suffix_tree = Builder::build_suffix_tree(list![pattern1], 100, 100)?;
 
-		assert_eq!(
-			suffix_tree.tmatch(b"AAAAA", &mut matches, &mut branch_stack,)?,
-			0
-		);
+		assert_eq!(suffix_tree.tmatch(b"AAAAA", &mut matches)?, 0);
 
-		let suffix_tree = Builder::build_suffix_tree(list![pattern2], 100, 100)?;
+		let mut suffix_tree = Builder::build_suffix_tree(list![pattern2], 100, 100)?;
 
-		assert_eq!(
-			suffix_tree.tmatch(b"AAAAA", &mut matches, &mut branch_stack,)?,
-			1
-		);
+		assert_eq!(suffix_tree.tmatch(b"AAAAA", &mut matches)?, 1);
 
 		Ok(())
 	}

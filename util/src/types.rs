@@ -706,12 +706,7 @@ pub(crate) struct MatchImpl {
 }
 
 pub trait SuffixTree {
-	fn tmatch(
-		&self,
-		text: &[u8],
-		matches: &mut [impl Match],
-		branch_stack: &mut Box<dyn Stack<(usize, usize)>>,
-	) -> Result<usize, Error>;
+	fn tmatch(&mut self, text: &[u8], matches: &mut [impl Match]) -> Result<usize, Error>;
 }
 
 #[derive(Clone, Debug)]
@@ -734,6 +729,7 @@ pub(crate) struct SuffixTreeImpl {
 	pub(crate) dictionary_case_sensitive: Dictionary,
 	pub(crate) termination_length: usize,
 	pub(crate) max_wildcard_length: usize,
+	pub(crate) branch_stack: Box<dyn Stack<(usize, usize)>>,
 }
 
 pub struct MatchBuilder {}
