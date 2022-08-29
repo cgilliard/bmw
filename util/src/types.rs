@@ -28,6 +28,19 @@ use std::sync::{Arc, Mutex};
 
 info!();
 
+pub enum PatternParam<'a> {
+	Regex(&'a str),
+	IsTerm(bool),
+	IsMulti(bool),
+	IsCaseSensitive(bool),
+	Id(usize),
+}
+
+pub enum SuffixParam {
+	TerminationLength(usize),
+	MaxWildcardLength(usize),
+}
+
 /// Configuration options used throughout this crate via macro.
 #[derive(Clone, Debug)]
 pub enum ConfigOption {
@@ -52,6 +65,8 @@ pub enum ConfigOption {
 }
 
 impl Serializable for ConfigOption {
+	// fully covered, but the wildcard match not counted by tarpaulin
+	#[cfg(not(tarpaulin_include))]
 	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
 		match reader.read_u8()? {
 			0 => Ok(MaxEntries(reader.read_usize()?)),
@@ -61,14 +76,16 @@ impl Serializable for ConfigOption {
 			4 => Ok(MinSize(reader.read_usize()?)),
 			5 => Ok(MaxSize(reader.read_usize()?)),
 			6 => Ok(SyncChannelSize(reader.read_usize()?)),
-			// note: slabs is an error must prevent it from
-			// being written
-			_ => Err(err!(
-				ErrKind::CorruptedData,
-				"invalid type for config option!"
-			)),
+			_ => {
+				let fmt = "invalid type for config option!";
+				let e = err!(ErrKind::CorruptedData, fmt);
+				Err(e)
+			}
 		}
 	}
+
+	// fully covered but the Slabs(_) line not counted by tarpaulin
+	#[cfg(not(tarpaulin_include))]
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 		match self {
 			MaxEntries(size) => {
@@ -100,10 +117,9 @@ impl Serializable for ConfigOption {
 				writer.write_usize(*scs)?;
 			}
 			Slabs(_) => {
-				return Err(err!(
-					ErrKind::OperationNotSupported,
-					"can't serialize slab allocator"
-				))
+				let fmt = "can't serialize slab allocator";
+				let e = err!(ErrKind::OperationNotSupported, fmt);
+				return Err(e);
 			}
 		}
 		Ok(())
@@ -664,7 +680,7 @@ pub trait SlabAllocator: DynClone + Debug {
 
 clone_trait_object!(SlabAllocator);
 
-pub trait Match: Clone + Copy {
+pub trait Match: Clone + Copy + Debug {
 	fn start(&self) -> usize;
 	fn end(&self) -> usize;
 	fn id(&self) -> usize;
@@ -682,7 +698,7 @@ pub struct Pattern {
 	pub(crate) id: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct MatchImpl {
 	pub(crate) start: usize,
 	pub(crate) end: usize,
@@ -905,4 +921,44 @@ pub struct ArrayIterator<'a, T> {
 pub(crate) enum Direction {
 	Forward,
 	Backward,
+}
+
+#[cfg(test)]
+mod test {
+	use crate as bmw_util;
+	use crate::types::ConfigOption;
+	use crate::{deserialize, serialize, slab_allocator};
+	use bmw_err::*;
+
+	#[test]
+	fn test_config_option_ser() -> Result<(), Error> {
+		let config_option = ConfigOption::MinSize(10);
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &config_option)?;
+		let ser_in: ConfigOption = deserialize(&mut &v[..])?;
+		assert!(matches!(ser_in, ConfigOption::MinSize(_)));
+
+		let config_option = ConfigOption::MaxSize(10);
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &config_option)?;
+		let ser_in: ConfigOption = deserialize(&mut &v[..])?;
+		assert!(matches!(ser_in, ConfigOption::MaxSize(_)));
+
+		let config_option = ConfigOption::SyncChannelSize(10);
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &config_option)?;
+		let ser_in: ConfigOption = deserialize(&mut &v[..])?;
+		assert!(matches!(ser_in, ConfigOption::SyncChannelSize(_)));
+
+		let v = vec![7u8]; // 7 is illegal
+		let err: Result<ConfigOption, Error> = deserialize(&mut &v[..]);
+		assert!(err.is_err());
+
+		let slabs = slab_allocator!()?;
+		let config_option = ConfigOption::Slabs(slabs.clone());
+		let mut v: Vec<u8> = vec![];
+		assert!(serialize(&mut v, &config_option).is_err());
+
+		Ok(())
+	}
 }

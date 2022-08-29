@@ -76,6 +76,7 @@ where
 		}
 	}
 
+	#[cfg(test)]
 	fn set_debug_panic(&mut self, debug: bool) {
 		self.debug_panic = debug;
 	}

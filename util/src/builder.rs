@@ -103,12 +103,9 @@ impl Builder {
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 		V: Serializable + Clone,
 	{
-		Ok(Box::new(HashImplSync::new(
-			Some(config),
-			None,
-			None,
-			slab_config,
-		)?))
+		let ret = HashImplSync::new(Some(config), None, None, slab_config)?;
+		let ret = Box::new(ret);
+		Ok(ret)
 	}
 
 	pub fn build_hashtable<K, V>(
@@ -150,12 +147,9 @@ impl Builder {
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 	{
-		Ok(Box::new(HashImplSync::new(
-			None,
-			Some(config),
-			None,
-			slab_config,
-		)?))
+		let ret = HashImplSync::new(None, Some(config), None, slab_config)?;
+		let ret = Box::new(ret);
+		Ok(ret)
 	}
 
 	pub fn build_hashset<K>(
@@ -195,12 +189,9 @@ impl Builder {
 	where
 		V: Serializable + Debug + PartialEq + Clone + 'static,
 	{
-		Ok(Box::new(HashImplSync::new(
-			None,
-			None,
-			Some(config),
-			slab_config,
-		)?))
+		let ret = HashImplSync::new(None, None, Some(config), slab_config)?;
+		let ret = Box::new(ret);
+		Ok(ret)
 	}
 
 	pub fn build_list<V>(
@@ -272,5 +263,35 @@ impl Builder {
 
 	pub fn build_slabs() -> Box<dyn SlabAllocator> {
 		Box::new(SlabAllocatorImpl::new())
+	}
+}
+
+#[cfg(test)]
+mod test {
+	use crate::{Builder, ListConfig, Match, SlabAllocatorConfig};
+	use bmw_err::*;
+
+	#[test]
+	fn test_builder() -> Result<(), Error> {
+		let mut arrlist = Builder::build_array_list_box(10)?;
+		arrlist.push(0)?;
+		let mut i = 0;
+		for x in arrlist.iter() {
+			assert_eq!(x, 0);
+			i += 1;
+		}
+		assert_eq!(i, 1);
+
+		let mut list =
+			Builder::build_list_sync_box(ListConfig::default(), SlabAllocatorConfig::default())?;
+		list.push(0)?;
+		assert_eq!(list.size(), 1);
+
+		let nmatch = Builder::build_match(0, 1, 2);
+		assert_eq!(nmatch.start(), 0);
+		assert_eq!(nmatch.end(), 1);
+		assert_eq!(nmatch.id(), 2);
+
+		Ok(())
 	}
 }

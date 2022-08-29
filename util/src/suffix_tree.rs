@@ -448,7 +448,7 @@ mod test {
 	info!();
 
 	#[test]
-	fn test_suffix_tree() -> Result<(), Error> {
+	fn test_suffix_tree1() -> Result<(), Error> {
 		let mut branch_stack = Builder::build_stack_box(3)?;
 		let suffix_tree = Builder::build_suffix_tree(
 			list![
@@ -471,6 +471,92 @@ mod test {
 		assert_eq!(matches[1].start(), 2);
 		assert_eq!(matches[1].end(), 4);
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_suffix_tree_wildcard() -> Result<(), Error> {
+		let mut branch_stack = Builder::build_stack_box(3)?;
+		let suffix_tree = Builder::build_suffix_tree(
+			list![
+				Builder::build_pattern("p1.*abc", false, false, false, 0),
+				Builder::build_pattern("p2", false, false, false, 1),
+				Builder::build_pattern("p3", true, false, false, 2)
+			],
+			37,
+			10,
+		)?;
+
+		let mut matches = [Builder::build_match_default(); 10];
+		let count = suffix_tree.tmatch(b"p1xyz123abcp2", &mut matches, &mut branch_stack)?;
+		assert_eq!(count, 2);
+		assert_eq!(matches[0].id(), 0);
+		assert_eq!(matches[0].start(), 0);
+		assert_eq!(matches[0].end(), 11);
+		assert_eq!(matches[1].id(), 1);
+		assert_eq!(matches[1].start(), 11);
+		assert_eq!(matches[1].end(), 13);
+		for i in 0..count {
+			info!("match[{}]={:?}", i, matches[i])?;
+		}
+
+		// try a wildcard that is too long
+		let count = suffix_tree.tmatch(
+			b"p1xyzxxxxxxxxxxxxxxxxxxxxxxxx123abcp2",
+			&mut matches,
+			&mut branch_stack,
+		)?;
+		assert_eq!(count, 1);
+		assert_eq!(matches[0].id(), 1);
+		assert_eq!(matches[0].start(), 35);
+		assert_eq!(matches[0].end(), 37);
+		for i in 0..count {
+			info!("match[{}]={:?}", i, matches[i])?;
+		}
+
+		// test termination
+		let count = suffix_tree.tmatch(
+			b"p1xyzxxxxxxxxxxxxxxxxxxxxxxxxxxx123abcp2",
+			&mut matches,
+			&mut branch_stack,
+		)?;
+		assert_eq!(count, 0);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_case_sensitivity() -> Result<(), Error> {
+		let mut matches = [Builder::build_match_default(); 10];
+		let pattern1 = Builder::build_pattern("AaAaA", true, false, false, 0);
+		let pattern2 = Builder::build_pattern("AaAaA", false, false, false, 0);
+
+		let mut branch_stack = Builder::build_stack_box(3)?;
+		let suffix_tree = Builder::build_suffix_tree(list![pattern1], 100, 100)?;
+
+		assert_eq!(
+			suffix_tree.tmatch(b"AAAAA", &mut matches, &mut branch_stack,)?,
+			0
+		);
+
+		let suffix_tree = Builder::build_suffix_tree(list![pattern2], 100, 100)?;
+
+		assert_eq!(
+			suffix_tree.tmatch(b"AAAAA", &mut matches, &mut branch_stack,)?,
+			1
+		);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_error_conditions() -> Result<(), Error> {
+		assert!(Builder::build_suffix_tree(
+			list![Builder::build_pattern("", false, false, false, 0)],
+			36,
+			36
+		)
+		.is_err());
 		Ok(())
 	}
 }

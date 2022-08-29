@@ -265,6 +265,7 @@ mod test {
 	use crate as bmw_err;
 	use crate::{err, ErrKind, Error, ErrorKind};
 	use bmw_deps::substring::Substring;
+	use std::alloc::Layout;
 	use std::convert::TryInto;
 	use std::ffi::OsString;
 	use std::sync::mpsc::channel;
@@ -383,6 +384,9 @@ mod test {
 			err,
 			ErrorKind::IllegalState(format!("IllegalState..")).into(),
 		)?;
+
+		let err = Layout::from_size_align(7, 7);
+		check_error(err, ErrorKind::Alloc(format!("LayoutError..")).into())?;
 
 		Ok(())
 	}

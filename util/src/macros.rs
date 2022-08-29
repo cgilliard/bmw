@@ -134,6 +134,58 @@ macro_rules! slab_allocator {
 }
 
 #[macro_export]
+macro_rules! branch_stack {
+	($size:expr) => {{
+		let branch_stack = Builder::build_stack_box($size);
+		branch_stack
+	}};
+}
+
+#[macro_export]
+macro_rules! pattern {
+	( $( $pattern_items:expr ),* ) => {{
+                let mut regex: Option<&str> = None;
+                let mut is_term = false;
+                let mut is_multi = true;
+                let mut is_case_sensitive = false;
+                let mut id: Option<usize> = None;
+                $(
+                        match $pattern_items {
+                                bmw_util::PatternParam::Regex(r) => { regex = Some(r); },
+                                bmw_util::PatternParam::IsTerm(is_t) => { is_term = is_t; },
+                                bmw_util::PatternParam::IsMulti(is_m) => { is_multi = is_m; },
+                                bmw_util::PatternParam::IsCaseSensitive(is_cs) => { is_case_sensitive = is_cs; },
+                                bmw_util::PatternParam::Id(i) => { id = Some(i) },
+                        }
+                )*
+
+                match id {
+                        Some(id) => match regex {
+                                Some(regex) => Ok(bmw_util::Builder::build_pattern(regex, is_case_sensitive, is_term, is_multi, id)),
+                                None => Err(bmw_err::err!(bmw_err::ErrKind::IllegalArgument, "Regex must be specified")),
+                        }
+                        None => Err(bmw_err::err!(bmw_err::ErrKind::IllegalArgument, "Id must be specified")),
+                }
+	}};
+}
+
+#[macro_export]
+macro_rules! suffix_tree {
+	( $patterns:expr, $( $suffix_items:expr ),* ) => {{
+                let mut termination_length = usize::MAX;
+                let mut max_wildcard_length = usize::MAX;
+                $(
+                        match $suffix_items {
+                                bmw_util::SuffixParam::TerminationLength(t) => { termination_length = t; },
+                                bmw_util::SuffixParam::MaxWildcardLength(m) => { max_wildcard_length = m; },
+                        }
+                )*
+
+                bmw_util::Builder::build_suffix_tree($patterns, termination_length, max_wildcard_length)
+        }};
+}
+
+#[macro_export]
 macro_rules! hashtable_config {
 	( $config_list:expr ) => {{
 		let mut config = bmw_util::HashtableConfig::default();
@@ -1026,10 +1078,15 @@ macro_rules! block_on {
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::{thread_pool, Hashset, Hashtable, List, PoolResult, SortableList, ThreadPool};
+	use crate::PatternParam::*;
+	use crate::{
+		thread_pool, Builder, Hashset, Hashtable, List, PoolResult, SortableList, SuffixTree,
+		ThreadPool,
+	};
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
 	use bmw_util::ConfigOption::*;
+	use bmw_util::SuffixParam::*;
 	use std::cell::RefMut;
 	use std::sync::mpsc::Receiver;
 	use std::thread::sleep;
@@ -1321,6 +1378,35 @@ mod test {
 		let mut array = array!(10)?;
 		array[1] = 2;
 		assert_eq!(array[1], 2);
+		Ok(())
+	}
+
+	#[test]
+	fn test_pattern_suffix_macros() -> Result<(), Error> {
+		// create branch_stack
+		let mut branch_stack = branch_stack!(2)?;
+
+		// create matches array
+		let mut matches = [Builder::build_match_default(); 10];
+
+		// test pattern
+		let pattern = pattern!(Regex("abc"), Id(0))?;
+		assert_eq!(
+			pattern,
+			Builder::build_pattern("abc", false, false, true, 0)
+		);
+
+		// test suffix tree
+		let suffix_tree = suffix_tree!(
+			list![
+				pattern!(Regex("abc"), Id(0))?,
+				pattern!(Regex("def"), Id(1))?
+			],
+			TerminationLength(100),
+			MaxWildcardLength(50)
+		)?;
+		let match_count = suffix_tree.tmatch(b"abc", &mut matches, &mut branch_stack)?;
+		assert_eq!(match_count, 1);
 		Ok(())
 	}
 }
