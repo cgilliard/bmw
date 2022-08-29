@@ -14,6 +14,9 @@
 use crate::types::{Dictionary, MatchImpl, Node, SuffixTreeImpl};
 use crate::{Builder, List, Match, Pattern, Reader, Serializable, Stack, SuffixTree, Writer};
 use bmw_err::{err, ErrKind, Error};
+use bmw_log::*;
+
+info!();
 
 impl Default for Node {
 	fn default() -> Self {
@@ -94,17 +97,15 @@ impl Dictionary {
 						} else if next == '.' as u8 {
 							(next as usize, false)
 						} else {
-							return Err(err!(
-								ErrKind::IllegalArgument,
-								&format!("Illegal escape character '{}'", next as char)[..]
-							));
+							let fmt = format!("Illegal escape character '{}'", next as char);
+							let e = err!(ErrKind::IllegalArgument, fmt);
+							return Err(e);
 						}
 					}
 					None => {
-						return Err(err!(
-							ErrKind::IllegalArgument,
-							"Illegal escape character at termination of string"
-						));
+						let fmt = "Illegal escape character at termination of string";
+						let e = err!(ErrKind::IllegalArgument, fmt);
+						return Err(e);
 					}
 				}
 			} else {
@@ -444,7 +445,8 @@ impl Serializable for Pattern {
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::{list, Builder, Match, SuffixTree};
+	use crate::PatternParam::*;
+	use crate::{list, pattern, suffix_tree, Builder, Match, SuffixTree};
 	use bmw_err::*;
 	use bmw_log::*;
 
@@ -516,6 +518,51 @@ mod test {
 			suffix_tree.tmatch(b"p1xyzxxxxxxxxxxxxxxxxxxxxxxxxxxx123abcp2", &mut matches)?;
 		assert_eq!(count, 0);
 
+		// non-repeating wildcard
+		let mut suffix_tree = Builder::build_suffix_tree(
+			list![
+				Builder::build_pattern("p1.abc", false, false, false, 0),
+				Builder::build_pattern("p2", false, false, false, 1),
+				Builder::build_pattern("p3", true, false, false, 2),
+				Builder::build_pattern("p4.", true, false, false, 3),
+				Builder::build_pattern("p5\\\\x", true, false, false, 4),
+				Builder::build_pattern("p6\\.x", true, false, false, 5)
+			],
+			37,
+			10,
+		)?;
+		// 2 wildcard chars so no match
+		let count = suffix_tree.tmatch(b"p1xxabc", &mut matches)?;
+		assert_eq!(count, 0);
+
+		// 1 wildcard char so it's a match
+		let count = suffix_tree.tmatch(b"p1xabc", &mut matches)?;
+		assert_eq!(count, 1);
+
+		// no char after p4 so no match
+		let count = suffix_tree.tmatch(b"p4", &mut matches)?;
+		assert_eq!(count, 0);
+
+		// char after p4 so match
+		let count = suffix_tree.tmatch(b"p4a", &mut matches)?;
+		assert_eq!(count, 1);
+
+		// char after p4 so match
+		let count = suffix_tree.tmatch(b"p4aaa", &mut matches)?;
+		assert_eq!(count, 1);
+
+		// '\' matches
+		let count = suffix_tree.tmatch(b"p5\\x", &mut matches)?;
+		assert_eq!(count, 1);
+
+		// escaped dot match
+		let count = suffix_tree.tmatch(b"p6.x", &mut matches)?;
+		assert_eq!(count, 1);
+
+		// escaped dot is not a wildcard
+		let count = suffix_tree.tmatch(b"p6ax", &mut matches)?;
+		assert_eq!(count, 0);
+
 		Ok(())
 	}
 
@@ -537,13 +584,191 @@ mod test {
 	}
 
 	#[test]
-	fn test_error_conditions() -> Result<(), Error> {
+	fn test_multi_line() -> Result<(), Error> {
+		let mut matches = [Builder::build_match_default(); 10];
+		let mut suffix_tree = suffix_tree!(list![
+			pattern!(Regex("abc.*123"), Id(0), IsMulti(false))?,
+			pattern!(Regex("def.*123"), Id(1), IsMulti(true))?
+		],)?;
+
+		// this will not match because of the newline
+		let count = suffix_tree.tmatch(b"abcxxx\n123", &mut matches)?;
+		assert_eq!(count, 0);
+
+		// this will match because IsMulti is true
+		let count = suffix_tree.tmatch(b"defxxx\n123", &mut matches)?;
+		assert_eq!(count, 1);
+		Ok(())
+	}
+
+	#[test]
+	fn test_termination_pattern() -> Result<(), Error> {
+		let mut matches = [Builder::build_match_default(); 10];
+		let mut suffix_tree = suffix_tree!(list![
+			pattern!(Regex("abc"), Id(0), IsTerm(false))?,
+			pattern!(Regex("def"), Id(1), IsTerm(true))?
+		],)?;
+
+		// both matches will be found
+		let count = suffix_tree.tmatch(b"abcdef", &mut matches)?;
+		assert_eq!(count, 2);
+
+		// only the first match will be found because it is a termination pattern
+		let count = suffix_tree.tmatch(b"defabc", &mut matches)?;
+		assert_eq!(count, 1);
+		Ok(())
+	}
+
+	#[test]
+	fn test_match_list_too_big() -> Result<(), Error> {
+		let mut matches1 = [Builder::build_match_default(); 1];
+		let mut matches10 = [Builder::build_match_default(); 10];
+		let mut suffix_tree = suffix_tree!(list![
+			pattern!(Regex("abc"), Id(0), IsTerm(false))?,
+			pattern!(Regex("def"), Id(1), IsTerm(true))?
+		],)?;
+
+		// only one match returned because match list length is 1
+		let count = suffix_tree.tmatch(b"abcdef", &mut matches1)?;
+		assert_eq!(count, 1);
+
+		// both matches returned with long enough list
+		let count = suffix_tree.tmatch(b"abcdef", &mut matches10)?;
+		assert_eq!(count, 2);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_suffix_tree_overlap() -> Result<(), Error> {
+		let mut matches = [Builder::build_match_default(); 10];
+		let mut suffix_tree = suffix_tree!(list![
+			pattern!(Regex("abc"), Id(0))?,
+			pattern!(Regex("abcdef"), Id(1))?
+		],)?;
+
+		let count = suffix_tree.tmatch(b"abcdef", &mut matches)?;
+		assert_eq!(count, 2);
+		assert_eq!(matches[0].start(), 0);
+		assert_eq!(matches[1].start(), 0);
+
+		let mut count = 0;
+		for i in 0..2 {
+			if matches[i].id() == 1 {
+				assert_eq!(matches[i].end(), 6);
+				count += 1;
+			} else if matches[i].id() == 0 {
+				assert_eq!(matches[i].end(), 3);
+				count += 1;
+			}
+		}
+		assert_eq!(count, 2);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_suffix_tree_caret() -> Result<(), Error> {
+		let mut matches = [Builder::build_match_default(); 10];
+		let mut suffix_tree = suffix_tree!(list![
+			pattern!(Regex("abc"), Id(0))?,
+			pattern!(Regex("^def"), Id(1))?
+		],)?;
+
+		// only abc is found because def is not at the start
+		let count = suffix_tree.tmatch(b"abcdef", &mut matches)?;
+		assert_eq!(count, 1);
+
+		// both found
+		let count = suffix_tree.tmatch(b"defabc", &mut matches)?;
+		assert_eq!(count, 2);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_suffix_tree_error_conditions() -> Result<(), Error> {
 		assert!(Builder::build_suffix_tree(
 			list![Builder::build_pattern("", false, false, false, 0)],
 			36,
 			36
 		)
 		.is_err());
+
+		assert!(Builder::build_suffix_tree(
+			list![Builder::build_pattern("^", false, false, false, 0)],
+			100,
+			100
+		)
+		.is_err());
+
+		assert!(Builder::build_suffix_tree(
+			list![Builder::build_pattern("x\\y", false, false, false, 0)],
+			100,
+			100
+		)
+		.is_err());
+
+		assert!(Builder::build_suffix_tree(
+			list![Builder::build_pattern("x\\", false, false, false, 0)],
+			100,
+			100
+		)
+		.is_err());
+		Ok(())
+	}
+
+	#[test]
+	fn test_suffix_tree_branches() -> Result<(), Error> {
+		let mut matches = [Builder::build_match_default(); 10];
+		let mut suffix_tree = suffix_tree!(list![
+			pattern!(Regex("abc"), Id(0))?,
+			pattern!(Regex("ab.*x"), Id(1))?
+		],)?;
+
+		let count = suffix_tree.tmatch(b"abc", &mut matches)?;
+		assert_eq!(count, 1);
+		assert_eq!(matches[0].id(), 0);
+		assert_eq!(matches[0].start(), 0);
+
+		let count = suffix_tree.tmatch(b"abcx", &mut matches)?;
+		assert_eq!(count, 2);
+		assert_eq!(matches[0].id(), 0);
+		assert_eq!(matches[0].start(), 0);
+		assert_eq!(matches[1].id(), 1);
+		assert_eq!(matches[1].start(), 0);
+
+		let text = b"abxx";
+		let count = suffix_tree.tmatch(text, &mut matches)?;
+		assert_eq!(count, 1);
+		assert_eq!(matches[0].id(), 1);
+		assert_eq!(matches[0].start(), 0);
+		assert_eq!(&text[matches[0].start()..matches[0].end()], text);
+
+		let mut suffix_tree = suffix_tree!(list![
+			pattern!(Regex("header: 1234\r\n"), Id(1))?,
+			pattern!(Regex("header: .*\r\n"), Id(0))?
+		],)?;
+
+		let text = b"yyyheader: 1299\r\n";
+		let count = suffix_tree.tmatch(text, &mut matches)?;
+		info!("count1={}", count)?;
+		assert_eq!(count, 1);
+		assert_eq!(matches[0].id(), 0);
+		assert_eq!(matches[0].start(), 3);
+		assert_eq!(matches[0].end(), text.len());
+
+		let text = b"yyyheader: 1234\r\n";
+		let count = suffix_tree.tmatch(text, &mut matches)?;
+		info!("count2={}", count)?;
+		assert_eq!(count, 2);
+		assert_eq!(matches[0].id(), 1);
+		assert_eq!(matches[0].start(), 3);
+		assert_eq!(matches[0].end(), text.len());
+		assert_eq!(matches[1].id(), 0);
+		assert_eq!(matches[1].start(), 3);
+		assert_eq!(matches[1].end(), text.len());
+
 		Ok(())
 	}
 }
