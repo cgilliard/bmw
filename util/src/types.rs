@@ -896,6 +896,7 @@ where
 	pub(crate) max_load_factor: f64,
 	pub(crate) is_hashtable: bool,
 	pub(crate) _phantom_data: PhantomData<K>,
+	pub(crate) debug_get_next_slot_error: bool,
 }
 
 #[derive(Clone, Debug)]

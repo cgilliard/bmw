@@ -559,6 +559,9 @@ mod test {
 		let mut list1 = ArrayList::new(10)?;
 		let mut list2 = ArrayList::new(10)?;
 
+		let mut iter = list1.iter();
+		assert!(iter.next().is_none());
+
 		assert!(list1 == list2);
 
 		List::push(&mut list1, 1)?;

@@ -191,10 +191,9 @@ impl SlabWriter {
 		Ok(ret)
 	}
 
-	pub fn seek(&mut self, slab_id: usize, offset: usize) -> Result<(), Error> {
+	pub fn seek(&mut self, slab_id: usize, offset: usize) {
 		self.slab_id = slab_id;
 		self.offset = offset;
-		Ok(())
 	}
 
 	fn process_slab_mut(
@@ -454,10 +453,9 @@ impl<'a> SlabReader {
 		Ok(ret)
 	}
 
-	pub fn seek(&mut self, slab_id: usize, offset: usize) -> Result<(), Error> {
+	pub fn seek(&mut self, slab_id: usize, offset: usize) {
 		self.slab_id = slab_id;
 		self.offset = offset;
-		Ok(())
 	}
 
 	fn get_next_id(&self, id: usize) -> Result<usize, Error> {
@@ -843,10 +841,10 @@ mod test {
 		let slab = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
 			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 		})?;
-		slab_writer.seek(slab.id(), 0)?;
+		slab_writer.seek(slab.id(), 0);
 		ser_out.write(&mut slab_writer)?;
 		let mut slab_reader = SlabReader::new(None, slab.id())?;
-		slab_reader.seek(slab.id(), 0)?;
+		slab_reader.seek(slab.id(), 0);
 		let ser_in = S::read(&mut slab_reader)?;
 		assert_eq!(ser_in, ser_out);
 
@@ -877,10 +875,10 @@ mod test {
 			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 		})?;
 		let mut slab_writer = SlabWriter::new(None, slab.id())?;
-		slab_writer.seek(slab.id(), 0)?;
+		slab_writer.seek(slab.id(), 0);
 		ser_err.write(&mut slab_writer)?;
 		let mut slab_reader = SlabReader::new(None, slab.id())?;
-		slab_reader.seek(slab.id(), 0)?;
+		slab_reader.seek(slab.id(), 0);
 		assert!(SerErr::read(&mut slab_reader).is_err());
 
 		Ok(())
@@ -1145,7 +1143,7 @@ mod test {
 			slab_reader.read_fixed_bytes(&mut v_back)?;
 			assert_eq!(v, v_back);
 
-			slab_reader.seek(slab_id, 0)?;
+			slab_reader.seek(slab_id, 0);
 			let mut v_back = [3u8; 256];
 			slab_reader.read_fixed_bytes(&mut v_back)?;
 			assert_eq!(v, v_back);
@@ -1160,7 +1158,7 @@ mod test {
 		let slab = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
 			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 		})?;
-		slab_writer.seek(slab.id(), 0)?;
+		slab_writer.seek(slab.id(), 0);
 
 		Ok(())
 	}
@@ -1171,7 +1169,7 @@ mod test {
 		let slab = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
 			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 		})?;
-		slab_reader.seek(slab.id(), 0)?;
+		slab_reader.seek(slab.id(), 0);
 
 		Ok(())
 	}
