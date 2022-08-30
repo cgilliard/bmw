@@ -199,6 +199,9 @@ impl SuffixTreeImpl {
 				dictionary_case_insensitive.add(pattern)?;
 			}
 		}
+		// no additional memory is needed. Shrink to the maximum possible
+		dictionary_case_insensitive.nodes.shrink_to(0);
+		dictionary_case_insensitive.nodes.shrink_to(0);
 
 		Ok(Self {
 			dictionary_case_insensitive,
