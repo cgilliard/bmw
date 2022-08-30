@@ -893,7 +893,7 @@ where
 				}
 			}
 		}
-
+		debug!("value write")?;
 		if value.is_some() {
 			match value.as_ref().unwrap().write(&mut self.slab_writer) {
 				Ok(_) => {}
@@ -907,6 +907,7 @@ where
 			}
 		}
 
+		debug!("array update")?;
 		match self.entry_array.as_mut() {
 			Some(entry_array) => {
 				// for hash based structures we use the entry index
@@ -998,7 +999,7 @@ where
 		debug!("free chain {}", slab_id)?;
 		let bytes_per_slab = self.bytes_per_slab;
 		let slab_size = self.slab_size;
-		let next_bytes = slab_id.clone();
+		let mut next_bytes = slab_id.clone();
 		loop {
 			let id = next_bytes.clone();
 			let n = match &self.slabs {
@@ -1013,8 +1014,8 @@ where
 					slice_to_usize(&slab.get()[bytes_per_slab..slab_size])
 				}),
 			}?;
-			let next_bytes = n.clone();
-			debug!("free id = {}", id)?;
+			next_bytes = n.clone();
+			debug!("free id = {}, next_bytes={}", id, next_bytes)?;
 			self.free(id)?;
 
 			if next_bytes >= self.max_value {
@@ -2160,10 +2161,62 @@ mod test {
 	#[test]
 	fn test_hashset_key_write_error() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(12), SlabCount(1))?;
-		let mut hashset = Builder::build_hashset::<u128>(HashsetConfig::default(), Some(slabs))?;
+		let mut hashset =
+			Builder::build_hashset::<u128>(HashsetConfig::default(), Some(slabs.clone()))?;
 		let e = hashset.insert(&1).unwrap_err().kind();
 		let m = matches!(e, ErrorKind::CapacityExceeded(_));
 		assert!(m);
+		let slabs = slabs.borrow();
+		assert_eq!(slabs.free_count()?, 1);
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashtable_value_write_error() -> Result<(), Error> {
+		let slabs = slab_allocator!(SlabSize(30), SlabCount(1))?;
+		let mut hashtable = Builder::build_hashtable::<u128, u128>(
+			HashtableConfig::default(),
+			Some(slabs.clone()),
+		)?;
+		let e = hashtable.insert(&1, &2).unwrap_err().kind();
+		let m = matches!(e, ErrorKind::CapacityExceeded(_));
+		assert!(m);
+		let slabs = slabs.borrow();
+		assert_eq!(slabs.free_count()?, 1);
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashtable_value_write_error_multi_slab() -> Result<(), Error> {
+		let slabs = slab_allocator!(SlabSize(16), SlabCount(2))?;
+		let mut hashtable = Builder::build_hashtable::<u128, u128>(
+			HashtableConfig::default(),
+			Some(slabs.clone()),
+		)?;
+		let e = hashtable.insert(&1, &2).unwrap_err().kind();
+		info!("e={}", e)?;
+		let m = matches!(e, ErrorKind::CapacityExceeded(_));
+		assert!(m);
+		let slabs = slabs.borrow();
+		assert_eq!(slabs.free_count()?, 2);
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashtable_writer_full_error() -> Result<(), Error> {
+		let slabs = slab_allocator!(SlabSize(25), SlabCount(1))?;
+		{
+			let mut hashset =
+				Builder::build_hashset::<u128>(HashsetConfig::default(), Some(slabs.clone()))?;
+			hashset.insert(&2)?;
+			let e = hashset.insert(&1).unwrap_err().kind();
+			let m = matches!(e, ErrorKind::CapacityExceeded(_));
+			assert!(m);
+			let slabs = slabs.borrow();
+			assert_eq!(slabs.free_count()?, 0);
+		}
+		let slabs = slabs.borrow();
+		assert_eq!(slabs.free_count()?, 1);
 		Ok(())
 	}
 
