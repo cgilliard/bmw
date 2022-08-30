@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::{Dictionary, MatchImpl, Node, SuffixTreeImpl};
+use crate::types::{Dictionary, Node, SuffixTreeImpl};
 use crate::{Builder, List, Match, Pattern, Reader, Serializable, Stack, SuffixTree, Writer};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -142,7 +142,7 @@ impl Dictionary {
 }
 
 impl SuffixTree for SuffixTreeImpl {
-	fn tmatch(&mut self, text: &[u8], matches: &mut [impl Match]) -> Result<usize, Error> {
+	fn tmatch(&mut self, text: &[u8], matches: &mut [Match]) -> Result<usize, Error> {
 		let match_count = 0;
 		let max_wildcard_length = self.max_wildcard_length;
 		let termination_length = self.termination_length;
@@ -211,7 +211,7 @@ impl SuffixTreeImpl {
 
 	fn tmatch_impl(
 		text: &[u8],
-		matches: &mut [impl Match],
+		matches: &mut [Match],
 		mut match_count: usize,
 		dictionary: &Dictionary,
 		case_sensitive: bool,
@@ -335,29 +335,26 @@ impl SuffixTreeImpl {
 	}
 }
 
-impl MatchImpl {
+impl Match {
 	pub(crate) fn new(start: usize, end: usize, id: usize) -> Self {
 		Self { start, end, id }
 	}
-}
-
-impl Match for MatchImpl {
-	fn start(&self) -> usize {
+	pub fn start(&self) -> usize {
 		self.start
 	}
-	fn end(&self) -> usize {
+	pub fn end(&self) -> usize {
 		self.end
 	}
-	fn id(&self) -> usize {
+	pub fn id(&self) -> usize {
 		self.id
 	}
-	fn set_start(&mut self, start: usize) {
+	pub(crate) fn set_start(&mut self, start: usize) {
 		self.start = start;
 	}
-	fn set_end(&mut self, end: usize) {
+	pub(crate) fn set_end(&mut self, end: usize) {
 		self.end = end;
 	}
-	fn set_id(&mut self, id: usize) {
+	pub(crate) fn set_id(&mut self, id: usize) {
 		self.id = id;
 	}
 }
@@ -441,7 +438,7 @@ impl Serializable for Pattern {
 mod test {
 	use crate as bmw_util;
 	use crate::PatternParam::*;
-	use crate::{list, pattern, suffix_tree, Builder, Match, Pattern, SuffixTree};
+	use crate::{list, pattern, suffix_tree, Builder, Pattern, SuffixTree};
 	use bmw_err::*;
 	use bmw_log::*;
 

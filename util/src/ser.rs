@@ -142,6 +142,7 @@ impl SlabWriter {
 	pub fn new(
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 		slab_id: usize,
+		slab_ptr_size: Option<usize>,
 	) -> Result<Self, Error> {
 		debug!("new with slab_id = {}", slab_id)?;
 		let (slab_size, slab_count) = match slabs {
@@ -168,16 +169,23 @@ impl SlabWriter {
 				Ok((slab_size, slab_count))
 			})?,
 		};
-		let mut x = slab_count;
-		let mut slab_ptr_size = 0;
-		loop {
-			if x == 0 {
-				break;
-			}
-			x >>= 8;
-			slab_ptr_size += 1;
-		}
 
+		let slab_ptr_size = match slab_ptr_size {
+			Some(s) => s,
+			None => {
+				let mut x = slab_count;
+				let mut ptr_size = 0;
+				loop {
+					if x == 0 {
+						break;
+					}
+					x >>= 8;
+					ptr_size += 1;
+				}
+				ptr_size
+			}
+		};
+		debug!("slab_ptr_size={}", slab_ptr_size)?;
 		let bytes_per_slab = slab_size.saturating_sub(slab_ptr_size);
 
 		let ret = Self {
@@ -403,6 +411,7 @@ impl<'a> SlabReader {
 	pub fn new(
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
 		slab_id: usize,
+		slab_ptr_size: Option<usize>,
 	) -> Result<Self, Error> {
 		let (slab_size, slab_count) = match slabs.as_ref() {
 			Some(slabs) => {
@@ -426,16 +435,22 @@ impl<'a> SlabReader {
 				Ok((slab_size, slab_count))
 			})?,
 		};
-		let mut x = slab_count + 1; // add one so we have an is_max that's not an valid slab_id
-		let mut slab_ptr_size = 0;
-		loop {
-			if x == 0 {
-				break;
-			}
-			x >>= 8;
-			slab_ptr_size += 1;
-		}
 
+		let slab_ptr_size = match slab_ptr_size {
+			Some(s) => s,
+			None => {
+				let mut x = slab_count;
+				let mut ptr_size = 0;
+				loop {
+					if x == 0 {
+						break;
+					}
+					x >>= 8;
+					ptr_size += 1;
+				}
+				ptr_size
+			}
+		};
 		let bytes_per_slab = slab_size.saturating_sub(slab_ptr_size);
 
 		let mut ptr = [0u8; 8];
@@ -837,13 +852,13 @@ mod test {
 	}
 
 	fn ser_helper_slabs<S: Serializable + Debug + PartialEq>(ser_out: S) -> Result<(), Error> {
-		let mut slab_writer = SlabWriter::new(None, 0)?;
+		let mut slab_writer = SlabWriter::new(None, 0, None)?;
 		let slab = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
 			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 		})?;
 		slab_writer.seek(slab.id(), 0);
 		ser_out.write(&mut slab_writer)?;
-		let mut slab_reader = SlabReader::new(None, slab.id())?;
+		let mut slab_reader = SlabReader::new(None, slab.id(), None)?;
 		slab_reader.seek(slab.id(), 0);
 		let ser_in = S::read(&mut slab_reader)?;
 		assert_eq!(ser_in, ser_out);
@@ -874,10 +889,10 @@ mod test {
 		let slab = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
 			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 		})?;
-		let mut slab_writer = SlabWriter::new(None, slab.id())?;
+		let mut slab_writer = SlabWriter::new(None, slab.id(), None)?;
 		slab_writer.seek(slab.id(), 0);
 		ser_err.write(&mut slab_writer)?;
-		let mut slab_reader = SlabReader::new(None, slab.id())?;
+		let mut slab_reader = SlabReader::new(None, slab.id(), None)?;
 		slab_reader.seek(slab.id(), 0);
 		assert!(SerErr::read(&mut slab_reader).is_err());
 
@@ -960,11 +975,11 @@ mod test {
 			slab.id()
 		};
 
-		let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id)?;
+		let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id, None)?;
 		slab_writer.write_u64(123)?;
 		slab_writer.write_u128(123)?;
 
-		let mut slab_reader = SlabReader::new(Some(slabs.clone()), slab_id)?;
+		let mut slab_reader = SlabReader::new(Some(slabs.clone()), slab_id, None)?;
 		assert_eq!(slab_reader.read_u64()?, 123);
 		assert_eq!(slab_reader.read_u128()?, 123);
 
@@ -979,12 +994,12 @@ mod test {
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
-		let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id)?;
+		let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id, None)?;
 		let r = 10_100;
 		for i in 0..r {
 			slab_writer.write_u128(i)?;
 		}
-		let mut slab_reader = SlabReader::new(Some(slabs.clone()), slab_id)?;
+		let mut slab_reader = SlabReader::new(Some(slabs.clone()), slab_id, None)?;
 		for i in 0..r {
 			assert_eq!(slab_reader.read_u128()?, i);
 		}
@@ -1005,12 +1020,12 @@ mod test {
 			let slab = slabs.allocate()?;
 			Ok(slab.id())
 		})?;
-		let mut slab_writer = SlabWriter::new(None, slab_id)?;
+		let mut slab_writer = SlabWriter::new(None, slab_id, None)?;
 		let r = 10_100;
 		for i in 0..r {
 			slab_writer.write_u128(i)?;
 		}
-		let mut slab_reader = SlabReader::new(None, slab_id)?;
+		let mut slab_reader = SlabReader::new(None, slab_id, None)?;
 		for i in 0..r {
 			assert_eq!(slab_reader.read_u128()?, i);
 		}
@@ -1033,7 +1048,7 @@ mod test {
 				let slab = slabs.allocate()?;
 				slab.id()
 			};
-			let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id)?;
+			let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id, None)?;
 
 			let mut v = [0u8; 256];
 			for i in 0..v.len() {
@@ -1041,7 +1056,7 @@ mod test {
 			}
 			slab_writer.write_fixed_bytes(v)?;
 
-			let mut slab_reader = SlabReader::new(Some(slabs), slab_id)?;
+			let mut slab_reader = SlabReader::new(Some(slabs), slab_id, None)?;
 			let mut v_back = [1u8; 256];
 			slab_reader.read_fixed_bytes(&mut v_back)?;
 			assert_eq!(v, v_back);
@@ -1055,7 +1070,7 @@ mod test {
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
-		let mut slab_writer = SlabWriter::new(Some(slabs), slab_id)?;
+		let mut slab_writer = SlabWriter::new(Some(slabs), slab_id, None)?;
 		let mut v = [0u8; 470];
 		for i in 0..v.len() {
 			v[i] = (i % 256) as u8;
@@ -1069,7 +1084,7 @@ mod test {
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
-		let mut slab_writer = SlabWriter::new(Some(slabs), slab_id)?;
+		let mut slab_writer = SlabWriter::new(Some(slabs), slab_id, None)?;
 		let mut v = [0u8; 471];
 		for i in 0..v.len() {
 			v[i] = (i % 256) as u8;
@@ -1097,7 +1112,7 @@ mod test {
 				slab_mut[99] = 0xFF; // set next to 0xFF
 				slab.id()
 			};
-			let mut writer = SlabWriter::new(None, slabid)?;
+			let mut writer = SlabWriter::new(None, slabid, None)?;
 			let mut v = vec![];
 			for _ in 0..200 {
 				v.push(1);
@@ -1130,7 +1145,7 @@ mod test {
 				let slab = slabs.allocate()?;
 				slab.id()
 			};
-			let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id)?;
+			let mut slab_writer = SlabWriter::new(Some(slabs.clone()), slab_id, None)?;
 
 			let mut v = [0u8; 256];
 			for i in 0..v.len() {
@@ -1138,7 +1153,7 @@ mod test {
 			}
 			slab_writer.write_fixed_bytes(v)?;
 
-			let mut slab_reader = SlabReader::new(Some(slabs.clone()), slab_id)?;
+			let mut slab_reader = SlabReader::new(Some(slabs.clone()), slab_id, None)?;
 			let mut v_back = [1u8; 256];
 			slab_reader.read_fixed_bytes(&mut v_back)?;
 			assert_eq!(v, v_back);
@@ -1154,7 +1169,7 @@ mod test {
 
 	#[test]
 	fn test_global_slab_writer_unallocated() -> Result<(), Error> {
-		let mut slab_writer = SlabWriter::new(None, 0)?;
+		let mut slab_writer = SlabWriter::new(None, 0, None)?;
 		let slab = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
 			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 		})?;
@@ -1165,7 +1180,7 @@ mod test {
 
 	#[test]
 	fn test_global_slab_reader_unallocated() -> Result<(), Error> {
-		let mut slab_reader = SlabReader::new(None, 0)?;
+		let mut slab_reader = SlabReader::new(None, 0, None)?;
 		let slab = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<SlabMut, Error> {
 			Ok(unsafe { f.get().as_mut().unwrap().allocate()? })
 		})?;

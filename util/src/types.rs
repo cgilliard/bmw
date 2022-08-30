@@ -680,15 +680,6 @@ pub trait SlabAllocator: DynClone + Debug {
 
 clone_trait_object!(SlabAllocator);
 
-pub trait Match: Clone + Copy + Debug {
-	fn start(&self) -> usize;
-	fn end(&self) -> usize;
-	fn id(&self) -> usize;
-	fn set_start(&mut self, start: usize);
-	fn set_end(&mut self, end: usize);
-	fn set_id(&mut self, id: usize);
-}
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct Pattern {
 	pub(crate) regex: String,
@@ -699,14 +690,14 @@ pub struct Pattern {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct MatchImpl {
+pub struct Match {
 	pub(crate) start: usize,
 	pub(crate) end: usize,
 	pub(crate) id: usize,
 }
 
 pub trait SuffixTree {
-	fn tmatch(&mut self, text: &[u8], matches: &mut [impl Match]) -> Result<usize, Error>;
+	fn tmatch(&mut self, text: &[u8], matches: &mut [Match]) -> Result<usize, Error>;
 }
 
 #[derive(Clone, Debug)]
@@ -731,8 +722,6 @@ pub(crate) struct SuffixTreeImpl {
 	pub(crate) max_wildcard_length: usize,
 	pub(crate) branch_stack: Box<dyn Stack<(usize, usize)>>,
 }
-
-pub struct MatchBuilder {}
 
 /// Writer trait used to serializing data.
 pub trait Writer {
@@ -897,6 +886,7 @@ where
 	pub(crate) is_hashtable: bool,
 	pub(crate) _phantom_data: PhantomData<K>,
 	pub(crate) debug_get_next_slot_error: bool,
+	pub(crate) debug_entry_array_len: bool,
 }
 
 #[derive(Clone, Debug)]

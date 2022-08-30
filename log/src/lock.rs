@@ -16,6 +16,7 @@ use bmw_deps::rand::random;
 use bmw_err::{err, map_err, ErrKind, Error};
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(not(tarpaulin_include))]
@@ -115,7 +116,7 @@ macro_rules! lock_box {
 ///     Ok(())
 /// }
 ///```
-pub trait Lock<T>: Send + Sync
+pub trait Lock<T>: Send + Sync + Debug
 where
 	T: Send + Sync,
 {
@@ -164,7 +165,7 @@ where
 /// }
 ///
 ///```
-pub trait LockBox<T>: Send + Sync + DynClone
+pub trait LockBox<T>: Send + Sync + DynClone + Debug
 where
 	T: Send + Sync,
 {
@@ -240,6 +241,12 @@ impl<T> Drop for RwLockWriteGuardWrapper<'_, T> {
 struct LockImpl<T> {
 	t: Arc<RwLock<T>>,
 	id: u128,
+}
+
+impl<T> Debug for LockImpl<T> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+		write!(f, "LockImpl<{}>", self.id)
+	}
 }
 
 impl<T> Lock<T> for LockImpl<T>
@@ -430,6 +437,7 @@ mod test {
 	fn test_lock_macro() -> Result<(), Error> {
 		let mut lock = lock!(1)?;
 		let lock_clone = lock.clone();
+		println!("lock={:?}", lock);
 
 		spawn(move || -> Result<(), Error> {
 			let mut x = lock.wlock()?;

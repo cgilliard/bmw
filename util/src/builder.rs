@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use crate::types::{
-	Builder, HashImpl, HashImplSync, MatchImpl, SlabAllocatorImpl, SuffixTreeImpl, ThreadPoolImpl,
+	Builder, HashImpl, HashImplSync, SlabAllocatorImpl, SuffixTreeImpl, ThreadPoolImpl,
 };
 use crate::{
 	Array, ArrayList, Hashset, HashsetConfig, Hashtable, HashtableConfig, ListConfig, Match,
@@ -116,7 +116,7 @@ impl Builder {
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 		V: Serializable + Clone,
 	{
-		HashImpl::new(Some(config), None, None, slabs)
+		HashImpl::new(Some(config), None, None, slabs, false)
 	}
 
 	pub fn build_hashtable_box<K, V>(
@@ -127,7 +127,9 @@ impl Builder {
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 		V: Serializable + Clone,
 	{
-		Ok(Box::new(HashImpl::new(Some(config), None, None, slabs)?))
+		let ret = HashImpl::new(Some(config), None, None, slabs, false)?;
+		let bx = Box::new(ret);
+		Ok(bx)
 	}
 
 	pub fn build_hashset_sync<K>(
@@ -159,7 +161,7 @@ impl Builder {
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 	{
-		HashImpl::new(None, Some(config), None, slabs)
+		HashImpl::new(None, Some(config), None, slabs, false)
 	}
 
 	pub fn build_hashset_box<K>(
@@ -169,7 +171,9 @@ impl Builder {
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 	{
-		Ok(Box::new(HashImpl::new(None, Some(config), None, slabs)?))
+		let ret = HashImpl::new(None, Some(config), None, slabs, false)?;
+		let bx = Box::new(ret);
+		Ok(bx)
 	}
 
 	pub fn build_list_sync<V>(
@@ -201,7 +205,7 @@ impl Builder {
 	where
 		V: Serializable + Debug + Clone,
 	{
-		HashImpl::new(None, None, Some(config), slabs)
+		HashImpl::new(None, None, Some(config), slabs, false)
 	}
 
 	pub fn build_list_box<V>(
@@ -211,15 +215,17 @@ impl Builder {
 	where
 		V: Serializable + Debug + PartialEq + Clone + 'static,
 	{
-		Ok(Box::new(HashImpl::new(None, None, Some(config), slabs)?))
+		let ret = HashImpl::new(None, None, Some(config), slabs, false)?;
+		let bx = Box::new(ret);
+		Ok(bx)
 	}
 
-	pub fn build_match(start: usize, end: usize, id: usize) -> impl Match {
-		MatchImpl::new(start, end, id)
+	pub fn build_match(start: usize, end: usize, id: usize) -> Match {
+		Match::new(start, end, id)
 	}
 
-	pub fn build_match_default() -> impl Match {
-		MatchImpl::new(0, 0, 0)
+	pub fn build_match_default() -> Match {
+		Match::new(0, 0, 0)
 	}
 
 	pub fn build_pattern(
@@ -246,6 +252,18 @@ impl Builder {
 		SuffixTreeImpl::new(patterns, termination_length, max_wildcard_length)
 	}
 
+	pub fn build_suffix_tree_box(
+		patterns: impl SortableList<Pattern>,
+		termination_length: usize,
+		max_wildcard_length: usize,
+	) -> Result<Box<dyn SuffixTree>, Error> {
+		Ok(Box::new(SuffixTreeImpl::new(
+			patterns,
+			termination_length,
+			max_wildcard_length,
+		)?))
+	}
+
 	/// Build a slab allocator on the heap in an [`std::cell::UnsafeCell`].
 	/// This function is used by the global thread local slab allocator to allocate
 	/// thread local slab allocators. Note that it calls unsafe functions. This
@@ -268,7 +286,7 @@ impl Builder {
 
 #[cfg(test)]
 mod test {
-	use crate::{Builder, ListConfig, Match, SlabAllocatorConfig};
+	use crate::{Builder, ListConfig, SlabAllocatorConfig};
 	use bmw_err::*;
 
 	#[test]

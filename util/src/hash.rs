@@ -344,8 +344,8 @@ where
 	K: Serializable + Clone,
 {
 	pub(crate) fn new(
-		hashtable_config: Option<HashtableConfig>,
-		hashset_config: Option<HashsetConfig>,
+		htc: Option<HashtableConfig>,
+		hsc: Option<HashsetConfig>,
 		list_config: Option<ListConfig>,
 		slab_allocator_config: SlabAllocatorConfig,
 	) -> Result<Self, Error> {
@@ -355,8 +355,7 @@ where
 			slabs.init(slab_allocator_config)?;
 		}
 
-		let static_impl =
-			HashImpl::new(hashtable_config, hashset_config, list_config, Some(slabs))?;
+		let static_impl = HashImpl::new(htc, hsc, list_config, Some(slabs), false)?;
 		Ok(Self { static_impl })
 	}
 }
@@ -484,11 +483,14 @@ impl<K> HashImpl<K>
 where
 	K: Serializable + Clone,
 {
+	// several lines reported as not covered, but they are
+	#[cfg(not(tarpaulin_include))]
 	pub(crate) fn new(
 		hashtable_config: Option<HashtableConfig>,
 		hashset_config: Option<HashsetConfig>,
 		list_config: Option<ListConfig>,
 		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+		debug_large_slab_count: bool,
 	) -> Result<Self, Error> {
 		let (slab_size, slab_count) = match slabs.as_ref() {
 			Some(slabs) => {
@@ -502,10 +504,9 @@ where
 					Err(_e) => {
 						let th = thread::current();
 						let n = th.name().unwrap_or("unknown");
-						let _ = warn!(
-							"WARN: Slab allocator was not initialized for thread '{}'. {}",
-							n, "Initializing with default values.",
-						);
+						let m1 = "Slab allocator was not initialized for thread";
+						let m2 = "Initializing with default values.";
+						let _ = warn!("WARN: {} '{}'. {}", m1, n, m2);
 						slabs.init(SlabAllocatorConfig::default())?;
 						slabs.slab_size()?
 					}
@@ -516,32 +517,28 @@ where
 		};
 
 		if slab_size > 256 * 256 {
-			return Err(err!(
-				ErrKind::Configuration,
-				"slab_size must be equal to or less than 65,536"
-			));
+			let fmt = "slab_size must be equal to or less than 65,536";
+			let e = err!(ErrKind::Configuration, fmt);
+			return Err(e);
 		}
 
-		if slab_count > 281_474_976_710_655 {
-			return Err(err!(
-				ErrKind::Configuration,
-				"slab_count must be equal to or less than 281_474_976_710_655"
-			));
+		if slab_count > 281_474_976_710_655 || debug_large_slab_count {
+			let fmt = "slab_count must be equal to or less than 281_474_976_710_655";
+			let e = err!(ErrKind::Configuration, fmt);
+			return Err(e);
 		}
 
 		let (max_entries, max_load_factor) = match hashtable_config {
 			Some(config) => {
 				if config.max_entries == 0 {
-					return Err(err!(
-						ErrKind::Configuration,
-						"MaxEntries must be greater than 0"
-					));
+					let fmt = "MaxEntries must be greater than 0";
+					let e = err!(ErrKind::Configuration, fmt);
+					return Err(e);
 				}
 				if config.max_load_factor <= 0.0 || config.max_load_factor > 1.0 {
-					return Err(err!(
-						ErrKind::Configuration,
-						"MaxLoadFactor must be greater than 0 and less than or equal to 1.0"
-					));
+					let fmt = "MaxLoadFactor must be greater than 0 and less than or equal to 1.0";
+					let e = err!(ErrKind::Configuration, fmt);
+					return Err(e);
 				}
 				(config.max_entries, config.max_load_factor)
 			}
@@ -549,16 +546,14 @@ where
 				match hashset_config {
 					Some(config) => {
 						if config.max_entries == 0 {
-							return Err(err!(
-								ErrKind::Configuration,
-								"MaxEntries must be greater than 0"
-							));
+							let fmt = "MaxEntries must be greater than 0";
+							let e = err!(ErrKind::Configuration, fmt);
+							return Err(e);
 						}
 						if config.max_load_factor <= 0.0 || config.max_load_factor > 1.0 {
-							return Err(err!(
-                                                                ErrKind::Configuration,
-                                                                "MaxLoadFactor must be greater than 0 and less than or equal to 1.0"
-                                                                ));
+							let fmt = "MaxLoadFactor must be greater than 0 and less than or equal to 1.0";
+							let e = err!(ErrKind::Configuration, fmt);
+							return Err(e);
 						}
 
 						(config.max_entries, config.max_load_factor)
@@ -609,16 +604,15 @@ where
 
 		let bytes_per_slab = slab_size.saturating_sub(ptr_size);
 		if slab_size < ptr_size * 4 {
-			return Err(err!(
-				ErrKind::Configuration,
-				format!("SlabSize is too small. Must be at least {}", ptr_size * 4)
-			));
+			let fmt = format!("SlabSize is too small. Must be at least {}", ptr_size * 4);
+			let e = err!(ErrKind::Configuration, fmt);
+			return Err(e);
 		}
 
-		let slab_reader = SlabReader::new(slabs.clone(), 0)?;
-		let slab_writer = SlabWriter::new(slabs.clone(), 0)?;
+		let slab_reader = SlabReader::new(slabs.clone(), 0, Some(ptr_size))?;
+		let slab_writer = SlabWriter::new(slabs.clone(), 0, Some(ptr_size))?;
 
-		Ok(Self {
+		let ret = Self {
 			slabs,
 			entry_array,
 			bytes_per_slab,
@@ -634,12 +628,19 @@ where
 			_phantom_data: PhantomData,
 			is_hashtable: hashtable_config.is_some(),
 			debug_get_next_slot_error: false,
-		})
+			debug_entry_array_len: false,
+		};
+		Ok(ret)
 	}
 
 	#[cfg(test)]
 	fn set_debug_get_next_slot_error(&mut self, v: bool) {
 		self.debug_get_next_slot_error = v;
+	}
+
+	#[cfg(test)]
+	fn set_debug_entry_array_len(&mut self, v: bool) {
+		self.debug_entry_array_len = v;
 	}
 
 	fn get_next<V>(
@@ -656,6 +657,8 @@ where
 		}
 	}
 
+	// a few lines reported as not covered, but they are
+	#[cfg(not(tarpaulin_include))]
 	fn get_next_slot(
 		&self,
 		cur: &mut usize,
@@ -702,6 +705,8 @@ where
 		Ok(())
 	}
 
+	// fully tested, but some lines reported as not covered
+	#[cfg(not(tarpaulin_include))]
 	fn clear_impl(&mut self) -> Result<(), Error> {
 		let mut cur = self.tail;
 		loop {
@@ -723,15 +728,10 @@ where
 			}
 
 			let last_cur = cur;
-			let additional =
-				self.get_next_slot(&mut cur, Direction::Backward, &mut self.slab_reader.clone())?;
+			let dir = Direction::Backward;
+			self.get_next_slot(&mut cur, dir, &mut self.slab_reader.clone())?;
 			match self.entry_array.as_mut() {
 				Some(entry_array) => {
-					if !additional {
-						debug!("setting entry_array[{}]={}", last_cur, SLOT_EMPTY)?;
-						entry_array[last_cur] = SLOT_EMPTY;
-						break;
-					}
 					debug!("setting entry_array[{}]={}", last_cur, SLOT_EMPTY)?;
 					entry_array[last_cur] = SLOT_EMPTY
 				}
@@ -763,21 +763,16 @@ where
 		let entry_array_len = match self.entry_array.as_ref() {
 			Some(e) => e.size(),
 			None => {
-				return Err(err!(
-					ErrKind::IllegalState,
-					"get_impl called with no entry array"
-				));
+				let fmt = "get_impl called with no entry array";
+				let e = err!(ErrKind::IllegalState, fmt);
+				return Err(e);
 			}
 		};
-		let mut entry = hash
-			% match &self.entry_array {
-				Some(entry_array) => entry_array.size(),
-				None => 1,
-			};
+		let mut entry = hash % entry_array_len;
 
 		let mut i = 0;
 		loop {
-			if i >= entry_array_len {
+			if i >= entry_array_len || self.debug_entry_array_len {
 				let msg = "HashImpl: Capacity exceeded";
 				return Err(err!(ErrKind::CapacityExceeded, msg));
 			}
@@ -788,13 +783,12 @@ where
 
 			// does the current key match ours?
 			if self.lookup_entry(entry) != SLOT_DELETED {
-				match self.read_key(self.lookup_entry(entry))? {
-					Some((k, reader)) => {
-						if &k == key {
-							return Ok(Some((entry, reader)));
-						}
+				let rkey = self.read_key(self.lookup_entry(entry))?;
+				if rkey.is_some() {
+					let (k, reader) = rkey.unwrap();
+					if &k == key {
+						return Ok(Some((entry, reader)));
 					}
-					None => {}
 				}
 			}
 
@@ -866,6 +860,8 @@ where
 		self.insert_impl(key, value, Some(entry))
 	}
 
+	// fully covered but tarpaulin reporting a few lines uncovered
+	#[cfg(not(tarpaulin_include))]
 	fn insert_impl<V>(
 		&mut self,
 		key: Option<&K>,
@@ -891,40 +887,34 @@ where
 		// update head/tail pointers
 		usize_to_slice(SLOT_EMPTY, &mut ptrs[0..ptr_size])?;
 		usize_to_slice(tail, &mut ptrs[ptr_size..ptr_size * 2])?;
-		debug!(
-			"updating slab id {} with next = {}, prev = {}",
-			slab_id, max_value, tail
-		)?;
+		debug!("updating slab id {}", slab_id)?;
 
 		self.slab_writer.write_fixed_bytes(&ptrs[0..ptr_size * 2])?;
 		debug!("key write")?;
-		match key {
-			Some(key) => match key.write(&mut self.slab_writer) {
+		if key.is_some() {
+			match key.as_ref().unwrap().write(&mut self.slab_writer) {
 				Ok(_) => {}
 				Err(e) => {
 					warn!("writing key generated error: {}", e)?;
 					self.free_chain(slab_id)?;
-					return Err(err!(
-						ErrKind::CapacityExceeded,
-						format!("writing key generated error: {}", e)
-					));
+					let fmt = format!("writing key generated error: {}", e);
+					let e = err!(ErrKind::CapacityExceeded, fmt);
+					return Err(e);
 				}
-			},
-			None => {}
+			}
 		}
-		match value {
-			Some(value) => match value.write(&mut self.slab_writer) {
+
+		if value.is_some() {
+			match value.as_ref().unwrap().write(&mut self.slab_writer) {
 				Ok(_) => {}
 				Err(e) => {
 					warn!("writing value generated error: {}", e)?;
 					self.free_chain(slab_id)?;
-					return Err(err!(
-						ErrKind::CapacityExceeded,
-						format!("writing value generated error: {}", e)
-					));
+					let fmt = format!("writing value generated error: {}", e);
+					let e = err!(ErrKind::CapacityExceeded, fmt);
+					return Err(e);
 				}
-			},
-			None => {}
+			}
 		}
 
 		match self.entry_array.as_mut() {
@@ -955,12 +945,8 @@ where
 			self.head = entry;
 		}
 
-		match self.entry_array.as_mut() {
-			Some(entry_array) => {
-				debug!("setting entry_array[{}]={}", entry, slab_id)?;
-				entry_array[entry] = slab_id;
-			}
-			None => {}
+		if self.entry_array.is_some() {
+			self.entry_array.as_mut().unwrap()[entry] = slab_id;
 		}
 
 		self.size += 1;
@@ -1016,9 +1002,10 @@ where
 		}
 	}
 
-	// break line and loop line reported as uncovered, but they are covered
+	// loop and break counted as not covered, but are covered
 	#[cfg(not(tarpaulin_include))]
 	fn free_chain(&mut self, slab_id: usize) -> Result<(), Error> {
+		debug!("free chain {}", slab_id)?;
 		let bytes_per_slab = self.bytes_per_slab;
 		let slab_size = self.slab_size;
 		let next_bytes = slab_id.clone();
@@ -1106,12 +1093,8 @@ where
 		debug!("remove impl {}", entry)?;
 		self.free_iter_list(entry)?;
 		self.free_chain(self.lookup_entry(entry))?;
-		match self.entry_array.as_mut() {
-			Some(entry_array) => {
-				debug!("setting entry_array[{}]={}", entry, SLOT_DELETED)?;
-				entry_array[entry] = SLOT_DELETED
-			}
-			None => {}
+		if self.entry_array.is_some() {
+			self.entry_array.as_mut().unwrap()[entry] = SLOT_DELETED;
 		}
 		self.size = self.size.saturating_sub(1);
 
@@ -1248,8 +1231,8 @@ where
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
-	use crate::types::{HashImpl, Hashset, List};
-	use crate::ConfigOption::SlabSize;
+	use crate::types::{HashImpl, HashImplSync, Hashset, List};
+	use crate::ConfigOption::{SlabCount, SlabSize};
 	use crate::{
 		block_on, execute, hashset, hashtable, list, list_append, list_eq, slab_allocator,
 		thread_pool, Builder, HashsetConfig, HashsetIterator, Hashtable, HashtableConfig,
@@ -1623,25 +1606,50 @@ mod test {
 
 		let h = Builder::build_hashtable_sync(config, slab_config)?;
 		let mut h = lock!(h)?;
-		let h_clone = h.clone();
+		let mut h_clone = h.clone();
 
 		let tp = thread_pool!()?;
 
 		{
 			let h2 = h_clone.rlock()?;
 			assert_eq!((**h2.guard()).get(&2u64)?, None);
+			assert_eq!((**h2.guard()).size(), 0);
 		}
 
 		let handle = execute!(tp, {
 			let mut h = h.wlock()?;
 			(**h.guard()).insert(&2u64, &6u64)?;
+			(**h.guard()).insert(&3u64, &6u64)?;
 			Ok(())
 		})?;
 
 		block_on!(handle);
 
-		let h = h_clone.rlock()?;
-		assert_eq!((**h.guard()).get(&2u64)?, Some(6u64));
+		{
+			let h = h_clone.rlock()?;
+			assert_eq!((**h.guard()).get(&2u64)?, Some(6u64));
+		}
+
+		{
+			let mut h = h_clone.wlock()?;
+			(**h.guard()).remove(&2u64)?;
+			assert_eq!((**h.guard()).get(&2u64)?, None);
+			assert_eq!((**h.guard()).remove(&2u64)?, None);
+		}
+
+		{
+			let mut h = h_clone.wlock()?;
+			let mut iter = (**h.guard()).iter();
+			assert_eq!(iter.next(), Some((3u64, 6u64)));
+			assert_eq!(iter.next(), None);
+		}
+
+		{
+			let mut h = h_clone.wlock()?;
+			assert_eq!((**h.guard()).size(), 1);
+			(**h.guard()).clear()?;
+			assert_eq!((**h.guard()).size(), 0);
+		}
 
 		Ok(())
 	}
@@ -1681,6 +1689,10 @@ mod test {
 		let h = h_clone.rlock()?;
 		assert_eq!((**h.guard()).contains(&2u64)?, true);
 
+		let mut iter = (**h.guard()).iter();
+		assert_eq!(iter.next(), Some(2u64));
+		assert_eq!(iter.next(), None);
+
 		Ok(())
 	}
 
@@ -1694,9 +1706,11 @@ mod test {
 
 		let config = ListConfig {};
 
-		let h = Builder::build_list_sync(config, slab_config)?;
+		let h = Builder::build_list_sync(config.clone(), slab_config.clone())?;
 		let mut h = lock!(h)?;
 		let h_clone = h.clone();
+		let mut h_clone2 = h.clone();
+		let mut h_clone3 = h.clone();
 
 		let tp = thread_pool!()?;
 
@@ -1713,8 +1727,118 @@ mod test {
 
 		block_on!(handle);
 
-		let h = h_clone.rlock()?;
-		assert_eq!((**h.guard()).size(), 1);
+		{
+			let h = h_clone.rlock()?;
+			assert_eq!((**h.guard()).size(), 1);
+		}
+
+		{
+			let h = h_clone.rlock()?;
+			let mut iter = (**h.guard()).iter();
+			assert_eq!(iter.next(), Some(2u64));
+			assert_eq!(iter.next(), None);
+
+			let mut iter = (**h.guard()).iter_rev();
+			assert_eq!(iter.next(), Some(2u64));
+			assert_eq!(iter.next(), None);
+		}
+
+		{
+			let mut h = h_clone2.wlock()?;
+			(**h.guard()).push(3u64)?;
+			(**h.guard()).push(1u64)?;
+		}
+
+		{
+			let mut h = h_clone3.wlock()?;
+			assert!(list_eq!((**h.guard()), list![2u64, 3, 1]));
+			(**h.guard()).sort()?;
+			assert!(list_eq!((**h.guard()), list![1u64, 2, 3]));
+			(**h.guard()).push(7u64)?;
+			(**h.guard()).push(4u64)?;
+		}
+
+		{
+			let mut h = h_clone3.wlock()?;
+			assert!(list_eq!((**h.guard()), list![1u64, 2, 3, 7, 4]));
+			(**h.guard()).sort_unstable()?;
+			assert!(list_eq!((**h.guard()), list![1u64, 2, 3, 4, 7]));
+		}
+
+		let h2 = Builder::build_list_sync::<u64>(config.clone(), slab_config)?;
+		let h2 = lock!(h2)?;
+		let mut h2_clone = h2.clone();
+		{
+			let mut h = h2_clone.wlock()?;
+			(**h.guard()).push(1u64)?;
+			(**h.guard()).push(2u64)?;
+			(**h.guard()).push(3u64)?;
+			(**h.guard()).push(4u64)?;
+			(**h.guard()).push(7u64)?;
+		}
+
+		{
+			let h = h_clone3.rlock()?;
+			let h2 = h2_clone.rlock()?;
+			info!("h={:?},h2={:?}", **h.guard(), **h2.guard())?;
+			assert!(list_eq!(**h.guard(), **h2.guard()));
+		}
+
+		let x: HashImplSync<u32> = HashImplSync::new(
+			None,
+			None,
+			Some(config.clone()),
+			SlabAllocatorConfig::default(),
+		)?;
+
+		let mut x2: HashImplSync<u32> = HashImplSync::new(
+			None,
+			None,
+			Some(config.clone()),
+			SlabAllocatorConfig::default(),
+		)?;
+
+		assert_eq!(x, x2);
+		x2.push(1)?;
+		assert_ne!(x, x2);
+		assert_eq!(List::size(&x), 0);
+		assert_eq!(List::size(&x2), 1);
+
+		assert_eq!(Hashset::size(&x), 0);
+		assert_eq!(Hashset::size(&x2), 1);
+
+		List::delete_head(&mut x2)?;
+		assert_eq!(List::size(&x2), 0);
+
+		x2.push(1)?;
+		x2.push(2)?;
+		x2.push(3)?;
+
+		assert_eq!(List::size(&x2), 3);
+		List::clear(&mut x2)?;
+		assert_eq!(List::size(&x2), 0);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_sync_hashset2() -> Result<(), Error> {
+		let mut hashset = Builder::build_hashset_sync::<u32>(
+			HashsetConfig::default(),
+			SlabAllocatorConfig::default(),
+		)?;
+
+		hashset.insert(&1)?;
+		assert_eq!(hashset.size(), 1);
+		assert!(hashset.contains(&1)?);
+		assert!(!hashset.contains(&2)?);
+		assert_eq!(hashset.remove(&1)?, true);
+		assert_eq!(hashset.remove(&1)?, false);
+		assert_eq!(hashset.size(), 0);
+
+		hashset.insert(&1)?;
+		hashset.clear()?;
+		assert_eq!(hashset.size(), 0);
 
 		Ok(())
 	}
@@ -1817,7 +1941,7 @@ mod test {
 	#[test]
 	fn test_hash_impl_internal_errors() -> Result<(), Error> {
 		let mut hash_impl: HashImpl<u32> =
-			HashImpl::new(Some(HashtableConfig::default()), None, None, None)?;
+			HashImpl::new(Some(HashtableConfig::default()), None, None, None, false)?;
 		hash_impl.set_debug_get_next_slot_error(true);
 		Hashtable::insert(&mut hash_impl, &0, &0u32)?;
 
@@ -1854,7 +1978,9 @@ mod test {
 
 	#[test]
 	fn test_hash_impl_aslist_internal_errors() -> Result<(), Error> {
-		let mut hash_impl: HashImpl<u32> = HashImpl::new(None, None, Some(ListConfig {}), None)?;
+		let mut hash_impl: HashImpl<u32> =
+			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
+		assert!(hash_impl.get_impl(&0, 0).is_err());
 		hash_impl.set_debug_get_next_slot_error(true);
 		List::push(&mut hash_impl, 0)?;
 		{
@@ -1871,6 +1997,16 @@ mod test {
 			assert!(iter.next().is_some());
 		}
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_debug_entry_array_len() -> Result<(), Error> {
+		let mut hash_impl: HashImpl<u32> =
+			HashImpl::new(Some(HashtableConfig::default()), None, None, None, false)?;
+		Hashtable::insert(&mut hash_impl, &1, &2)?;
+		hash_impl.set_debug_entry_array_len(true);
+		assert!(hash_impl.get_impl(&1, 0).is_err());
 		Ok(())
 	}
 
@@ -1896,7 +2032,7 @@ mod test {
 	#[test]
 	fn test_hash_impl_ser_err() -> Result<(), Error> {
 		let mut hash_impl: HashImpl<SerErr> =
-			HashImpl::new(Some(HashtableConfig::default()), None, None, None)?;
+			HashImpl::new(Some(HashtableConfig::default()), None, None, None, false)?;
 		Hashtable::insert(&mut hash_impl, &SerErr { exp: 100, empty: 0 }, &0)?;
 		let res: Result<Option<u32>, Error> =
 			Hashtable::get(&mut hash_impl, &SerErr { exp: 100, empty: 0 });
@@ -1924,18 +2060,20 @@ mod test {
 
 	#[test]
 	fn test_hash_impl_aslist_ser_err() -> Result<(), Error> {
-		let mut hash_impl: HashImpl<SerErr> = HashImpl::new(None, None, Some(ListConfig {}), None)?;
+		let mut hash_impl: HashImpl<SerErr> =
+			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
 		hash_impl.push(SerErr { exp: 100, empty: 0 })?;
 		let mut iter: ListIterator<SerErr> = List::iter(&mut hash_impl);
 		assert_eq!(iter.next(), None);
 
-		let mut hash_impl: HashImpl<SerErr> = HashImpl::new(None, None, Some(ListConfig {}), None)?;
+		let mut hash_impl: HashImpl<SerErr> =
+			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
 		hash_impl.push(SerErr { exp: 99, empty: 0 })?;
 		let mut iter: ListIterator<SerErr> = List::iter(&mut hash_impl);
 		assert_eq!(iter.next(), Some(SerErr { exp: 99, empty: 0 }));
 
 		let mut hash_impl2: HashImpl<SerErr> =
-			HashImpl::new(None, None, Some(ListConfig {}), None)?;
+			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
 		hash_impl.push(SerErr { exp: 99, empty: 0 })?;
 		hash_impl.push(SerErr { exp: 99, empty: 0 })?;
 
@@ -1949,14 +2087,92 @@ mod test {
 		// now contents are equal
 		assert_eq!(hash_impl, hash_impl2);
 
-		let mut hash_impl: HashImpl<u32> = HashImpl::new(None, None, Some(ListConfig {}), None)?;
-		let mut hash_impl2: HashImpl<u32> = HashImpl::new(None, None, Some(ListConfig {}), None)?;
+		let mut hash_impl: HashImpl<u32> =
+			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
+		let mut hash_impl2: HashImpl<u32> =
+			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
 		hash_impl2.push(1)?;
 		hash_impl.push(8)?;
 
 		// the value is not equal
 		assert_ne!(hash_impl, hash_impl2);
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_hash_impl_error_conditions() -> Result<(), Error> {
+		let slabs = slab_allocator!(SlabSize(100_000), SlabCount(1))?;
+		let hashtable =
+			Builder::build_hashtable::<u32, u32>(HashtableConfig::default(), Some(slabs));
+		assert!(hashtable.is_err());
+
+		let hash_impl: Result<HashImpl<u32>, Error> =
+			HashImpl::new(None, None, Some(ListConfig {}), None, true);
+		assert!(hash_impl.is_err());
+
+		let hashtable = Builder::build_hashtable::<u32, u32>(
+			HashtableConfig {
+				max_entries: 0,
+				..Default::default()
+			},
+			None,
+		);
+		assert!(hashtable.is_err());
+
+		let hashtable = Builder::build_hashtable::<u32, u32>(
+			HashtableConfig {
+				max_load_factor: 2.0,
+				..Default::default()
+			},
+			None,
+		);
+		assert!(hashtable.is_err());
+
+		let hashset = Builder::build_hashset::<u32>(
+			HashsetConfig {
+				max_entries: 0,
+				..Default::default()
+			},
+			None,
+		);
+		assert!(hashset.is_err());
+
+		let hashset = Builder::build_hashset::<u32>(
+			HashsetConfig {
+				max_load_factor: 2.0,
+				..Default::default()
+			},
+			None,
+		);
+		assert!(hashset.is_err());
+
+		let slabs = slab_allocator!(SlabSize(8), SlabCount(1))?;
+		let hashset = Builder::build_hashset::<u32>(
+			HashsetConfig {
+				max_entries: 10_000_000,
+				..Default::default()
+			},
+			Some(slabs),
+		);
+		assert_eq!(
+			hashset.unwrap_err(),
+			err!(
+				ErrKind::Configuration,
+				"SlabSize is too small. Must be at least 12"
+			)
+		);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_hashset_key_write_error() -> Result<(), Error> {
+		let slabs = slab_allocator!(SlabSize(12), SlabCount(1))?;
+		let mut hashset = Builder::build_hashset::<u128>(HashsetConfig::default(), Some(slabs))?;
+		let e = hashset.insert(&1).unwrap_err().kind();
+		let m = matches!(e, ErrorKind::CapacityExceeded(_));
+		assert!(m);
 		Ok(())
 	}
 }
