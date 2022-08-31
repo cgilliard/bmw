@@ -19,13 +19,15 @@ use bmw_util::*;
 
 info!();
 
-#[derive(Serializable, PartialEq, Debug, Clone)]
+#[derive(Serializable, Debug, Clone)]
 struct MyStruct {
 	id: u128,
+	a: u16,
+	v: Box<dyn SortableList<String>>,
 	w: Array<u32>,
 	x: Vec<u8>,
 	y: Option<String>,
-	z: [u8; 10],
+	z: [u8; 8],
 }
 
 pub fn test() -> Result<(), Error> {
@@ -38,18 +40,8 @@ mod test {
 	use bmw_err::*;
 	use bmw_log::*;
 	use bmw_util::*;
-	use std::fmt::Debug;
 
 	info!();
-
-	fn ser_helper<S: Serializable + Debug + PartialEq>(ser_out: S) -> Result<(), Error> {
-		let mut v: Vec<u8> = vec![];
-		serialize(&mut v, &ser_out)?;
-		let ser_in: S = deserialize(&mut &v[..])?;
-		info!("ser_in={:?},ser_out={:?}", ser_in, ser_out)?;
-		assert_eq!(ser_in, ser_out);
-		Ok(())
-	}
 
 	#[test]
 	fn test_ser() -> Result<(), Error> {
@@ -64,16 +56,17 @@ mod test {
 		}
 		let s = MyStruct {
 			id: 1234,
+			a: 2,
+			v: array_list_box!(10)?,
 			w: array!(10)?,
 			x: vec![0, 1, 2],
 			y: Some("test".to_string()),
-			z: [0u8; 10],
+			z: [0u8; 8],
 		};
-		ser_helper(s.clone())?;
 
 		let mut hashtable = hashtable!()?;
 		hashtable.insert(&1, &s)?;
-		assert_eq!(hashtable.get(&1)?, Some(s));
+		assert_eq!(hashtable.get(&1)?.unwrap().id, s.id);
 		Ok(())
 	}
 }

@@ -857,7 +857,6 @@ macro_rules! list {
 macro_rules! list_box {
     ( $( $x:expr ),* ) => {
         {
-            use bmw_util::List;
             let mut temp_list = bmw_util::Builder::build_list_box(bmw_util::ListConfig::default(), None)?;
             $(
                 temp_list.push($x)?;

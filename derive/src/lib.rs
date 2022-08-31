@@ -13,230 +13,165 @@
 // limitations under the License.
 
 extern crate proc_macro;
+use bmw_err::{err, ErrKind, Error};
+use bmw_log::*;
 use proc_macro::TokenStream;
+use proc_macro::TokenTree;
 use proc_macro::TokenTree::{Group, Ident, Literal, Punct};
 
-// Don't see a way to get code coverage on macros with tarpaulin so disabling. Some tests use this
-// code though.
-#[proc_macro_derive(Serializable)]
-#[cfg(not(tarpaulin_include))]
-pub fn derive_serialize(strm: TokenStream) -> TokenStream {
-	let mut found_struct = false;
-	let mut readable = "".to_string();
-	let mut writeable = "".to_string();
-	let mut group_item_count = 0;
-	for item in strm {
-		match item {
-			Ident(ident) => {
-				if found_struct {
-					readable = format!(
-						"impl bmw_util::Serializable for {} {{\n\
-						fn read<R: bmw_util::Reader>(\n\
-							reader: &mut R\n\
-						) -> Result<Self, Error> {{\n\
-							Ok(Self {{\n",
-						ident
-					);
-					writeable = format!(
-						//"impl bmw_util::Writeable for {} {{\n\
-						"fn write<W: bmw_util::Writer>(\n\
-							&self,\n\
-							writer: &mut W\n\
-						) -> Result<(), bmw_err::Error> {{",
-					);
-				} else if ident.to_string() == "struct" {
-					found_struct = true;
-				} else {
-					found_struct = false;
-				}
-			}
-			Group(group) => {
-				found_struct = false;
+info!();
 
-				let mut id: Option<String> = None;
-				let mut skip = false;
+struct MacroState {
+	ret_read: String,
+	ret_write: String,
+	expect_name: bool,
+	name: String,
+	field_names: Vec<String>,
+}
 
-				let mut items = vec![];
-				for item in group.stream() {
-					items.push(item);
-				}
-				group_item_count = items.len();
-				let mut i = 0;
-				loop {
-					if i >= items.len() {
-						break;
-					}
-					let item = &items[i];
-					i += 1;
-					match item {
-						Ident(ident) => {
-							if &ident.to_string()[..] == "pub" {
-								continue;
-							}
-							if id.is_none() && !skip {
-								id = Some(ident.to_string());
-							} else if id.is_some() {
-								let field_id = id.unwrap();
-								let ident = &ident.to_string()[..];
-								match ident {
-									"Vec" => {
-										writeable = format!(
-                                                                                        "{}\n\
-                                                                                        bmw_util::Serializable::write(&self.{}, writer)?;",
-                                                                                        writeable, field_id,
-                                                                                );
-										readable = format!(
-                                                                                        "{}\n\
-                                                                                        {}: {{\n\
-                                                                                                let l = reader.read_u64()?;\n\
-                                                                                                let mut v = vec![];\n\
-                                                                                                for _ in 0..l {{\n\
-                                                                                                        v.push(bmw_util::Serializable::read(reader)?);\n\
-                                                                                                }}\n\
-                                                                                                v\n\
-                                                                                        }},",
-                                                                                        readable, field_id
-                                                                                );
-										skip = true;
-									}
-									"Array" => {
-										writeable = format!(
-                                                                                        "{}\n\
-                                                                                        bmw_util::Serializable::write(&self.{}, writer)?;",
-                                                                                        writeable, field_id,
-                                                                                );
-										readable = format!(
-                                                                                        "{}\n\
-                                                                                        {}: {{\n\
-                                                                                                let l = reader.read_usize()?;\n\
-                                                                                                let mut arr = bmw_util::Builder::build_array(l)?;\n\
-                                                                                                for i in 0..l {{\n\
-                                                                                                        arr[i] = bmw_util::Serializable::read(reader)?;\n\
-                                                                                                }}\n\
-                                                                                                arr\n\
-                                                                                        }},",
-                                                                                        readable, field_id
-                                                                                );
-										skip = true;
-									}
-									"Option" => {
-										writeable = format!(
-                                                                                        "{}\n\
-                                                                                        match &self.{} {{\n\
-                                                                                                Some(x) => {{\n\
-                                                                                                        writer.write_u8(1)?;\n\
-                                                                                                        bmw_util::Serializable::write(&x, writer)?;\n\
-                                                                                                }},\n\
-                                                                                                None => writer.write_u8(0)?,\n\
-                                                                                        }}",
-                                                                                        writeable, field_id
-                                                                                );
-										readable = format!(
-                                                                                        "{}\n\
-                                                                                        {}: match reader.read_u8()? {{\n\
-                                                                                                0 => None,\n\
-                                                                                                _ => Some(bmw_util::Serializable::read(reader)?),\n\
-                                                                                        }},",
-                                                                                        readable, field_id
-                                                                                );
-										skip = true;
-									}
-									_ => {
-										writeable = format!(
-                                                                                        "{}\n\
-                                                                                        bmw_util::Serializable::write(&self.{}, writer)?;",
-                                                                                        writeable, field_id
-                                                                                );
-										readable = format!(
-                                                                                        "{}\n\
-                                                                                        {}: bmw_util::Serializable::read(reader)?,",
-                                                                                        readable, field_id
-                                                                                );
-										skip = false;
-									}
-								}
-
-								id = None;
-							} else {
-								if &ident.to_string()[..] != "Vec"
-									&& &ident.to_string()[..] != "Option"
-								{
-									skip = false;
-								}
-							}
-						}
-						Group(group) => {
-							let stream = group.stream();
-							let mut items = vec![];
-							for item in stream {
-								items.push(item);
-							}
-							if items.len() == 3 {
-								if items[1].to_string() == ";" {
-									let field_id = id.unwrap();
-									let len: usize = items[2].to_string().parse().unwrap();
-									readable = format!(
-										"{}\n\
-										{}: [",
-										readable, field_id,
-									);
-									for i in 0..len {
-										writeable = format!(
-											"{}\n\
-											bmw_util::Serializable::write(&self.{}[{}], writer)?;",
-											writeable, field_id, i
-										);
-										readable = format!(
-											"{}\n\
-											bmw_util::Serializable::read(reader)?,",
-											readable
-										);
-									}
-
-									readable = format!(
-										"{}\n\
-										],",
-										readable
-									);
-									id = None;
-								}
-							}
-						}
-						Punct(_punct) => {}
-						Literal(_literal) => {}
-					}
-				}
-			}
-			_ => {}
+impl MacroState {
+	fn new() -> Self {
+		Self {
+			ret_read: "".to_string(),
+			ret_write: "".to_string(),
+			expect_name: false,
+			name: "".to_string(),
+			field_names: vec![],
 		}
 	}
 
-	if group_item_count == 1 {
-		writeable = format!(
-			"{}\n\
-			bmw_util::Serializable::write(&self.0, writer)?;",
-			writeable
-		);
-		readable = format!(
-			"{}\n\
-			0: bmw_util::Serializable::read(reader)?,",
-			readable
-		);
+	fn append_read(&mut self, s: &str) {
+		self.ret_read = format!("{}{}", self.ret_read, s);
 	}
 
-	writeable = format!(
-		"{}\n\
-		Ok(())\n\
-	}} }}",
-		writeable
-	);
+	fn append_write(&mut self, s: &str) {
+		self.ret_write = format!("{}{}", self.ret_write, s);
+	}
 
-	readable = format!(
-		"{}\n\
-		}})}}",
-		readable
-	);
+	fn ret(&self) -> String {
+		let mut field_name_return = "Ok(Self {".to_string();
+		for x in &self.field_names {
+			field_name_return = format!("{} {},", field_name_return, x);
+		}
+		field_name_return = format!("{} }})", field_name_return);
 
-	let ret = format!("{}{}", readable, writeable,);
-	ret.parse().unwrap()
+		let ret = format!("impl bmw_util::Serializable for {} {{ \n\
+                    fn read<R>(reader: &mut R) -> Result<Self, bmw_err::Error> where R: bmw_util::Reader {{ {} {} }}\n\
+                    fn write<W>(&self, writer: &mut W) -> Result<(), bmw_err::Error> where W: bmw_util::Writer {{ {} Ok(()) }}\n\
+                    }}", self.name, self.ret_read, field_name_return, self.ret_write);
+		let _ = debug!("ret='{}'", ret);
+		ret
+	}
+}
+
+#[proc_macro_derive(Serializable)]
+pub fn derive_serialize(strm: TokenStream) -> TokenStream {
+	let mut state = MacroState::new();
+	let _ = debug!("-----------------derive serialization----------------");
+	match process_strm(strm, &mut state) {
+		Ok(_) => state.ret().parse().unwrap(),
+		Err(e) => {
+			let _ = error!("parsing Serializable generated error: {}", e);
+			"".parse().unwrap()
+		}
+	}
+}
+
+fn process_strm(strm: TokenStream, state: &mut MacroState) -> Result<(), Error> {
+	for tree in strm {
+		process_token_tree(tree, state)?;
+	}
+	Ok(())
+}
+
+fn process_token_tree(tree: TokenTree, state: &mut MacroState) -> Result<(), Error> {
+	match tree {
+		Ident(ident) => {
+			let ident = ident.to_string();
+			debug!("ident={}", ident)?;
+
+			if state.expect_name {
+				debug!("struct/enum name = {}", ident)?;
+				state.name = ident.clone();
+				state.expect_name = false;
+			} else if ident != "pub" && ident != "struct" && ident != "enum" {
+				let fmt = format!("error expected pub or struct. Found '{}'", ident);
+				let e = err!(ErrKind::IllegalState, fmt);
+				return Err(e);
+			}
+
+			if ident == "struct" || ident == "enum" {
+				state.expect_name = true;
+			}
+		}
+		Group(group) => {
+			process_group(group, state)?;
+		}
+		Literal(literal) => {
+			debug!("literal={}", literal)?;
+		}
+		Punct(punct) => {
+			debug!("punct={}", punct)?;
+		}
+	}
+	Ok(())
+}
+
+fn process_group(group: proc_macro::Group, state: &mut MacroState) -> Result<(), Error> {
+	debug!("group={}", group)?;
+
+	let mut expect_name = true;
+	let mut name = "".to_string();
+
+	for item in group.stream() {
+		match item {
+			Ident(ident) => {
+				debug!("groupident={}", ident)?;
+				if expect_name {
+					expect_name = false;
+					name = ident.to_string();
+				}
+			}
+			Group(_group) => {
+				// we don't need to process the inner group because the read function
+				// only requires the name
+			}
+			Literal(literal) => {
+				debug!("groupliteral={}", literal)?;
+			}
+			Punct(punct) => {
+				debug!("grouppunct={}", punct)?;
+				if punct.to_string() == ",".to_string() {
+					debug!("end a name")?;
+					process_field(&name, &group, state)?;
+					expect_name = true;
+				}
+			}
+		}
+	}
+
+	// if there's no trailing comma.
+	if !expect_name {
+		process_field(&name, &group, state)?;
+	}
+
+	Ok(())
+}
+
+fn process_field(
+	name: &String,
+	group: &proc_macro::Group,
+	state: &mut MacroState,
+) -> Result<(), Error> {
+	if name.len() == 0 {
+		let fmt = format!("expected name for this group: {:?}", group);
+		let e = err!(ErrKind::IllegalState, fmt);
+		return Err(e);
+	}
+
+	state.append_read(&format!("let {} = bmw_util::Serializable::read(reader)?; ", name)[..]);
+	state.append_write(&format!("bmw_util::Serializable::write(&self.{}, writer)?; ", name)[..]);
+	state.field_names.push(name.clone());
+
+	Ok(())
 }

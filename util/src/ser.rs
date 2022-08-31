@@ -14,12 +14,14 @@
 use crate::misc::set_max;
 use crate::misc::{slice_to_usize, usize_to_slice};
 use crate::{
-	Array, BinReader, BinWriter, Builder, Reader, Serializable, SlabAllocator, SlabAllocatorConfig,
-	SlabMut, SlabReader, SlabWriter, Writer, GLOBAL_SLAB_ALLOCATOR,
+	Array, ArrayList, BinReader, BinWriter, Builder, List, ListConfig, Reader, Serializable,
+	SlabAllocator, SlabAllocatorConfig, SlabMut, SlabReader, SlabWriter, SortableList, Writer,
+	GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::cell::{Ref, RefCell, RefMut};
+use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::rc::Rc;
 use std::thread;
@@ -105,6 +107,46 @@ impl<S: Serializable + Clone> Serializable for Array<S> {
 		let mut a = Builder::build_array(len)?;
 		for i in 0..len {
 			a[i] = Serializable::read(reader)?;
+		}
+		Ok(a)
+	}
+}
+
+impl<S: Serializable + PartialEq + Debug + Clone + 'static> Serializable
+	for Box<dyn SortableList<S>>
+{
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		let len = self.size();
+		writer.write_usize(len)?;
+		for x in self.iter() {
+			Serializable::write(&x, writer)?;
+		}
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		let len = reader.read_usize()?;
+		let mut list = Builder::build_list_box(ListConfig::default(), None)?;
+		for _ in 0..len {
+			list.push(Serializable::read(reader)?)?;
+		}
+		Ok(list)
+	}
+}
+
+impl<S: Serializable + Clone + Debug + PartialEq> Serializable for ArrayList<S> {
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		let len = self.inner.size;
+		writer.write_usize(len)?;
+		for x in self.inner.iter() {
+			Serializable::write(&x, writer)?;
+		}
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<ArrayList<S>, Error> {
+		let len = reader.read_usize()?;
+		let mut a = ArrayList::new(len)?;
+		for _ in 0..len {
+			a.push(Serializable::read(reader)?)?;
 		}
 		Ok(a)
 	}
@@ -1241,6 +1283,31 @@ mod test {
 		})?;
 		slab_reader.seek(slab.id(), 0);
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_ser_array_and_array_list() -> Result<(), Error> {
+		let mut arr = Array::new(10)?;
+		for i in 0..arr.size() {
+			arr[i] = i;
+		}
+		ser_helper(arr)?;
+		let mut arrlist: ArrayList<usize> = ArrayList::new(20)?;
+		for i in 0..20 {
+			List::push(&mut arrlist, i)?;
+		}
+		ser_helper(arrlist)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_sortable_list() -> Result<(), Error> {
+		let ser_out = list_box![1, 2, 3, 4];
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &ser_out)?;
+		let ser_in: Box<dyn SortableList<u32>> = deserialize(&mut &v[..])?;
+		assert!(list_eq!(ser_in, ser_out));
 		Ok(())
 	}
 }
