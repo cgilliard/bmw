@@ -404,6 +404,12 @@ where
 	fn iter<'b>(&'b self) -> HashtableIterator<'b, K, V> {
 		HashtableIterator::new(&self.static_impl, self.static_impl.tail)
 	}
+	fn max_load_factor(&self) -> f64 {
+		self.static_impl.max_load_factor
+	}
+	fn max_entries(&self) -> usize {
+		self.static_impl.max_entries
+	}
 }
 
 impl<K> Hashset<K> for HashImplSync<K>
@@ -447,6 +453,12 @@ where
 
 	fn iter<'b>(&'b self) -> HashsetIterator<'b, K> {
 		HashsetIterator::new(&self.static_impl, self.static_impl.tail)
+	}
+	fn max_load_factor(&self) -> f64 {
+		self.static_impl.max_load_factor
+	}
+	fn max_entries(&self) -> usize {
+		self.static_impl.max_entries
 	}
 }
 
@@ -624,6 +636,7 @@ where
 			slab_size,
 			ptr_size,
 			max_load_factor,
+			max_entries,
 			size: 0,
 			head: max_value,
 			tail: max_value,
@@ -1153,6 +1166,12 @@ where
 	fn iter<'b>(&'b self) -> HashtableIterator<'b, K, V> {
 		HashtableIterator::new(self, self.tail)
 	}
+	fn max_load_factor(&self) -> f64 {
+		self.max_load_factor
+	}
+	fn max_entries(&self) -> usize {
+		self.max_entries
+	}
 }
 
 impl<K> Hashset<K> for HashImpl<K>
@@ -1195,6 +1214,12 @@ where
 
 	fn iter<'b>(&'b self) -> HashsetIterator<'b, K> {
 		HashsetIterator::new(self, self.tail)
+	}
+	fn max_load_factor(&self) -> f64 {
+		self.max_load_factor
+	}
+	fn max_entries(&self) -> usize {
+		self.max_entries
 	}
 }
 
@@ -1609,6 +1634,8 @@ mod test {
 			let h2 = h_clone.rlock()?;
 			assert_eq!((**h2.guard()).get(&2u64)?, None);
 			assert_eq!((**h2.guard()).size(), 0);
+			assert_eq!((**h2.guard()).max_load_factor(), config.max_load_factor);
+			assert_eq!((**h2.guard()).max_entries(), config.max_entries);
 		}
 
 		let handle = execute!(tp, {
@@ -1818,10 +1845,9 @@ mod test {
 
 	#[test]
 	fn test_sync_hashset2() -> Result<(), Error> {
-		let mut hashset = Builder::build_hashset_sync::<u32>(
-			HashsetConfig::default(),
-			SlabAllocatorConfig::default(),
-		)?;
+		let config = HashsetConfig::default();
+		let mut hashset =
+			Builder::build_hashset_sync::<u32>(config, SlabAllocatorConfig::default())?;
 
 		hashset.insert(&1)?;
 		assert_eq!(hashset.size(), 1);
@@ -1830,6 +1856,8 @@ mod test {
 		assert_eq!(hashset.remove(&1)?, true);
 		assert_eq!(hashset.remove(&1)?, false);
 		assert_eq!(hashset.size(), 0);
+		assert_eq!(hashset.max_load_factor(), config.max_load_factor);
+		assert_eq!(hashset.max_entries(), config.max_entries);
 
 		hashset.insert(&1)?;
 		hashset.clear()?;

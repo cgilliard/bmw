@@ -163,7 +163,7 @@ pub struct BinReader<'a, R: Read> {
 /// [`crate::Builder::build_thread_pool`] function or the [`crate::thread_pool`] macro. The
 /// [`std::default::Default`] trait is implemented for this trait. Also see [`crate::ConfigOption`]
 /// for details on configuring via macro.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serializable)]
 pub struct ThreadPoolConfig {
 	/// The minimum number of threads that this thread_pool will use. The default value is 3.
 	pub min_size: usize,
@@ -174,7 +174,7 @@ pub struct ThreadPoolConfig {
 	pub sync_channel_size: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serializable)]
 pub(crate) struct ThreadPoolState {
 	pub(crate) waiting: usize,
 	pub(crate) cur_size: usize,
@@ -270,6 +270,8 @@ where
 	K: Serializable + Clone,
 	V: Serializable,
 {
+	fn max_load_factor(&self) -> f64;
+	fn max_entries(&self) -> usize;
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
 	fn remove(&mut self, key: &K) -> Result<Option<V>, Error>;
@@ -282,6 +284,8 @@ pub trait Hashset<K>: Debug + DynClone
 where
 	K: Serializable + Clone,
 {
+	fn max_load_factor(&self) -> f64;
+	fn max_entries(&self) -> usize;
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
 	fn contains(&self, key: &K) -> Result<bool, Error>;
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
@@ -783,6 +787,7 @@ where
 	pub(crate) head: usize,
 	pub(crate) tail: usize,
 	pub(crate) max_load_factor: f64,
+	pub(crate) max_entries: usize,
 	pub(crate) is_hashtable: bool,
 	pub(crate) _phantom_data: PhantomData<K>,
 	pub(crate) debug_get_next_slot_error: bool,

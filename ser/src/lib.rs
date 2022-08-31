@@ -38,6 +38,20 @@ impl_int!(u128, write_u128, read_u128);
 impl_int!(i128, write_i128, read_i128);
 impl_int!(usize, write_usize, read_usize);
 
+impl Serializable for bool {
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		if *self {
+			writer.write_u8(1)?;
+		} else {
+			writer.write_u8(0)?;
+		}
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<bool, Error> {
+		Ok(reader.read_u8()? != 0)
+	}
+}
+
 impl Serializable for f64 {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 		writer.write_fixed_bytes(self.to_be_bytes())?;
@@ -252,13 +266,12 @@ pub trait Reader {
 /// Anthing stored in them must implement this trait. Commonly needed implementations
 /// are built in the ser module in this crate. These include Vec, String, integer types among
 /// other things.
-pub trait Serializable
-where
-	Self: Sized,
-{
+pub trait Serializable {
 	/// read data from the reader and build the underlying type represented by that
 	/// data.
-	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error>;
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error>
+	where
+		Self: Sized;
 	/// write data to the writer representing the underlying type.
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error>;
 }

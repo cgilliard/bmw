@@ -14,14 +14,15 @@
 use crate::misc::set_max;
 use crate::misc::{slice_to_usize, usize_to_slice};
 use crate::{
-	Array, ArrayList, BinReader, BinWriter, Builder, List, ListConfig, Reader, Serializable,
-	SlabAllocator, SlabAllocatorConfig, SlabMut, SlabReader, SlabWriter, SortableList, Writer,
-	GLOBAL_SLAB_ALLOCATOR,
+	Array, ArrayList, BinReader, BinWriter, Builder, Hashset, HashsetConfig, Hashtable,
+	HashtableConfig, List, ListConfig, Reader, Serializable, SlabAllocator, SlabAllocatorConfig,
+	SlabMut, SlabReader, SlabWriter, SortableList, Writer, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::cell::{Ref, RefCell, RefMut};
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::io::{Read, Write};
 use std::rc::Rc;
 use std::thread;
@@ -65,6 +66,73 @@ impl<S: Serializable + PartialEq + Debug + Clone + 'static> Serializable
 			list.push(Serializable::read(reader)?)?;
 		}
 		Ok(list)
+	}
+}
+
+impl<K, V> Serializable for Box<dyn Hashtable<K, V>>
+where
+	K: Serializable + Clone + Debug + PartialEq + Hash + 'static,
+	V: Serializable + Clone,
+{
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		writer.write_usize(self.max_entries())?;
+		self.max_load_factor().write(writer)?;
+		let len = self.size();
+		writer.write_usize(len)?;
+		for (k, v) in self.iter() {
+			Serializable::write(&k, writer)?;
+			Serializable::write(&v, writer)?;
+		}
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		let max_entries = reader.read_usize()?;
+		let max_load_factor = f64::read(reader)?;
+		let len = reader.read_usize()?;
+		let config = HashtableConfig {
+			max_entries,
+			max_load_factor,
+			..Default::default()
+		};
+		let mut hashtable = Builder::build_hashtable_box(config, None)?;
+		for _ in 0..len {
+			let k: K = Serializable::read(reader)?;
+			let v: V = Serializable::read(reader)?;
+			hashtable.insert(&k, &v)?;
+		}
+		Ok(hashtable)
+	}
+}
+
+impl<K> Serializable for Box<dyn Hashset<K>>
+where
+	K: Serializable + Clone + Debug + PartialEq + Hash + 'static,
+{
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		writer.write_usize(self.max_entries())?;
+		self.max_load_factor().write(writer)?;
+		let len = self.size();
+		writer.write_usize(len)?;
+		for k in self.iter() {
+			Serializable::write(&k, writer)?;
+		}
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		let max_entries = reader.read_usize()?;
+		let max_load_factor = f64::read(reader)?;
+		let len = reader.read_usize()?;
+		let config = HashsetConfig {
+			max_entries,
+			max_load_factor,
+			..Default::default()
+		};
+		let mut hashset = Builder::build_hashset_box(config, None)?;
+		for _ in 0..len {
+			let k: K = Serializable::read(reader)?;
+			hashset.insert(&k)?;
+		}
+		Ok(hashset)
 	}
 }
 
@@ -891,6 +959,24 @@ mod test {
 		let v = vec!["test1".to_string(), "a".to_string(), "okokok".to_string()];
 		ser_helper(v)?;
 
+		let mut hashtable = hashtable_box!(MaxEntries(123), MaxLoadFactor(0.5))?;
+		hashtable.insert(&1, &2)?;
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &hashtable)?;
+		let ser_in: Box<dyn Hashtable<u32, u32>> = deserialize(&mut &v[..])?;
+		assert_eq!(ser_in.max_entries(), hashtable.max_entries());
+		assert_eq!(ser_in.max_load_factor(), hashtable.max_load_factor());
+		assert_eq!(ser_in.get(&1)?, Some(2));
+
+		let mut hashset = hashset_box!(MaxEntries(23), MaxLoadFactor(0.54))?;
+		hashset.insert(&1)?;
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &hashset)?;
+		let ser_in: Box<dyn Hashset<u32>> = deserialize(&mut &v[..])?;
+		assert_eq!(ser_in.max_entries(), hashset.max_entries());
+		assert_eq!(ser_in.max_load_factor(), hashset.max_load_factor());
+		assert!(ser_in.contains(&1)?);
+
 		Ok(())
 	}
 
@@ -1165,10 +1251,13 @@ mod test {
 
 	#[test]
 	fn test_ser_option() -> Result<(), Error> {
-		let mut x: Option<u32> = None;
+		let mut x: Option<bool> = None;
 		ser_helper(x)?;
-		x = Some(1);
+		x = Some(false);
 		ser_helper(x)?;
+		x = Some(true);
+		ser_helper(x)?;
+
 		Ok(())
 	}
 

@@ -157,7 +157,7 @@ fn process_group(group: proc_macro::Group, state: &mut MacroState) -> Result<(),
 			Ident(ident) => {
 				let ident = ident.to_string();
 				debug!("groupident={}", ident)?;
-				if expect_name && ident != "pub" && ident != "doc" {
+				if expect_name && ident != "pub" && ident != "doc" && ident != "crate" {
 					expect_name = false;
 					name = ident.clone();
 				}
