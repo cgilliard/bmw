@@ -19,6 +19,9 @@ use proc_macro::TokenStream;
 use proc_macro::TokenTree;
 use proc_macro::TokenTree::{Group, Ident, Literal, Punct};
 
+// Note about tarpaulin. Tarpaulin doesn't cover proc_macros so we disable it throughout this
+// library.
+
 info!();
 
 struct MacroState {
@@ -29,6 +32,7 @@ struct MacroState {
 	field_names: Vec<String>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl MacroState {
 	fn new() -> Self {
 		Self {
@@ -65,6 +69,7 @@ impl MacroState {
 }
 
 #[proc_macro_derive(Serializable)]
+#[cfg(not(tarpaulin_include))]
 pub fn derive_serialize(strm: TokenStream) -> TokenStream {
 	let mut state = MacroState::new();
 	let _ = debug!("-----------------derive serialization----------------");
@@ -77,6 +82,7 @@ pub fn derive_serialize(strm: TokenStream) -> TokenStream {
 	}
 }
 
+#[cfg(not(tarpaulin_include))]
 fn process_strm(strm: TokenStream, state: &mut MacroState) -> Result<(), Error> {
 	for tree in strm {
 		process_token_tree(tree, state)?;
@@ -84,6 +90,7 @@ fn process_strm(strm: TokenStream, state: &mut MacroState) -> Result<(), Error> 
 	Ok(())
 }
 
+#[cfg(not(tarpaulin_include))]
 fn process_token_tree(tree: TokenTree, state: &mut MacroState) -> Result<(), Error> {
 	match tree {
 		Ident(ident) => {
@@ -117,6 +124,7 @@ fn process_token_tree(tree: TokenTree, state: &mut MacroState) -> Result<(), Err
 	Ok(())
 }
 
+#[cfg(not(tarpaulin_include))]
 fn process_group(group: proc_macro::Group, state: &mut MacroState) -> Result<(), Error> {
 	debug!("group={}", group)?;
 
@@ -158,6 +166,7 @@ fn process_group(group: proc_macro::Group, state: &mut MacroState) -> Result<(),
 	Ok(())
 }
 
+#[cfg(not(tarpaulin_include))]
 fn process_field(
 	name: &String,
 	group: &proc_macro::Group,

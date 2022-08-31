@@ -264,21 +264,23 @@ where
 	where
 		T: Serializable,
 	{
-		Box::new(ArrayListIterator {
+		let ret = ArrayListIterator {
 			array_list_ref: &self,
 			cur: 0,
 			direction: Direction::Forward,
-		})
+		};
+		Box::new(ret)
 	}
 	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = T> + 'a>
 	where
 		T: Serializable,
 	{
-		Box::new(ArrayListIterator {
+		let ret = ArrayListIterator {
 			array_list_ref: &self,
 			cur: self.size.saturating_sub(1),
 			direction: Direction::Backward,
-		})
+		};
+		Box::new(ret)
 	}
 	fn delete_head(&mut self) -> Result<(), Error> {
 		let fmt = "arraylist doesn't support delete_head";

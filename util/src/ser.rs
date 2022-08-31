@@ -1310,4 +1310,24 @@ mod test {
 		assert!(list_eq!(ser_in, ser_out));
 		Ok(())
 	}
+
+	#[test]
+	fn test_ser_option() -> Result<(), Error> {
+		let mut x: Option<u32> = None;
+		ser_helper(x)?;
+		x = Some(1);
+		ser_helper(x)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_read_ref() -> Result<(), Error> {
+		let r = 1u32;
+		let ser_out = &r;
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &ser_out)?;
+		let ser_in: Result<&u32, Error> = deserialize(&mut &v[..]);
+		assert!(ser_in.is_err());
+		Ok(())
+	}
 }
