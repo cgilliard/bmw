@@ -56,15 +56,15 @@ impl MacroState {
 
 	fn ret(&self) -> String {
 		let ret = if self.is_enum {
-			format!("impl bmw_util::Serializable for {} {{ \n\
-                                        fn read<R>(reader: &mut R) -> Result<Self, bmw_err::Error> where R: bmw_util::Reader {{\n\
+			format!("impl bmw_ser::Serializable for {} {{ \n\
+                                        fn read<R>(reader: &mut R) -> Result<Self, bmw_err::Error> where R: bmw_ser::Reader {{\n\
                                             Ok(match reader.read_usize()? {{ {} _ => {{\n\
                                             let fmt = \"unexpected type returned in reader\";\n\
                                             let e = bmw_err::err!(bmw_err::ErrKind::CorruptedData, fmt);\n\
                                             return Err(e);\n\
                                             }}\n\
                                         }}) }} \n\
-                    fn write<W>(&self, writer: &mut W) -> Result<(), bmw_err::Error> where W: bmw_util::Writer {{ match self {{ {} }} Ok(()) }}\n\
+                    fn write<W>(&self, writer: &mut W) -> Result<(), bmw_err::Error> where W: bmw_ser::Writer {{ match self {{ {} }} Ok(()) }}\n\
                     }}", self.name, self.ret_read, self.ret_write)
 		} else {
 			let mut field_name_return = "Ok(Self {".to_string();
@@ -72,9 +72,9 @@ impl MacroState {
 				field_name_return = format!("{} {},", field_name_return, x);
 			}
 			field_name_return = format!("{} }})", field_name_return);
-			format!("impl bmw_util::Serializable for {} {{ \n\
-                    fn read<R>(reader: &mut R) -> Result<Self, bmw_err::Error> where R: bmw_util::Reader {{ {} {} }}\n\
-                    fn write<W>(&self, writer: &mut W) -> Result<(), bmw_err::Error> where W: bmw_util::Writer {{ {} Ok(()) }}\n\
+			format!("impl bmw_ser::Serializable for {} {{ \n\
+                    fn read<R>(reader: &mut R) -> Result<Self, bmw_err::Error> where R: bmw_ser::Reader {{ {} {} }}\n\
+                    fn write<W>(&self, writer: &mut W) -> Result<(), bmw_err::Error> where W: bmw_ser::Writer {{ {} Ok(()) }}\n\
                     }}", self.name, self.ret_read, field_name_return, self.ret_write)
 		};
 
@@ -155,10 +155,11 @@ fn process_group(group: proc_macro::Group, state: &mut MacroState) -> Result<(),
 	for item in group.stream() {
 		match item {
 			Ident(ident) => {
+				let ident = ident.to_string();
 				debug!("groupident={}", ident)?;
-				if expect_name {
+				if expect_name && ident != "pub" && ident != "doc" {
 					expect_name = false;
-					name = ident.to_string();
+					name = ident.clone();
 				}
 			}
 			Group(_group) => {
@@ -219,10 +220,9 @@ fn process_field(
 			)[..],
 		);
 	} else {
-		state.append_read(&format!("let {} = bmw_util::Serializable::read(reader)?;\n", name)[..]);
-		state.append_write(
-			&format!("bmw_util::Serializable::write(&self.{}, writer)?;\n", name)[..],
-		);
+		state.append_read(&format!("let {} = bmw_ser::Serializable::read(reader)?;\n", name)[..]);
+		state
+			.append_write(&format!("bmw_ser::Serializable::write(&self.{}, writer)?;\n", name)[..]);
 	}
 	state.field_names.push(name.clone());
 

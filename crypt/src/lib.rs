@@ -26,6 +26,7 @@ mod test {
 	use bmw_derive::Serializable;
 	use bmw_err::*;
 	use bmw_log::*;
+	use bmw_ser::*;
 	use bmw_util::*;
 
 	#[derive(Serializable, Debug, Clone, PartialEq)]

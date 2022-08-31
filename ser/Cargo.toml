@@ -1,8 +1,8 @@
 [package]
-name = "bmw_crypt"
+name = "bmw_ser"
 version = "0.0.2-beta1"
 authors = ["BMW Develoeprs"]
-description = "Crypt library"
+description = "Serializable library"
 license = "Apache-2.0"
 repository = "https://github.com/37miners/bmw"
 keywords = [ "crypto", "bitcoinmw"]
@@ -12,8 +12,9 @@ edition = "2021"
 
 [dependencies]
 
-bmw_util =   { path = "../util"   }
-bmw_err =    { path = "../error"  }
-bmw_ser =    { path = "../ser"    }
-bmw_log =    { path = "../log"    }
-bmw_derive = { path = "../derive" }
+bmw_deps = { path = "../deps"  }
+bmw_err  = { path = "../error" }
+bmw_log  = { path = "../log"   }
+
+[dev-dependencies]
+bmw_test = { path = "../test" }
