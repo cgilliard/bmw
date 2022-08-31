@@ -30,6 +30,7 @@ struct MacroState {
 	expect_name: bool,
 	name: String,
 	field_names: Vec<String>,
+	is_enum: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -41,6 +42,7 @@ impl MacroState {
 			expect_name: false,
 			name: "".to_string(),
 			field_names: vec![],
+			is_enum: false,
 		}
 	}
 
@@ -53,17 +55,31 @@ impl MacroState {
 	}
 
 	fn ret(&self) -> String {
-		let mut field_name_return = "Ok(Self {".to_string();
-		for x in &self.field_names {
-			field_name_return = format!("{} {},", field_name_return, x);
-		}
-		field_name_return = format!("{} }})", field_name_return);
-
-		let ret = format!("impl bmw_util::Serializable for {} {{ \n\
+		let ret = if self.is_enum {
+			format!("impl bmw_util::Serializable for {} {{ \n\
+                                        fn read<R>(reader: &mut R) -> Result<Self, bmw_err::Error> where R: bmw_util::Reader {{\n\
+                                            Ok(match reader.read_usize()? {{ {} _ => {{\n\
+                                            let fmt = \"unexpected type returned in reader\";\n\
+                                            let e = bmw_err::err!(bmw_err::ErrKind::CorruptedData, fmt);\n\
+                                            return Err(e);\n\
+                                            }}\n\
+                                        }}) }} \n\
+                    fn write<W>(&self, writer: &mut W) -> Result<(), bmw_err::Error> where W: bmw_util::Writer {{ match self {{ {} }} Ok(()) }}\n\
+                    }}", self.name, self.ret_read, self.ret_write)
+		} else {
+			let mut field_name_return = "Ok(Self {".to_string();
+			for x in &self.field_names {
+				field_name_return = format!("{} {},", field_name_return, x);
+			}
+			field_name_return = format!("{} }})", field_name_return);
+			format!("impl bmw_util::Serializable for {} {{ \n\
                     fn read<R>(reader: &mut R) -> Result<Self, bmw_err::Error> where R: bmw_util::Reader {{ {} {} }}\n\
                     fn write<W>(&self, writer: &mut W) -> Result<(), bmw_err::Error> where W: bmw_util::Writer {{ {} Ok(()) }}\n\
-                    }}", self.name, self.ret_read, field_name_return, self.ret_write);
+                    }}", self.name, self.ret_read, field_name_return, self.ret_write)
+		};
+
 		let _ = debug!("ret='{}'", ret);
+
 		ret
 	}
 }
@@ -109,6 +125,11 @@ fn process_token_tree(tree: TokenTree, state: &mut MacroState) -> Result<(), Err
 
 			if ident == "struct" || ident == "enum" {
 				state.expect_name = true;
+				if ident == "struct" {
+					state.is_enum = false;
+				} else {
+					state.is_enum = true;
+				}
 			}
 		}
 		Group(group) => {
@@ -178,8 +199,31 @@ fn process_field(
 		return Err(e);
 	}
 
-	state.append_read(&format!("let {} = bmw_util::Serializable::read(reader)?; ", name)[..]);
-	state.append_write(&format!("bmw_util::Serializable::write(&self.{}, writer)?; ", name)[..]);
+	debug!("state.is_enum={}", state.is_enum)?;
+	if state.is_enum {
+		debug!("do an append enum")?;
+		state.append_read(
+			&format!(
+				"{} => {}::{}(Serializable::read(reader)?),\n",
+				state.field_names.len(),
+				state.name,
+				name,
+			)[..],
+		);
+		state.append_write(
+			&format!(
+				"{}::{}(x) => {{ writer.write_usize({})?; Serializable::write(x, writer)?; }},\n",
+				state.name,
+				name,
+				state.field_names.len()
+			)[..],
+		);
+	} else {
+		state.append_read(&format!("let {} = bmw_util::Serializable::read(reader)?;\n", name)[..]);
+		state.append_write(
+			&format!("bmw_util::Serializable::write(&self.{}, writer)?;\n", name)[..],
+		);
+	}
 	state.field_names.push(name.clone());
 
 	Ok(())

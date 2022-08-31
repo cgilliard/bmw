@@ -12,23 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmw_derive::*;
 use bmw_err::*;
 use bmw_log::*;
-use bmw_util::*;
 
 info!();
-
-#[derive(Serializable, Debug, Clone)]
-struct MyStruct {
-	id: u128,
-	a: u16,
-	v: Box<dyn SortableList<String>>,
-	w: Array<u32>,
-	x: Vec<u8>,
-	y: Option<String>,
-	z: [u8; 8],
-}
 
 pub fn test() -> Result<(), Error> {
 	Ok(())
@@ -36,10 +23,28 @@ pub fn test() -> Result<(), Error> {
 
 #[cfg(test)]
 mod test {
-	use crate::MyStruct;
+	use bmw_derive::Serializable;
 	use bmw_err::*;
 	use bmw_log::*;
 	use bmw_util::*;
+
+	#[derive(Serializable, Debug, Clone, PartialEq)]
+	enum TestEnum {
+		A(String),
+		B(Vec<u8>),
+		C(Option<u16>),
+	}
+
+	#[derive(Serializable, Debug, Clone)]
+	struct TestStruct {
+		id: u128,
+		a: u16,
+		v: Box<dyn SortableList<String>>,
+		w: Array<u32>,
+		x: Vec<u8>,
+		y: Option<String>,
+		z: [u8; 8],
+	}
 
 	info!();
 
@@ -54,7 +59,7 @@ mod test {
 			assert_eq!(x[0], ok2);
 			assert_ne!(x[0], ok3);
 		}
-		let s = MyStruct {
+		let s = TestStruct {
 			id: 1234,
 			a: 2,
 			v: array_list_box!(10)?,
@@ -67,6 +72,11 @@ mod test {
 		let mut hashtable = hashtable!()?;
 		hashtable.insert(&1, &s)?;
 		assert_eq!(hashtable.get(&1)?.unwrap().id, s.id);
+
+		let t = TestEnum::A("str123".to_string());
+		let mut hashtable = hashtable!()?;
+		hashtable.insert(&1, &t)?;
+		assert_eq!(hashtable.get(&1)?.unwrap(), t);
 		Ok(())
 	}
 }
