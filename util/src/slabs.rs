@@ -29,8 +29,8 @@ thread_local! {
 impl Default for SlabAllocatorConfig {
 	fn default() -> Self {
 		Self {
-			slab_size: 1024,
-			slab_count: 10 * 1024,
+			slab_size: 256,
+			slab_count: 40 * 1024,
 		}
 	}
 }

@@ -14,8 +14,8 @@
 use crate::misc::set_max;
 use crate::misc::{slice_to_usize, usize_to_slice};
 use crate::{
-	BinReader, BinWriter, Reader, Serializable, SlabAllocator, SlabAllocatorConfig, SlabMut,
-	SlabReader, SlabWriter, Writer, GLOBAL_SLAB_ALLOCATOR,
+	Array, BinReader, BinWriter, Builder, Reader, Serializable, SlabAllocator, SlabAllocatorConfig,
+	SlabMut, SlabReader, SlabWriter, Writer, GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -91,6 +91,25 @@ impl<A: Serializable, B: Serializable> Serializable for (A, B) {
 	}
 }
 
+impl<S: Serializable + Clone> Serializable for Array<S> {
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		let len = self.size();
+		writer.write_usize(len)?;
+		for i in 0..len {
+			Serializable::write(&self[i], writer)?;
+		}
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<Array<S>, Error> {
+		let len = reader.read_usize()?;
+		let mut a = Builder::build_array(len)?;
+		for i in 0..len {
+			a[i] = Serializable::read(reader)?;
+		}
+		Ok(a)
+	}
+}
+
 impl<S: Serializable> Serializable for Vec<S> {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 		let len = self.len();
@@ -110,6 +129,27 @@ impl<S: Serializable> Serializable for Vec<S> {
 	}
 }
 
+impl<S: Serializable> Serializable for Option<S> {
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		match self {
+			Some(s) => {
+				writer.write_u8(1)?;
+				s.write(writer)?;
+			}
+			None => {
+				writer.write_u8(0)?;
+			}
+		}
+		Ok(())
+	}
+	fn read<R: Reader>(reader: &mut R) -> Result<Option<S>, Error> {
+		Ok(match reader.read_u8()? {
+			0 => None,
+			_ => Some(S::read(reader)?),
+		})
+	}
+}
+
 impl Serializable for String {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 		writer.write_usize(self.len())?;
@@ -123,6 +163,21 @@ impl Serializable for String {
 			ret.push(reader.read_u8()? as char);
 		}
 		Ok(ret)
+	}
+}
+
+impl<S> Serializable for &S
+where
+	S: Serializable,
+{
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		S::write(self, writer)?;
+		Ok(())
+	}
+	fn read<R: Reader>(_reader: &mut R) -> Result<Self, Error> {
+		let fmt = "not implemented for reading";
+		let e = err!(ErrKind::OperationNotSupported, fmt);
+		return Err(e);
 	}
 }
 

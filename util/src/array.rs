@@ -11,10 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::types::ArrayListIterator;
 use crate::types::Direction;
-use crate::{
-	Array, ArrayIterator, ArrayList, List, ListIterator, Queue, Serializable, SortableList, Stack,
-};
+use crate::{Array, ArrayIterator, ArrayList, List, Queue, Serializable, SortableList, Stack};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::alloc::{alloc, dealloc, Layout};
@@ -39,7 +38,8 @@ where
 		debug!("sizeofmem={}", n)?;
 		let size_u128: u128 = size as u128;
 		let size_u128 = size_u128 * n as u128;
-		let layout = Layout::from_size_align(size_u128.try_into()?, n)?;
+		let size_usize: usize = size_u128.try_into()?;
+		let layout = Layout::from_size_align(size_usize, 1)?;
 		let data = unsafe { alloc(layout) };
 		if data.is_null() {
 			return Err(err!(ErrKind::Alloc, "could not allocate memory for array"));
@@ -260,31 +260,25 @@ where
 		self.size += 1;
 		Ok(())
 	}
-	fn iter<'a>(&'a self) -> ListIterator<'a, T>
+	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = T> + 'a>
 	where
 		T: Serializable,
 	{
-		ListIterator {
-			linked_list_ref: None,
-			array_list_ref: Some(&self),
-			_phantom_data: PhantomData,
-			slab_reader: None,
+		Box::new(ArrayListIterator {
+			array_list_ref: &self,
 			cur: 0,
 			direction: Direction::Forward,
-		}
+		})
 	}
-	fn iter_rev<'a>(&'a self) -> ListIterator<'a, T>
+	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = T> + 'a>
 	where
 		T: Serializable,
 	{
-		ListIterator {
-			linked_list_ref: None,
-			array_list_ref: Some(&self),
-			_phantom_data: PhantomData,
-			slab_reader: None,
+		Box::new(ArrayListIterator {
+			array_list_ref: &self,
 			cur: self.size.saturating_sub(1),
 			direction: Direction::Backward,
-		}
+		})
 	}
 	fn delete_head(&mut self) -> Result<(), Error> {
 		let fmt = "arraylist doesn't support delete_head";
@@ -374,6 +368,30 @@ where
 	}
 	fn length(&self) -> usize {
 		self.size
+	}
+}
+
+impl<'a, T> Iterator for ArrayListIterator<'a, T>
+where
+	T: Clone,
+{
+	type Item = T;
+	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+		if self.array_list_ref.size == 0 {
+			None
+		} else if self.direction == Direction::Forward && self.cur >= self.array_list_ref.size {
+			None
+		} else if self.direction == Direction::Backward && self.cur <= 0 {
+			None
+		} else {
+			let ret = Some(self.array_list_ref.inner[self.cur].clone());
+			if self.direction == Direction::Forward {
+				self.cur += 1;
+			} else {
+				self.cur = self.cur.saturating_sub(1);
+			}
+			ret
+		}
 	}
 }
 
@@ -559,8 +577,10 @@ mod test {
 		let mut list1 = ArrayList::new(10)?;
 		let mut list2 = ArrayList::new(10)?;
 
-		let mut iter = list1.iter();
-		assert!(iter.next().is_none());
+		{
+			let mut iter = list1.iter();
+			assert!(iter.next().is_none());
+		}
 
 		assert!(list1 == list2);
 
@@ -841,7 +861,7 @@ mod test {
 
 	#[test]
 	fn test_large_memory_allocation() -> Result<(), Error> {
-		let res: Result<Array<u32>, Error> = Array::new(usize::MAX / 4);
+		let res: Result<Array<u32>, Error> = Array::new(usize::MAX / 8);
 		assert_eq!(
 			res.unwrap_err(),
 			err!(ErrKind::Alloc, "could not allocate memory for array")

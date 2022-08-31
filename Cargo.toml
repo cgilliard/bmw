@@ -13,18 +13,19 @@ edition = "2021"
 
 [workspace]
 members = [
-	"error", "deps", "log", "test", "util"
+	"error", "deps", "log", "test", "util", "derive"
 ]
 exclude = ["etc"]
 
 [dependencies]
 
-bmw_deps  = { path = "./deps"  }
-bmw_err   = { path = "./error" }
-bmw_log   = { path = "./log"   }
-bmw_crypt = { path = "./crypt" }
-bmw_util  = { path = "./util"  }
-bmw_test  = { path = "./test"  }
+bmw_deps   = { path = "./deps"   }
+bmw_err    = { path = "./error"  }
+bmw_log    = { path = "./log"    }
+bmw_crypt  = { path = "./crypt"  }
+bmw_util   = { path = "./util"   }
+bmw_test   = { path = "./test"   }
+bmw_derive = { path = "./derive" }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = "0.5.0"

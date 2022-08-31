@@ -12,11 +12,68 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bmw_derive::*;
 use bmw_err::*;
 use bmw_log::*;
+use bmw_util::*;
 
 info!();
 
+#[derive(Serializable, PartialEq, Debug, Clone)]
+struct MyStruct {
+	id: u128,
+	w: Array<u32>,
+	x: Vec<u8>,
+	y: Option<String>,
+	z: [u8; 10],
+}
+
 pub fn test() -> Result<(), Error> {
 	Ok(())
+}
+
+#[cfg(test)]
+mod test {
+	use crate::MyStruct;
+	use bmw_err::*;
+	use bmw_log::*;
+	use bmw_util::*;
+	use std::fmt::Debug;
+
+	info!();
+
+	fn ser_helper<S: Serializable + Debug + PartialEq>(ser_out: S) -> Result<(), Error> {
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &ser_out)?;
+		let ser_in: S = deserialize(&mut &v[..])?;
+		info!("ser_in={:?},ser_out={:?}", ser_in, ser_out)?;
+		assert_eq!(ser_in, ser_out);
+		Ok(())
+	}
+
+	#[test]
+	fn test_ser() -> Result<(), Error> {
+		let ok = "ok".to_string();
+		let ok2 = "ok".to_string();
+		let ok3 = "notok".to_string();
+		{
+			let mut x: Array<String> = Builder::build_array(10)?;
+			x[0] = ok.clone();
+			assert_eq!(x[0], ok2);
+			assert_ne!(x[0], ok3);
+		}
+		let s = MyStruct {
+			id: 1234,
+			w: array!(10)?,
+			x: vec![0, 1, 2],
+			y: Some("test".to_string()),
+			z: [0u8; 10],
+		};
+		ser_helper(s.clone())?;
+
+		let mut hashtable = hashtable!()?;
+		hashtable.insert(&1, &s)?;
+		assert_eq!(hashtable.get(&1)?, Some(s));
+		Ok(())
+	}
 }

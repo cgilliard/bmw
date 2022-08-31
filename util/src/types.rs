@@ -304,10 +304,10 @@ pub trait Stack<V>: DynClone {
 
 pub trait List<V>: DynClone + Debug {
 	fn push(&mut self, value: V) -> Result<(), Error>;
-	fn iter<'a>(&'a self) -> ListIterator<'a, V>
+	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>
 	where
 		V: Serializable + Clone;
-	fn iter_rev<'a>(&'a self) -> ListIterator<'a, V>
+	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>
 	where
 		V: Serializable + Clone;
 	fn delete_head(&mut self) -> Result<(), Error>;
@@ -897,6 +897,12 @@ pub(crate) struct SlabAllocatorImpl {
 	pub(crate) free_count: usize,
 	pub(crate) ptr_size: usize,
 	pub(crate) max_value: usize,
+}
+
+pub struct ArrayListIterator<'a, T> {
+	pub(crate) array_list_ref: &'a ArrayList<T>,
+	pub(crate) direction: Direction,
+	pub(crate) cur: usize,
 }
 
 pub struct ArrayIterator<'a, T> {

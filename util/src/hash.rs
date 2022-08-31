@@ -458,15 +458,19 @@ where
 		self.static_impl.insert_impl::<V>(Some(&value), None, None)
 	}
 
-	fn iter<'b>(&'b self) -> ListIterator<'b, V> {
-		ListIterator::new(&self.static_impl, self.static_impl.head, Direction::Forward)
+	fn iter<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
+		Box::new(ListIterator::new(
+			&self.static_impl,
+			self.static_impl.head,
+			Direction::Forward,
+		))
 	}
-	fn iter_rev<'b>(&'b self) -> ListIterator<'b, V> {
-		ListIterator::new(
+	fn iter_rev<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
+		Box::new(ListIterator::new(
 			&self.static_impl,
 			self.static_impl.tail,
 			Direction::Backward,
-		)
+		))
 	}
 	fn delete_head(&mut self) -> Result<(), Error> {
 		self.static_impl.delete_head()
@@ -1202,11 +1206,11 @@ where
 		self.insert_impl::<V>(Some(&value), None, None)
 	}
 
-	fn iter<'b>(&'b self) -> ListIterator<'b, V> {
-		ListIterator::new(self, self.head, Direction::Forward)
+	fn iter<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
+		Box::new(ListIterator::new(self, self.head, Direction::Forward))
 	}
-	fn iter_rev<'b>(&'b self) -> ListIterator<'b, V> {
-		ListIterator::new(self, self.tail, Direction::Backward)
+	fn iter_rev<'b>(&'b self) -> Box<dyn Iterator<Item = V> + 'b> {
+		Box::new(ListIterator::new(self, self.tail, Direction::Backward))
 	}
 	fn delete_head(&mut self) -> Result<(), Error> {
 		self.delete_head_impl()
@@ -1227,8 +1231,8 @@ mod test {
 	use crate::{
 		block_on, execute, hashset, hashtable, list, list_append, list_eq, slab_allocator,
 		thread_pool, Builder, HashsetConfig, HashsetIterator, Hashtable, HashtableConfig,
-		HashtableIterator, ListConfig, ListIterator, Reader, Serializable, SlabAllocatorConfig,
-		SortableList, ThreadPool, Writer, GLOBAL_SLAB_ALLOCATOR,
+		HashtableIterator, ListConfig, Reader, Serializable, SlabAllocatorConfig, SortableList,
+		ThreadPool, Writer, GLOBAL_SLAB_ALLOCATOR,
 	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
@@ -1975,7 +1979,7 @@ mod test {
 		hash_impl.set_debug_get_next_slot_error(true);
 		List::push(&mut hash_impl, 0)?;
 		{
-			let mut iter: ListIterator<'_, u32> = List::iter(&mut hash_impl);
+			let mut iter: Box<dyn Iterator<Item = u32>> = List::iter(&mut hash_impl);
 			// none because error occurs in the get_next_slot fn
 			assert!(iter.next().is_none());
 		}
@@ -1983,7 +1987,7 @@ mod test {
 		hash_impl.set_debug_get_next_slot_error(false);
 
 		{
-			let mut iter: ListIterator<'_, u32> = List::iter(&mut hash_impl);
+			let mut iter: Box<dyn Iterator<Item = u32>> = List::iter(&mut hash_impl);
 			// now it's found
 			assert!(iter.next().is_some());
 		}
@@ -2055,14 +2059,16 @@ mod test {
 		let mut hash_impl: HashImpl<SerErr> =
 			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
 		hash_impl.push(SerErr { exp: 100, empty: 0 })?;
-		let mut iter: ListIterator<SerErr> = List::iter(&mut hash_impl);
+		let mut iter: Box<dyn Iterator<Item = SerErr>> = List::iter(&hash_impl);
 		assert_eq!(iter.next(), None);
 
 		let mut hash_impl: HashImpl<SerErr> =
 			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
 		hash_impl.push(SerErr { exp: 99, empty: 0 })?;
-		let mut iter: ListIterator<SerErr> = List::iter(&mut hash_impl);
-		assert_eq!(iter.next(), Some(SerErr { exp: 99, empty: 0 }));
+		{
+			let mut iter: Box<dyn Iterator<Item = SerErr>> = List::iter(&hash_impl);
+			assert_eq!(iter.next(), Some(SerErr { exp: 99, empty: 0 }));
+		}
 
 		let mut hash_impl2: HashImpl<SerErr> =
 			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
