@@ -61,13 +61,34 @@ pub fn set_max(slice: &mut [u8]) {
 	}
 }
 
+pub fn nearest_power_of_two(mut v: usize) -> usize {
+	v = v.saturating_sub(1);
+	v |= v >> 1;
+	v |= v >> 2;
+	v |= v >> 4;
+	v |= v >> 8;
+	v |= v >> 16;
+	v += 1;
+
+	v
+}
+
 #[cfg(test)]
 mod test {
-	use crate::misc::{slice_to_usize, usize_to_slice};
+	use crate::misc::{nearest_power_of_two, slice_to_usize, usize_to_slice};
 	use bmw_err::*;
 	use bmw_log::*;
 
 	info!();
+
+	#[test]
+	fn test_nearest_power_of_two() -> Result<(), Error> {
+		assert_eq!(nearest_power_of_two(100), 128);
+		assert_eq!(nearest_power_of_two(128), 128);
+		assert_eq!(nearest_power_of_two(129), 256);
+		assert_eq!(nearest_power_of_two(10), 16);
+		Ok(())
+	}
 
 	#[test]
 	fn test_usize_to_slice() -> Result<(), Error> {
