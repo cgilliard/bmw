@@ -32,10 +32,6 @@ info!();
 impl<S: Serializable + Clone> Serializable for Array<S> {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 		let len = self.size();
-		if len == 0 {
-			let e = err!(ErrKind::IllegalArgument, "size of array cannot be 0");
-			return Err(e);
-		}
 		writer.write_usize(len)?;
 		for i in 0..len {
 			Serializable::write(&self[i], writer)?;
@@ -53,13 +49,12 @@ impl<S: Serializable + Clone> Serializable for Array<S> {
 			a.as_mut().unwrap()[i] = s;
 		}
 
-		match a {
-			Some(a) => Ok(a),
-			None => {
-				let e = err!(ErrKind::CorruptedData, "size of array cannot be 0");
-				return Err(e);
-			}
+		if a.is_none() {
+			let e = err!(ErrKind::CorruptedData, "size of array cannot be 0");
+			return Err(e);
 		}
+
+		Ok(a.unwrap())
 	}
 }
 
@@ -1250,6 +1245,20 @@ mod test {
 			arr[i] = i;
 		}
 		ser_helper(arr)?;
+
+		let mut v: Vec<u8> = vec![];
+		v.push(0);
+		v.push(0);
+		v.push(0);
+		v.push(0);
+
+		v.push(0);
+		v.push(0);
+		v.push(0);
+		v.push(0);
+		let ser_in: Result<Array<u8>, Error> = deserialize(&mut &v[..]);
+		assert!(ser_in.is_err());
+
 		let mut arrlist: ArrayList<usize> = ArrayList::new(20, &0)?;
 		for i in 0..20 {
 			List::push(&mut arrlist, i)?;

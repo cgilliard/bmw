@@ -83,14 +83,12 @@ where
 		if data_len != rhs.data.len() {
 			false
 		} else {
-			let mut ret = true;
 			for i in 0..data_len {
 				if self.data[i] != rhs.data[i] {
-					ret = false;
-					break;
+					return false;
 				}
 			}
-			ret
+			true
 		}
 	}
 }
@@ -824,6 +822,7 @@ mod test {
 		for i in 0..100 {
 			arr[i] = "".to_string();
 		}
+		info!("array = {:?}", arr)?;
 
 		let mut vec: Vec<String> = vec![];
 		vec.resize(100, "".to_string());
