@@ -357,13 +357,13 @@ impl<'a, T> Iterator for ArrayIterator<'a, T>
 where
 	T: Clone,
 {
-	type Item = T;
+	type Item = &'a T;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
-		if self.cur >= self.array_ref.size().clone() {
+		if self.cur >= self.array_ref.size() {
 			None
 		} else {
 			self.cur += 1;
-			Some(self.array_ref[self.cur - 1].clone())
+			Some(&self.array_ref[self.cur - 1])
 		}
 	}
 }
