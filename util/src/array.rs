@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::misc::nearest_power_of_two;
 use crate::types::ArrayListIterator;
 use crate::types::Direction;
 use crate::{Array, ArrayIterator, ArrayList, List, Queue, Serializable, SortableList, Stack};
@@ -32,8 +33,12 @@ impl<T: Clone> Array<T> {
 			return Err(err!(ErrKind::IllegalArgument, "size must not be 0"));
 		}
 		let n = ::std::mem::size_of::<T>();
+		let n = nearest_power_of_two(n);
 		debug!("sizeofmem={}", n)?;
-		let layout = Layout::array::<T>(size)?;
+		let size_u128: u128 = size as u128;
+		let size_u128 = size_u128 * n as u128;
+		let size_usize: usize = size_u128.try_into()?;
+		let layout = Layout::from_size_align(size_usize, n)?;
 		let data = unsafe { alloc(layout) };
 		if data.is_null() {
 			return Err(err!(ErrKind::Alloc, "could not allocate memory for array"));
