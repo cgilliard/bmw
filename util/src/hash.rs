@@ -242,22 +242,28 @@ where
 	where
 		V: Ord,
 	{
-		let mut list = Builder::build_array_list::<V>(self.size)?;
-		list_append!(list, self);
-		list.sort()?;
-		self.clear()?;
-		list_append!(self, list);
+		if self.size > 0 {
+			let first = self.iter().next().unwrap();
+			let mut list = Builder::build_array_list::<V>(self.size, &first)?;
+			list_append!(list, self);
+			list.sort()?;
+			self.clear()?;
+			list_append!(self, list);
+		}
 		Ok(())
 	}
 	fn sort_unstable(&mut self) -> Result<(), Error>
 	where
 		V: Ord,
 	{
-		let mut list = Builder::build_array_list::<V>(self.size)?;
-		list_append!(list, self);
-		list.sort_unstable()?;
-		self.clear()?;
-		list_append!(self, list);
+		if self.size > 0 {
+			let first = self.iter().next().unwrap();
+			let mut list = Builder::build_array_list::<V>(self.size, &first)?;
+			list_append!(list, self);
+			list.sort_unstable()?;
+			self.clear()?;
+			list_append!(self, list);
+		}
 		Ok(())
 	}
 }
@@ -595,12 +601,8 @@ where
 			}
 			None => {
 				let size: usize = (max_entries as f64 / max_load_factor).ceil() as usize;
-				let mut entry_array = Builder::build_array(size)?;
+				let entry_array = Builder::build_array(size, &SLOT_EMPTY)?;
 				debug!("entry array init to size = {}", size)?;
-				for i in 0..size {
-					entry_array[i] = SLOT_EMPTY
-				}
-				//entry_array.resize(size, SLOT_EMPTY);
 				let mut x = entry_array.size() + 2; // two more, one for deleted and one for empty
 				let mut ptr_size = 0;
 				loop {
@@ -763,10 +765,7 @@ where
 		// clear the entry array to get rid of SLOT_DELETED
 		if self.entry_array.is_some() {
 			let size = self.entry_array.as_ref().unwrap().size();
-			let mut entry_array = Builder::build_array(size)?;
-			for i in 0..size {
-				entry_array[i] = SLOT_EMPTY
-			}
+			let entry_array = Builder::build_array(size, &SLOT_EMPTY)?;
 			self.entry_array = Some(entry_array);
 		}
 
@@ -1926,7 +1925,7 @@ mod test {
 		list_append!(list1, list2);
 		assert!(list_eq!(list1, list3));
 
-		let mut list4 = Builder::build_array_list(100)?;
+		let mut list4 = Builder::build_array_list(100, &0)?;
 		list4.push(1)?;
 		list4.push(2)?;
 		list4.push(1)?;

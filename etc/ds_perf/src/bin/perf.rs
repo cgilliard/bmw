@@ -87,7 +87,7 @@ fn do_arraylist() -> Result<(), Error> {
 	{
 		reset_stats()?;
 		start = Instant::now();
-		let mut arraylist = array_list!(10_000)?;
+		let mut arraylist = array_list!(10_000, &0)?;
 		show_mem(start, "arraylist init")?;
 		reset_stats()?;
 		start = Instant::now();
@@ -115,12 +115,77 @@ fn do_array() -> Result<(), Error> {
 	{
 		reset_stats()?;
 		start = Instant::now();
-		let mut array = array!(10_000)?;
+		let mut array = array!(10_000, &0)?;
 		show_mem(start, "array init")?;
 		reset_stats()?;
 		start = Instant::now();
 		for i in 0..10_000 {
 			array[i] = i as u32;
+		}
+
+		show_mem(start, "array insert")?;
+		reset_stats()?;
+		start = Instant::now();
+
+		let mut count = 0;
+		for _x in array.iter() {
+			count += 1;
+		}
+		assert_eq!(count, 10_000);
+		show_mem(start, "array iter")?;
+		reset_stats()?;
+		start = Instant::now();
+	}
+	show_mem(start, "array drop")?;
+	Ok(())
+}
+
+fn do_vec_string() -> Result<(), Error> {
+	info!("Testing vec string")?;
+	let s = "0123456789a".to_string();
+	let mut start;
+	{
+		reset_stats()?;
+		start = Instant::now();
+		let mut vec = vec![];
+		vec.resize(10_000, "".to_string());
+		show_mem(start, "vec init")?;
+		reset_stats()?;
+		start = Instant::now();
+		for i in 0..10_000 {
+			vec[i] = s.clone();
+		}
+
+		show_mem(start, "vec insert")?;
+		reset_stats()?;
+		start = Instant::now();
+
+		let mut count = 0;
+		for _x in vec.iter() {
+			count += 1;
+		}
+		assert_eq!(count, 10_000);
+		show_mem(start, "vec iter")?;
+		reset_stats()?;
+		start = Instant::now();
+	}
+	show_mem(start, "vec drop")?;
+	Ok(())
+}
+
+fn do_array_string() -> Result<(), Error> {
+	info!("Testing array string")?;
+	let s = "0123456789a".to_string();
+	let mut start;
+	{
+		reset_stats()?;
+		start = Instant::now();
+		let mut array = array!(10_000, &"".to_string())?;
+		show_mem(start, "array init")?;
+		reset_stats()?;
+		start = Instant::now();
+		for i in 0..10_000 {
+			array[i] = s.clone();
 		}
 
 		show_mem(start, "array insert")?;
@@ -251,8 +316,10 @@ fn main() -> Result<(), Error> {
 	let hashtable = args.is_present("hashtable");
 	let arraylist = args.is_present("arraylist");
 	let vec = args.is_present("vec");
+	let vec_string = args.is_present("vec_string");
 	let array = args.is_present("array");
 	let hashmap = args.is_present("hashmap");
+	let array_string = args.is_present("array_string");
 
 	if hashtable {
 		do_hashtable(slabs.clone())?;
@@ -269,68 +336,12 @@ fn main() -> Result<(), Error> {
 	if array {
 		do_array()?;
 	}
-
-	/*
-	info!("ds_perf")?;
-	show_mem()?;
-	let mut list1 = list![1, 2, 3];
-	show_mem()?;
-	let list2 = list![1, 2, 3];
-	show_mem()?;
-	let list3 = Builder::build_list::<u32>(ListConfig {}, None)?;
-	show_mem()?;
-	list_append!(list1, list2);
-	show_mem()?;
-	let mut v: Vec<i32> = vec![1, 2, 3];
-	show_mem()?;
-	v.push(1i32);
-	show_mem()?;
-	let list_box = list_box![1i32, 2, 3];
-	show_mem()?;
-	let list_box = list_box![1i32, 2, 3, 4];
-	show_mem()?;
-	for x in list_box.iter() {}
-	show_mem()?;
-	for x in &v {}
-	show_mem()?;
-	{
-		let mut hashtable = hashtable!()?;
-		show_mem()?;
-		hashtable.insert(&2000i32, &3i32)?;
-		show_mem()?;
+	if array_string {
+		do_array_string()?;
 	}
-	show_mem()?;
-	let mut list_box2 = list_box![];
-	show_mem()?;
-	list_box2.push(1i16)?;
-	show_mem()?;
-	let mut hashmap = HashMap::new();
-	show_mem()?;
-	hashmap.insert(&1000i32, &2i32);
-	show_mem()?;
-	hashmap.insert(&2000i32, &2i32);
-	show_mem()?;
-	let mut v2 = vec![];
-	for i in 0..1000 {
-		v2.push(i);
+	if vec_string {
+		do_vec_string()?;
 	}
-	for i in 0..1000 {
-		hashmap.insert(&v2[i], &10);
-	}
-	show_mem()?;
-	let mut hashtable = hashtable!()?;
-	show_mem()?;
-	for i in 0..1000 {
-		hashtable.insert(&i, &i)?;
-	}
-	show_mem()?;
-	{
-		let mut array = array!(100)?;
-		array[0] = 0u8;
-		show_mem()?;
-	}
-	show_mem()?;
-		*/
 
 	Ok(())
 }

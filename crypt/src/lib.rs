@@ -44,20 +44,32 @@ mod test {
 
 	#[test]
 	fn test_ser() -> Result<(), Error> {
-		let ok = "ok".to_string();
-		let ok2 = "ok".to_string();
-		let ok3 = "notok".to_string();
+		let mut x: Array<String> = Builder::build_array(2, &"".to_string())?;
 		{
-			let mut x: Array<String> = Builder::build_array(10)?;
-			x[0] = ok.clone();
+			let test = "testing123".to_string();
+			x[1] = test;
+		}
+		let ok =
+			"ok22222222222222222222222222222222222222222222222222222222222222222222222222222222222"
+				.to_string();
+		let ok2 =
+			"ok222222222222222222222222222222222222222222222222222222222222222222222222222222222222"
+				.to_string();
+		let ok3 =
+			"notok11111111111111111111111111111111111111111111111111111111111111111111111111111111"
+				.to_string();
+		{
+			x[0] = ok;
+			x[0].push('2');
 			assert_eq!(x[0], ok2);
 			assert_ne!(x[0], ok3);
+			assert_eq!(x[1], "testing123".to_string());
 		}
 		let s = TestStruct {
 			id: 1234,
 			a: 2,
-			v: array_list_box!(10)?,
-			w: array!(10)?,
+			v: array_list_box!(10, &"".to_string())?,
+			w: array!(10, &0)?,
 			x: vec![0, 1, 2],
 			y: Some("test".to_string()),
 			z: [0u8; 8],

@@ -213,11 +213,10 @@ impl SlabAllocator for SlabAllocatorImpl {
 						"slab_count must be greater than 0"
 					));
 				}
-				let mut data =
-					Builder::build_array(config.slab_count * (config.slab_size + self.ptr_size))?;
-				for i in 0..data.size() {
-					data[i] = 0u8;
-				}
+				let mut data = Builder::build_array(
+					config.slab_count * (config.slab_size + self.ptr_size),
+					&0u8,
+				)?;
 				self.ptr_size = 0;
 				let mut x = config.slab_count + 2; // two more,
 								   // one for termination
@@ -251,7 +250,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 
 impl SlabAllocatorImpl {
 	pub(crate) fn new() -> Self {
-		let data = Builder::build_array(1).unwrap();
+		let data = Builder::build_array(1, &0u8).unwrap();
 		Self {
 			config: None,
 			free_count: 0,

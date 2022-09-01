@@ -26,11 +26,8 @@ use std::slice::{from_raw_parts, from_raw_parts_mut};
 
 info!();
 
-impl<T> Array<T>
-where
-	T: Clone,
-{
-	pub(crate) fn new(size: usize) -> Result<Self, Error> {
+impl<T: Clone> Array<T> {
+	pub(crate) fn new(size: usize, d: &T) -> Result<Self, Error> {
 		if size == 0 {
 			return Err(err!(ErrKind::IllegalArgument, "size must not be 0"));
 		}
@@ -43,6 +40,12 @@ where
 		let data = unsafe { alloc(layout) };
 		if data.is_null() {
 			return Err(err!(ErrKind::Alloc, "could not allocate memory for array"));
+		}
+
+		for i in 0..size {
+			let ptr = unsafe { data.add(i * n) };
+			let r = unsafe { ptr.cast::<T>().as_mut().unwrap() };
+			*r = d.clone();
 		}
 
 		let ret = Self {
@@ -155,6 +158,10 @@ impl<T> Clone for Array<T> {
 impl<T> Drop for Array<T> {
 	fn drop(&mut self) {
 		unsafe {
+			for i in 0..self.size {
+				let ptr = &mut self[i] as *mut _;
+				std::ptr::drop_in_place(ptr);
+			}
 			dealloc(self.data, self.layout);
 		}
 	}
@@ -185,11 +192,11 @@ impl<T> ArrayList<T>
 where
 	T: Clone,
 {
-	pub(crate) fn new(size: usize) -> Result<Self, Error> {
+	pub(crate) fn new(size: usize, default: &T) -> Result<Self, Error> {
 		if size == 0 {
 			return Err(err!(ErrKind::IllegalArgument, "size must not be 0"));
 		}
-		let inner = Array::new(size)?;
+		let inner = Array::new(size, default)?;
 		let ret = Self {
 			inner,
 			size: 0,
@@ -420,6 +427,8 @@ mod test {
 		Queue, Stack, ThreadPool,
 	};
 	use bmw_deps::dyn_clone::clone_box;
+	use bmw_deps::rand::random;
+	use bmw_deps::random_string;
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
 
@@ -431,7 +440,7 @@ mod test {
 
 	#[test]
 	fn test_array_simple() -> Result<(), Error> {
-		let mut arr = Builder::build_array(10)?;
+		let mut arr = Builder::build_array(10, &0)?;
 		for i in 0..10 {
 			arr[i] = i as u64;
 		}
@@ -441,7 +450,7 @@ mod test {
 		}
 
 		let mut test = TestStruct {
-			arr: Builder::build_array(40)?,
+			arr: Builder::build_array(40, &0)?,
 		};
 
 		for i in 0..40 {
@@ -456,14 +465,14 @@ mod test {
 			assert_eq!(test2[i], i as u32);
 		}
 
-		assert!(Builder::build_array::<u8>(0).is_err());
+		assert!(Builder::build_array::<u8>(0, &0).is_err());
 
 		Ok(())
 	}
 
 	#[test]
 	fn test_array_iterator() -> Result<(), Error> {
-		let mut arr = Builder::build_array(10)?;
+		let mut arr = Builder::build_array(10, &0)?;
 		for i in 0..10 {
 			arr[i] = i as u64;
 		}
@@ -481,7 +490,7 @@ mod test {
 		let tp = thread_pool!()?;
 
 		let handle = execute!(tp, {
-			let mut x = Builder::build_array(10)?;
+			let mut x = Builder::build_array(10, &0)?;
 			for i in 0..10 {
 				x[i] = i;
 			}
@@ -497,7 +506,7 @@ mod test {
 		);
 
 		let handle = execute!(tp, {
-			let mut x = Builder::build_array(10)?;
+			let mut x = Builder::build_array(10, &0)?;
 			for i in 0..10 {
 				x[i] = i;
 			}
@@ -509,7 +518,7 @@ mod test {
 		let tp = thread_pool!()?;
 
 		let handle = execute!(tp, {
-			let mut x = Builder::build_array(10)?;
+			let mut x = Builder::build_array(10, &0)?;
 			x[1] = 1;
 			Ok(x[10])
 		})?;
@@ -527,8 +536,8 @@ mod test {
 
 	#[test]
 	fn test_array_partial_eq() -> Result<(), Error> {
-		let mut arr1 = Builder::build_array(10)?;
-		let mut arr2 = Builder::build_array(11)?;
+		let mut arr1 = Builder::build_array(10, &0)?;
+		let mut arr2 = Builder::build_array(11, &0)?;
 
 		for i in 0..10 {
 			arr1[i] = 7;
@@ -540,22 +549,22 @@ mod test {
 
 		assert_ne!(arr1, arr2);
 
-		let mut arr3 = Builder::build_array(10)?;
+		let mut arr3 = Builder::build_array(10, &0)?;
 		for i in 0..10 {
 			arr3[i] = 8;
 		}
 
 		assert_ne!(arr3, arr1);
 
-		let mut arr4 = Builder::build_array(10)?;
+		let mut arr4 = Builder::build_array(10, &0)?;
 		for i in 0..10 {
 			arr4[i] = 7;
 		}
 
 		assert_eq!(arr4, arr1);
 
-		let mut arr5 = Builder::build_array(20)?;
-		let mut arr6 = Builder::build_array(20)?;
+		let mut arr5 = Builder::build_array(20, &0)?;
+		let mut arr6 = Builder::build_array(20, &0)?;
 
 		info!("test 128")?;
 		for i in 0..20 {
@@ -576,8 +585,8 @@ mod test {
 
 	#[test]
 	fn test_raw_array_list() -> Result<(), Error> {
-		let mut list1 = ArrayList::new(10)?;
-		let mut list2 = ArrayList::new(10)?;
+		let mut list1 = ArrayList::new(10, &0)?;
+		let mut list2 = ArrayList::new(10, &0)?;
 
 		{
 			let mut iter = list1.iter();
@@ -605,8 +614,8 @@ mod test {
 
 	#[test]
 	fn test_array_list() -> Result<(), Error> {
-		let mut list1 = Builder::build_array_list(10)?;
-		let mut list2 = Builder::build_array_list(10)?;
+		let mut list1 = Builder::build_array_list(10, &0)?;
+		let mut list2 = Builder::build_array_list(10, &0)?;
 
 		list1.push(1usize)?;
 		list2.push(1usize)?;
@@ -631,13 +640,13 @@ mod test {
 		list2.push(10)?;
 		assert!(list_eq!(&list1, &list2));
 
-		let mut list3 = Builder::build_array_list(10)?;
+		let mut list3 = Builder::build_array_list(10, &0)?;
 
 		for i in 0..5 {
 			list3.push(i)?;
 		}
 
-		let mut list = Builder::build_array_list(50)?;
+		let mut list = Builder::build_array_list(50, &0)?;
 
 		for i in 0..5 {
 			list.push(i as u64)?;
@@ -655,14 +664,14 @@ mod test {
 			assert_eq!(x, i);
 		}
 
-		let mut list = Builder::build_array_list(5)?;
+		let mut list = Builder::build_array_list(5, &0)?;
 		for _ in 0..5 {
 			list.push(1)?;
 		}
 		assert!(list.push(1).is_err());
 		assert!(list.delete_head().is_err());
 
-		assert!(Builder::build_array_list::<u8>(0).is_err());
+		assert!(Builder::build_array_list::<u8>(0, &0).is_err());
 
 		Ok(())
 	}
@@ -670,7 +679,7 @@ mod test {
 	#[test]
 	fn test_as_slice_mut() -> Result<(), Error> {
 		let data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-		let mut array = Builder::build_array(data.len())?;
+		let mut array = Builder::build_array(data.len(), &0)?;
 		array.as_mut().clone_from_slice(&data);
 
 		assert_eq!(array[3], 3u8);
@@ -680,7 +689,7 @@ mod test {
 
 	#[test]
 	fn test_queue() -> Result<(), Error> {
-		let mut queue = Builder::build_queue(10)?;
+		let mut queue = Builder::build_queue(10, &0)?;
 
 		assert_eq!(queue.length(), 0);
 		queue.enqueue(1)?;
@@ -723,7 +732,7 @@ mod test {
 
 	#[test]
 	fn test_stack() -> Result<(), Error> {
-		let mut stack = Builder::build_stack(10)?;
+		let mut stack = Builder::build_stack(10, &0)?;
 
 		assert_eq!(stack.length(), 0);
 		stack.push(1)?;
@@ -767,7 +776,7 @@ mod test {
 
 	#[test]
 	fn test_sync_array() -> Result<(), Error> {
-		let mut array = Builder::build_array(10)?;
+		let mut array = Builder::build_array(10, &0)?;
 		array[0] = 1;
 
 		let mut lock = lock!(array)?;
@@ -795,7 +804,7 @@ mod test {
 
 	#[test]
 	fn test_array_panic() -> Result<(), Error> {
-		let mut arr = Array::new(10)?;
+		let mut arr = Array::new(10, &0)?;
 		arr[0] = 1;
 		arr.set_debug_panic(true);
 		let tp = thread_pool!()?;
@@ -818,7 +827,7 @@ mod test {
 
 	#[test]
 	fn test_queue_boxed() -> Result<(), Error> {
-		let queue = Builder::build_queue_box(10)?;
+		let queue = Builder::build_queue_box(10, &0)?;
 		let mut test = TestBoxedQueue { queue };
 		test.queue.enqueue(1)?;
 		Ok(())
@@ -826,7 +835,7 @@ mod test {
 
 	#[test]
 	fn test_queue_clone() -> Result<(), Error> {
-		let queue = Builder::build_queue_box(10)?;
+		let queue = Builder::build_queue_box(10, &0)?;
 		let mut test = TestBoxedQueue { queue };
 		test.queue.enqueue(1)?;
 		let mut test2 = clone_box(&*test.queue);
@@ -842,7 +851,7 @@ mod test {
 	#[test]
 	fn test_sort() -> Result<(), Error> {
 		use crate::SortableList;
-		let mut list = Builder::build_array_list(10)?;
+		let mut list = Builder::build_array_list(10, &0)?;
 
 		list.push(1)?;
 		list.push(3)?;
@@ -863,15 +872,40 @@ mod test {
 
 	#[test]
 	fn test_large_memory_allocation() -> Result<(), Error> {
-		let res: Result<Array<u32>, Error> = Array::new(usize::MAX / 8);
+		let res: Result<Array<u32>, Error> = Array::new(usize::MAX / 8, &0);
 		assert_eq!(
 			res.unwrap_err(),
 			err!(ErrKind::Alloc, "could not allocate memory for array")
 		);
-		let mut res: Array<u32> = Array::new(4)?;
+		let mut res: Array<u32> = Array::new(4, &0)?;
 		res[0] = 1;
 		res[1] = 2;
 		info!("res={:?}", res)?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_string_array() -> Result<(), Error> {
+		let mut arr: Array<String> = Array::new(100, &"".to_string())?;
+		for i in 0..100 {
+			arr[i] = "".to_string();
+		}
+
+		let mut vec: Vec<String> = vec![];
+		vec.resize(100, "".to_string());
+
+		let charset = "0123456789abcdefghijklmopqrstuvwxyz";
+		for _ in 0..10_000 {
+			let rand: usize = random();
+			let rstring = random_string::generate(2_000, charset);
+			vec[rand % 100] = rstring.clone();
+			arr[rand % 100] = rstring.clone();
+		}
+
+		for i in 0..100 {
+			assert_eq!(vec[i], arr[i]);
+		}
+
 		Ok(())
 	}
 }

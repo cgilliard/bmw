@@ -32,6 +32,10 @@ info!();
 impl<S: Serializable + Clone> Serializable for Array<S> {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
 		let len = self.size();
+		if len == 0 {
+			let e = err!(ErrKind::IllegalArgument, "size of array cannot be 0");
+			return Err(e);
+		}
 		writer.write_usize(len)?;
 		for i in 0..len {
 			Serializable::write(&self[i], writer)?;
@@ -40,11 +44,22 @@ impl<S: Serializable + Clone> Serializable for Array<S> {
 	}
 	fn read<R: Reader>(reader: &mut R) -> Result<Array<S>, Error> {
 		let len = reader.read_usize()?;
-		let mut a = Builder::build_array(len)?;
+		let mut a: Option<Array<S>> = None;
 		for i in 0..len {
-			a[i] = Serializable::read(reader)?;
+			let s = Serializable::read(reader)?;
+			if i == 0 {
+				a = Some(Builder::build_array(len, &s)?);
+			}
+			a.as_mut().unwrap()[i] = s;
 		}
-		Ok(a)
+
+		match a {
+			Some(a) => Ok(a),
+			None => {
+				let e = err!(ErrKind::CorruptedData, "size of array cannot be 0");
+				return Err(e);
+			}
+		}
 	}
 }
 
@@ -147,11 +162,15 @@ impl<S: Serializable + Clone + Debug + PartialEq> Serializable for ArrayList<S> 
 	}
 	fn read<R: Reader>(reader: &mut R) -> Result<ArrayList<S>, Error> {
 		let len = reader.read_usize()?;
-		let mut a = ArrayList::new(len)?;
-		for _ in 0..len {
-			a.push(Serializable::read(reader)?)?;
+		let mut a: Option<ArrayList<S>> = None;
+		for i in 0..len {
+			let s = Serializable::read(reader)?;
+			if i == 0 {
+				a = Some(ArrayList::new(len, &s)?);
+			}
+			a.as_mut().unwrap().push(s)?;
 		}
-		Ok(a)
+		Ok(a.unwrap())
 	}
 }
 
@@ -1226,12 +1245,12 @@ mod test {
 
 	#[test]
 	fn test_ser_array_and_array_list() -> Result<(), Error> {
-		let mut arr = Array::new(10)?;
+		let mut arr = Array::new(10, &0)?;
 		for i in 0..arr.size() {
 			arr[i] = i;
 		}
 		ser_helper(arr)?;
-		let mut arrlist: ArrayList<usize> = ArrayList::new(20)?;
+		let mut arrlist: ArrayList<usize> = ArrayList::new(20, &0)?;
 		for i in 0..20 {
 			List::push(&mut arrlist, i)?;
 		}

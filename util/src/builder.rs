@@ -35,53 +35,56 @@ impl Builder {
 		Ok(ThreadPoolImpl::new(config, None)?)
 	}
 
-	pub fn build_array<T>(size: usize) -> Result<Array<T>, Error>
+	pub fn build_array<T>(size: usize, default: &T) -> Result<Array<T>, Error>
 	where
 		T: Clone,
 	{
-		Array::new(size)
+		Array::new(size, default)
 	}
 
-	pub fn build_array_list<T>(size: usize) -> Result<impl SortableList<T>, Error>
+	pub fn build_array_list<T>(size: usize, default: &T) -> Result<impl SortableList<T>, Error>
 	where
 		T: Clone + Debug + PartialEq + Serializable,
 	{
-		ArrayList::new(size)
+		ArrayList::new(size, default)
 	}
 
-	pub fn build_array_list_box<T>(size: usize) -> Result<Box<dyn SortableList<T>>, Error>
+	pub fn build_array_list_box<T>(
+		size: usize,
+		default: &T,
+	) -> Result<Box<dyn SortableList<T>>, Error>
 	where
 		T: Clone + Debug + PartialEq + Serializable + 'static,
 	{
-		Ok(Box::new(ArrayList::new(size)?))
+		Ok(Box::new(ArrayList::new(size, default)?))
 	}
 
-	pub fn build_queue<T>(size: usize) -> Result<impl Queue<T>, Error>
+	pub fn build_queue<T>(size: usize, default: &T) -> Result<impl Queue<T>, Error>
 	where
 		T: Clone,
 	{
-		ArrayList::new(size)
+		ArrayList::new(size, default)
 	}
 
-	pub fn build_queue_box<T>(size: usize) -> Result<Box<dyn Queue<T>>, Error>
+	pub fn build_queue_box<T>(size: usize, default: &T) -> Result<Box<dyn Queue<T>>, Error>
 	where
 		T: Clone + 'static,
 	{
-		Ok(Box::new(ArrayList::new(size)?))
+		Ok(Box::new(ArrayList::new(size, default)?))
 	}
 
-	pub fn build_stack<T>(size: usize) -> Result<impl Stack<T>, Error>
+	pub fn build_stack<T>(size: usize, default: &T) -> Result<impl Stack<T>, Error>
 	where
 		T: Clone,
 	{
-		ArrayList::new(size)
+		ArrayList::new(size, default)
 	}
 
-	pub fn build_stack_box<T>(size: usize) -> Result<Box<dyn Stack<T>>, Error>
+	pub fn build_stack_box<T>(size: usize, default: &T) -> Result<Box<dyn Stack<T>>, Error>
 	where
 		T: Clone + 'static,
 	{
-		Ok(Box::new(ArrayList::new(size)?))
+		Ok(Box::new(ArrayList::new(size, default)?))
 	}
 
 	pub fn build_hashtable_sync<K, V>(
@@ -291,7 +294,7 @@ mod test {
 
 	#[test]
 	fn test_builder() -> Result<(), Error> {
-		let mut arrlist = Builder::build_array_list_box(10)?;
+		let mut arrlist = Builder::build_array_list_box(10, &0)?;
 		arrlist.push(0)?;
 		let mut i = 0;
 		for x in arrlist.iter() {

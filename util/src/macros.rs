@@ -896,50 +896,50 @@ macro_rules! list_sync_box {
 
 #[macro_export]
 macro_rules! array {
-	( $size:expr ) => {{
-		bmw_util::Builder::build_array($size)
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_array($size, $default)
 	}};
 }
 
 #[macro_export]
 macro_rules! array_list {
-	( $size:expr ) => {{
-		bmw_util::Builder::build_array_list($size)
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_array_list($size, $default)
 	}};
 }
 
 #[macro_export]
 macro_rules! array_list_box {
-	( $size:expr ) => {{
-		bmw_util::Builder::build_array_list_box($size)
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_array_list_box($size, $default)
 	}};
 }
 
 #[macro_export]
 macro_rules! queue {
-	( $size:expr ) => {{
-		bmw_util::Builder::build_queue($size)
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_queue($size, $default)
 	}};
 }
 
 #[macro_export]
 macro_rules! queue_box {
-	( $size:expr ) => {{
-		bmw_util::Builder::build_queue_box($size)
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_queue_box($size, $default)
 	}};
 }
 
 #[macro_export]
 macro_rules! stack {
-	( $size:expr ) => {{
-		bmw_util::Builder::build_stack($size)
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_stack($size, $default)
 	}};
 }
 
 #[macro_export]
 macro_rules! stack_box {
-	( $size:expr ) => {{
-		bmw_util::Builder::build_stack_box($size)
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_stack_box($size, $default)
 	}};
 }
 
@@ -1376,7 +1376,7 @@ mod test {
 
 	#[test]
 	fn test_array_macro() -> Result<(), Error> {
-		let mut array = array!(10)?;
+		let mut array = array!(10, &0)?;
 		array[1] = 2;
 		assert_eq!(array[1], 2);
 		Ok(())

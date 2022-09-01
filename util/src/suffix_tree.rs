@@ -190,7 +190,7 @@ impl SuffixTreeImpl {
 		let mut dictionary_case_insensitive = Dictionary::new()?;
 		let mut dictionary_case_sensitive = Dictionary::new()?;
 
-		let branch_stack = Builder::build_stack_box(patterns.size())?;
+		let branch_stack = Builder::build_stack_box(patterns.size(), &(0, 0))?;
 
 		for pattern in patterns.iter() {
 			if pattern.is_case_sensitive {
@@ -449,14 +449,6 @@ mod test {
 
 	#[test]
 	fn test_pattern() -> Result<(), Error> {
-		/*pub(crate) fn new(
-				regex: &str,
-				is_case_sensitive: bool,
-				is_termination_pattern: bool,
-				is_multi_line: bool,
-				id: usize,
-		) -> Self {
-			*/
 		let pattern = Pattern::new("abc", true, true, true, 0);
 		assert_eq!(pattern.regex(), "abc");
 		assert_eq!(pattern.is_case_sensitive(), true);
