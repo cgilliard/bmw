@@ -153,7 +153,7 @@ where
 
 impl<S: Serializable + Clone + Debug + PartialEq> Serializable for ArrayList<S> {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-		let len = self.inner.size;
+		let len = self.inner.size();
 		writer.write_usize(len)?;
 		for x in self.inner.iter() {
 			Serializable::write(&x, writer)?;

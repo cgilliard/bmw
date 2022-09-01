@@ -17,7 +17,6 @@ use bmw_deps::dyn_clone::{clone_trait_object, DynClone};
 use bmw_derive::Serializable;
 use bmw_err::*;
 use bmw_log::*;
-use std::alloc::Layout;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::future::Future;
@@ -254,12 +253,7 @@ pub struct ArrayList<T> {
 }
 
 pub struct Array<T> {
-	pub(crate) data: *mut u8,
-	pub(crate) size_of_type: usize,
-	pub(crate) size: usize,
-	pub(crate) layout: Layout,
-	pub(crate) _phantom_data: PhantomData<T>,
-	pub(crate) debug_panic: bool,
+	pub(crate) data: Vec<T>,
 }
 
 #[derive(Debug, Clone, Serializable)]

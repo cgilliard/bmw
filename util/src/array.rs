@@ -16,13 +16,9 @@ use crate::types::Direction;
 use crate::{Array, ArrayIterator, ArrayList, List, Queue, Serializable, SortableList, Stack};
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
-use std::alloc::{alloc, dealloc, Layout};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
-use std::ptr::copy_nonoverlapping;
-use std::slice::{from_raw_parts, from_raw_parts_mut};
 
 info!();
 
@@ -31,57 +27,29 @@ impl<T: Clone> Array<T> {
 		if size == 0 {
 			return Err(err!(ErrKind::IllegalArgument, "size must not be 0"));
 		}
-		let n = ::std::mem::size_of::<T>();
-		debug!("sizeofmem={}", n)?;
-		let size_u128: u128 = size as u128;
-		let size_u128 = size_u128 * n as u128;
-		let size_usize: usize = size_u128.try_into()?;
-		let layout = Layout::from_size_align(size_usize, 1)?;
-		let data = unsafe { alloc(layout) };
-		if data.is_null() {
-			return Err(err!(ErrKind::Alloc, "could not allocate memory for array"));
-		}
+		let mut data = vec![];
+		data.resize(size, d.clone());
 
-		for i in 0..size {
-			let ptr = unsafe { data.add(i * n) };
-			let r = unsafe { ptr.cast::<T>().as_mut().unwrap() };
-			*r = d.clone();
-		}
-
-		let ret = Self {
-			data,
-			size_of_type: n,
-			size,
-			layout,
-			_phantom_data: PhantomData,
-			debug_panic: false,
-		};
+		let ret = Self { data };
 		Ok(ret)
 	}
 
 	pub fn size(&self) -> usize {
-		self.size
+		self.data.len()
 	}
 
 	pub fn as_slice<'a>(&'a self) -> &'a [T] {
-		let ptr: *mut T = self.data as *mut T;
-		unsafe { from_raw_parts(ptr, self.size) }
+		&self.data
 	}
 
 	pub fn as_mut<'a>(&'a mut self) -> &'a mut [T] {
-		let ptr: *mut T = self.data as *mut T;
-		unsafe { from_raw_parts_mut(ptr, self.size) }
+		&mut self.data
 	}
 	pub fn iter<'a>(&'a self) -> ArrayIterator<'a, T> {
 		ArrayIterator {
 			cur: 0,
 			array_ref: self,
 		}
-	}
-
-	#[cfg(test)]
-	fn set_debug_panic(&mut self, debug: bool) {
-		self.debug_panic = debug;
 	}
 }
 
@@ -94,7 +62,7 @@ where
 	T: Debug,
 {
 	fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), fmt::Error> {
-		for i in 0..self.size {
+		for i in 0..self.data.len() {
 			if i == 0 {
 				write!(fmt, "[{:?}", self[i])?;
 			} else {
@@ -111,50 +79,34 @@ where
 	T: PartialEq,
 {
 	fn eq(&self, rhs: &Self) -> bool {
-		if self.size != rhs.size {
+		let data_len = self.data.len();
+		if data_len != rhs.data.len() {
 			false
 		} else {
-			for i in 0..self.size {
-				let ptr1: *mut u8 = unsafe { self.data.add(i * self.size_of_type) };
-				let ptr2: *mut u8 = unsafe { rhs.data.add(i * self.size_of_type) };
-				let ref1: *mut T = ptr1 as *mut T;
-				let ref2: *mut T = ptr2 as *mut T;
-				let ref1: &T = unsafe { &*ref1 };
-				let ref2: &T = unsafe { &*ref2 };
-				if ref1 != ref2 {
-					return false;
+			let mut ret = true;
+			for i in 0..data_len {
+				if self.data[i] != rhs.data[i] {
+					ret = false;
+					break;
 				}
 			}
-			true
+			ret
 		}
 	}
 }
 
-impl<T> Clone for Array<T> {
+impl<T> Clone for Array<T>
+where
+	T: Clone,
+{
 	fn clone(&self) -> Self {
-		let layout = self.layout;
-		let data = unsafe { alloc(layout) };
-		if data.is_null() || self.debug_panic {
-			panic!("could not allocate array. Not enough memory.");
-		}
-		let size = self.size;
-		let size_of_type = self.size_of_type;
-
-		unsafe {
-			copy_nonoverlapping(self.data, data, size * size_of_type);
-		}
-
 		Self {
-			data,
-			size_of_type,
-			layout,
-			debug_panic: false,
-			size,
-			_phantom_data: PhantomData,
+			data: self.data.clone(),
 		}
 	}
 }
 
+/*
 impl<T> Drop for Array<T> {
 	fn drop(&mut self) {
 		unsafe {
@@ -166,25 +118,24 @@ impl<T> Drop for Array<T> {
 		}
 	}
 }
+*/
 
 impl<T> IndexMut<usize> for Array<T> {
 	fn index_mut(&mut self, index: usize) -> &mut <Self as Index<usize>>::Output {
-		if index >= self.size {
-			panic!("ArrayIndexOutOfBounds: {} >= {}", index, self.size);
+		if index >= self.data.len() {
+			panic!("ArrayIndexOutOfBounds: {} >= {}", index, self.data.len());
 		}
-		let ptr = unsafe { self.data.add(index * self.size_of_type) };
-		unsafe { ptr.cast::<T>().as_mut().unwrap() }
+		&mut self.data[index]
 	}
 }
 
 impl<T> Index<usize> for Array<T> {
 	type Output = T;
 	fn index(&self, index: usize) -> &<Self as Index<usize>>::Output {
-		if index >= self.size {
-			panic!("ArrayIndexOutOfBounds: {} >= {}", index, self.size);
+		if index >= self.data.len() {
+			panic!("ArrayIndexOutOfBounds: {} >= {}", index, self.data.len());
 		}
-		let ptr = unsafe { self.data.add(index * self.size_of_type) };
-		unsafe { ptr.cast::<T>().as_ref().unwrap() }
+		&self.data[index]
 	}
 }
 
@@ -259,8 +210,8 @@ where
 	T: Clone + Debug + PartialEq,
 {
 	fn push(&mut self, value: T) -> Result<(), Error> {
-		if self.size() >= self.inner.size {
-			let fmt = format!("ArrayList capacity exceeded: {}", self.inner.size);
+		if self.size() >= self.inner.size() {
+			let fmt = format!("ArrayList capacity exceeded: {}", self.inner.size());
 			return Err(err!(ErrKind::CapacityExceeded, fmt));
 		}
 		self.inner[self.size] = value;
@@ -307,12 +258,12 @@ where
 	T: Clone,
 {
 	fn enqueue(&mut self, value: T) -> Result<(), Error> {
-		if self.size == self.inner.size {
-			let fmt = format!("capacity ({}) exceeded.", self.inner.size);
+		if self.size == self.inner.size() {
+			let fmt = format!("capacity ({}) exceeded.", self.inner.size());
 			Err(err!(ErrKind::CapacityExceeded, fmt))
 		} else {
 			self.inner[self.tail] = value;
-			self.tail = (self.tail + 1) % self.inner.size;
+			self.tail = (self.tail + 1) % self.inner.size();
 			self.size += 1;
 			Ok(())
 		}
@@ -322,7 +273,7 @@ where
 			None
 		} else {
 			let ret = &self.inner[self.head];
-			self.head = (self.head + 1) % self.inner.size;
+			self.head = (self.head + 1) % self.inner.size();
 			self.size = self.size.saturating_sub(1);
 			Some(ret)
 		}
@@ -344,12 +295,12 @@ where
 	T: Clone,
 {
 	fn push(&mut self, value: T) -> Result<(), Error> {
-		if self.size == self.inner.size {
-			let fmt = format!("capacity ({}) exceeded.", self.inner.size);
+		if self.size == self.inner.size() {
+			let fmt = format!("capacity ({}) exceeded.", self.inner.size());
 			Err(err!(ErrKind::CapacityExceeded, fmt))
 		} else {
 			self.inner[self.tail] = value;
-			self.tail = (self.tail + 1) % self.inner.size;
+			self.tail = (self.tail + 1) % self.inner.size();
 			self.size += 1;
 			Ok(())
 		}
@@ -359,7 +310,7 @@ where
 			None
 		} else {
 			if self.tail == 0 {
-				self.tail = self.inner.size.saturating_sub(1);
+				self.tail = self.inner.size().saturating_sub(1);
 			} else {
 				self.tail = self.tail - 1;
 			}
@@ -410,7 +361,7 @@ where
 {
 	type Item = T;
 	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
-		if self.cur >= self.array_ref.size.clone() {
+		if self.cur >= self.array_ref.size().clone() {
 			None
 		} else {
 			self.cur += 1;
@@ -802,25 +753,6 @@ mod test {
 		Ok(())
 	}
 
-	#[test]
-	fn test_array_panic() -> Result<(), Error> {
-		let mut arr = Array::new(10, &0)?;
-		arr[0] = 1;
-		arr.set_debug_panic(true);
-		let tp = thread_pool!()?;
-		let handle = execute!(tp, Ok(arr.clone()))?;
-		let res = block_on!(handle);
-		assert_eq!(
-			res,
-			PoolResult::Err(err!(
-				ErrKind::ThreadPanic,
-				"thread pool panic: receiving on a closed channel"
-			))
-		);
-
-		Ok(())
-	}
-
 	struct TestBoxedQueue {
 		queue: Box<dyn Queue<u32>>,
 	}
@@ -870,6 +802,7 @@ mod test {
 		Ok(())
 	}
 
+	/*
 	#[test]
 	fn test_large_memory_allocation() -> Result<(), Error> {
 		let res: Result<Array<u32>, Error> = Array::new(usize::MAX / 8, &0);
@@ -883,6 +816,7 @@ mod test {
 		info!("res={:?}", res)?;
 		Ok(())
 	}
+		*/
 
 	#[test]
 	fn test_string_array() -> Result<(), Error> {
