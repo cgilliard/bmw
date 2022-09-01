@@ -324,9 +324,12 @@ mod test {
 		}
 		assert_eq!(tp.size()?, 2);
 		// first use up all the min_size threads
+		let y = lock!(0)?;
 		for _ in 0..2 {
+			let mut y_clone = y.clone();
 			let x_clone = x.clone();
 			let res = tp.execute(async move {
+				**(y_clone.wlock()?.guard()) += 1;
 				loop {
 					if **(x_clone.rlock()?.guard()) != 0 {
 						break;
@@ -339,11 +342,11 @@ mod test {
 		}
 		loop {
 			{
-				let state = tp.state.rlock()?;
-				if (**state.guard()).waiting == 1 {
+				let y = y.rlock()?;
+				if (**y.guard()) == 2 {
 					break;
 				}
-				info!("waiting = {}", (**state.guard()).waiting)?;
+				info!("waiting = {}", (**y.guard()))?;
 			}
 			sleep(Duration::from_millis(100));
 		}
