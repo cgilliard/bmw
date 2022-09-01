@@ -12,4 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! This crate provides functions and other utilities that are used in the tests in other crates
+//! within the bmw repo.
+
 pub mod testdir;

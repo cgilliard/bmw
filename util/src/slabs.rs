@@ -11,55 +11,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{SlabAllocator, SlabAllocatorConfig};
-use bmw_err::{err, try_into, ErrKind, Error};
+use crate::misc::{set_max, slice_to_usize, usize_to_slice};
+use crate::types::SlabAllocatorImpl;
+use crate::{Array, Builder, Slab, SlabAllocator, SlabAllocatorConfig, SlabMut};
+use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
 use std::cell::UnsafeCell;
 
 info!();
 
-// tarpaulin is not seeing this line as covered probably because it's thread_local.
-// The GLOBAL_SLAB_ALLOCATOR is used in several tests. Not including in tarpaulin
-// results.
 #[cfg(not(tarpaulin_include))]
 thread_local! {
 	#[doc(hidden)]
-	pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> =
-				SlabAllocatorBuilder::build_unsafe();
-}
-
-/// Builder struct used to build slab allocators. The build functions are generally called
-/// through the [`crate::slab_allocator`] macro to create instances of [`crate::SlabAllocator`]
-/// or through the [`crate::init_slab_allocator`] to configure the global thread local
-/// [`crate::SlabAllocator`].
-pub struct SlabAllocatorBuilder {}
-
-/// Struct that is used as a mutable refernce to data in a slab. See [`crate::SlabAllocator`] for
-/// further details.
-pub struct SlabMut<'a> {
-	pub(crate) data: &'a mut [u8],
-	pub(crate) id: usize,
-}
-
-/// Struct that is used as a immutable refernce to data in a slab. See [`crate::SlabAllocator`] for
-/// further details.
-pub struct Slab<'a> {
-	pub(crate) data: &'a [u8],
-	pub(crate) id: usize,
-}
-
-struct SlabAllocatorImpl {
-	config: Option<SlabAllocatorConfig>,
-	data: Vec<u8>,
-	first_free: usize,
-	free_count: usize,
+	pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> = Builder::build_slabs_unsafe();
 }
 
 impl Default for SlabAllocatorConfig {
 	fn default() -> Self {
 		Self {
-			slab_size: 1024,
-			slab_count: 10 * 1024,
+			slab_size: 256,
+			slab_count: 40 * 1024,
 		}
 	}
 }
@@ -98,59 +69,74 @@ impl<'a> Slab<'a> {
 impl SlabAllocator for SlabAllocatorImpl {
 	fn allocate<'a>(&'a mut self) -> Result<SlabMut<'a>, Error> {
 		if self.config.is_none() {
-			return Err(err!(ErrKind::IllegalState, "not initialied"));
+			return Err(err!(ErrKind::IllegalState, "not initialized"));
 		}
 		let config = self.config.as_ref().unwrap();
 		debug!("allocate:self.config={:?}", config)?;
-		if self.first_free == usize::MAX {
+		if self.first_free == self.max_value {
 			return Err(err!(ErrKind::CapacityExceeded, "no more slabs available"));
 		}
 
 		let id = self.first_free;
-		let offset = (8 + config.slab_size) * id;
-		self.first_free = usize::from_be_bytes(try_into!(self.data[offset..offset + 8])?);
+		debug!("slab allocate id = {}", id)?;
+		let offset = (self.ptr_size + config.slab_size) * id;
+		self.first_free = slice_to_usize(&self.data.as_slice()[offset..offset + self.ptr_size])?;
+		debug!("new firstfree={}", self.first_free)?;
+		let offset = offset + self.ptr_size;
+		// mark it as not free we use max_value - 1 because max_value is used to
+		// terminate the free list
+		let mut invalid_ptr = [0u8; 8];
+		usize_to_slice(self.max_value - 1, &mut invalid_ptr[0..self.ptr_size])?;
 
-		let offset = offset + 8;
-		// mark it as not free
-		self.data[(8 + config.slab_size) * id..(8 + config.slab_size) * id + 8]
-			.clone_from_slice(&usize::MAX.to_be_bytes());
-		let data = &mut self.data[offset..offset + config.slab_size as usize];
+		self.data.as_mut()[(self.ptr_size + config.slab_size) * id
+			..(self.ptr_size + config.slab_size) * id + self.ptr_size]
+			.clone_from_slice(&invalid_ptr[0..self.ptr_size]);
+		let data = &mut self.data.as_mut()[offset..offset + config.slab_size as usize];
 		self.free_count = self.free_count.saturating_sub(1);
 
 		Ok(SlabMut { data, id })
 	}
 	fn free(&mut self, id: usize) -> Result<(), Error> {
+		debug!("slabs free id ={}", id)?;
 		match &self.config {
 			Some(config) => {
 				if id >= config.slab_count {
 					let fmt = format!("slab.id = {}, total slabs = {}", id, config.slab_count);
 					return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 				}
-				let offset = (8 + config.slab_size) * id;
+				let offset = (self.ptr_size + config.slab_size) * id;
+				debug!("first_free={}", self.first_free)?;
 
 				// check that it's currently allocated
-				if self.data[offset..offset + 8] != [255, 255, 255, 255, 255, 255, 255, 255] {
+				let slab_entry =
+					slice_to_usize(&self.data.as_slice()[offset..offset + self.ptr_size])?;
+
+				if slab_entry != self.max_value - 1 {
+					debug!("double free")?;
 					// double free error
 					let fmt = format!("slab.id = {} has been freed when not allocated", id);
 					return Err(err!(ErrKind::IllegalState, fmt));
 				}
 
+				let mut first_free_slice = [0u8; 8];
+				usize_to_slice(self.first_free, &mut first_free_slice[0..self.ptr_size])?;
 				debug!("free:self.config={:?},id={}", config, id)?;
-
-				self.data[offset..offset + 8].clone_from_slice(&self.first_free.to_be_bytes());
+				self.data.as_mut()[offset..offset + self.ptr_size]
+					.clone_from_slice(&first_free_slice[0..self.ptr_size]);
 				self.first_free = id;
+				debug!("update firstfree to {}", self.first_free)?;
 				self.free_count += 1;
 				Ok(())
 			}
 			None => Err(err!(
 				ErrKind::IllegalState,
-				"slab allocator has not been initialied"
+				"slab allocator has not been initialized"
 			)),
 		}
 	}
 	fn get<'a>(&'a self, id: usize) -> Result<Slab<'a>, Error> {
 		if self.config.is_none() {
-			return Err(err!(ErrKind::IllegalState, "not initialied"));
+			return Err(err!(ErrKind::IllegalState, "not initialized"));
 		}
 		let config = self.config.as_ref().unwrap();
 		if id >= config.slab_count {
@@ -158,13 +144,13 @@ impl SlabAllocator for SlabAllocatorImpl {
 			return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 		}
 		debug!("get:self.config={:?},id={}", config, id)?;
-		let offset = 8 + ((8 + config.slab_size) * id);
-		let data = &self.data[offset..offset + config.slab_size];
+		let offset = self.ptr_size + ((self.ptr_size + config.slab_size) * id);
+		let data = &self.data.as_slice()[offset..offset + config.slab_size];
 		Ok(Slab { data, id })
 	}
 	fn get_mut<'a>(&'a mut self, id: usize) -> Result<SlabMut<'a>, Error> {
 		if self.config.is_none() {
-			return Err(err!(ErrKind::IllegalState, "not initialied"));
+			return Err(err!(ErrKind::IllegalState, "not initialized"));
 		}
 		let config = self.config.as_ref().unwrap();
 		if id >= config.slab_count {
@@ -172,14 +158,14 @@ impl SlabAllocator for SlabAllocatorImpl {
 			return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 		}
 		debug!("get_mut:self.config={:?},id={}", config, id)?;
-		let offset = 8 + ((8 + config.slab_size) * id);
-		let data = &mut self.data[offset..offset + config.slab_size as usize];
+		let offset = self.ptr_size + ((self.ptr_size + config.slab_size) * id);
+		let data = &mut self.data.as_mut()[offset..offset + config.slab_size as usize];
 		Ok(SlabMut { data, id })
 	}
 
 	fn free_count(&self) -> Result<usize, Error> {
 		if self.config.is_none() {
-			return Err(err!(ErrKind::IllegalState, "not initialied"));
+			return Err(err!(ErrKind::IllegalState, "not initialized"));
 		}
 		let config = self.config.as_ref().unwrap();
 		debug!("free_count:self.config={:?}", config)?;
@@ -192,21 +178,33 @@ impl SlabAllocator for SlabAllocatorImpl {
 			Some(config) => Ok(config.slab_size),
 			None => Err(err!(
 				ErrKind::IllegalState,
-				"slab allocator has not been initialied"
+				"slab allocator has not been initialized"
 			)),
 		}
 	}
+
+	fn slab_count(&self) -> Result<usize, Error> {
+		debug!("slab_size:self.config={:?}", self.config)?;
+		match &self.config {
+			Some(config) => Ok(config.slab_count),
+			None => Err(err!(
+				ErrKind::IllegalState,
+				"slab allocator has not been initialized"
+			)),
+		}
+	}
+
 	fn init(&mut self, config: SlabAllocatorConfig) -> Result<(), Error> {
 		match &self.config {
 			Some(_) => Err(err!(
 				ErrKind::IllegalState,
-				"slab allocator has already been initialied"
+				"slab allocator has already been initialized"
 			)),
 			None => {
-				if config.slab_size < 48 {
+				if config.slab_size < 8 {
 					return Err(err!(
 						ErrKind::IllegalArgument,
-						"slab_size must be at least 48 bytes"
+						"slab_size must be at least 8 bytes"
 					));
 				}
 				if config.slab_count == 0 {
@@ -215,9 +213,31 @@ impl SlabAllocator for SlabAllocatorImpl {
 						"slab_count must be greater than 0"
 					));
 				}
-				let mut data = vec![];
-				data.resize(config.slab_count * (config.slab_size + 8), 0u8);
-				Self::build_free_list(&mut data, config.slab_count, config.slab_size)?;
+				let mut data = Builder::build_array(
+					config.slab_count * (config.slab_size + self.ptr_size),
+					&0u8,
+				)?;
+				self.ptr_size = 0;
+				let mut x = config.slab_count + 2; // two more,
+								   // one for termination
+								   // pointer and one for free status
+				loop {
+					if x == 0 {
+						break;
+					}
+					x >>= 8;
+					self.ptr_size += 1;
+				}
+				let mut ptr = [0u8; 8];
+				set_max(&mut ptr[0..self.ptr_size]);
+				self.max_value = slice_to_usize(&ptr[0..self.ptr_size])?;
+				Self::build_free_list(
+					&mut data,
+					config.slab_count,
+					config.slab_size,
+					self.ptr_size,
+					self.max_value,
+				)?;
 				self.data = data;
 				self.free_count = config.slab_count;
 				self.config = Some(config);
@@ -229,48 +249,38 @@ impl SlabAllocator for SlabAllocatorImpl {
 }
 
 impl SlabAllocatorImpl {
-	fn new() -> Self {
+	pub(crate) fn new() -> Self {
+		let data = Builder::build_array(1, &0u8).unwrap();
 		Self {
 			config: None,
 			free_count: 0,
-			data: vec![],
+			data,
 			first_free: 0,
+			ptr_size: 8,
+			max_value: 0,
 		}
 	}
 
 	fn build_free_list(
-		data: &mut Vec<u8>,
+		data: &mut Array<u8>,
 		slab_count: usize,
 		slab_size: usize,
+		ptr_size: usize,
+		max_value: usize,
 	) -> Result<(), Error> {
 		for i in 0..slab_count {
-			let next_bytes = if i < slab_count - 1 {
-				(i + 1).to_be_bytes()
+			let mut next_bytes = [0u8; 8];
+			if i < slab_count - 1 {
+				usize_to_slice(i + 1, &mut next_bytes[0..ptr_size])?;
 			} else {
-				usize::MAX.to_be_bytes()
-			};
+				usize_to_slice(max_value, &mut next_bytes[0..ptr_size])?;
+			}
 
-			let offset_next = i * (8 + slab_size);
-			data[offset_next..offset_next + 8].clone_from_slice(&next_bytes);
+			let offset_next = i * (ptr_size + slab_size);
+			data.as_mut()[offset_next..offset_next + ptr_size]
+				.clone_from_slice(&next_bytes[0..ptr_size]);
 		}
 		Ok(())
-	}
-}
-
-impl SlabAllocatorBuilder {
-	/// Build a slab allocator on the heap in an [`std::cell::UnsafeCell`].
-	/// This function is used by the global thread local slab allocator to allocate
-	/// thread local slab allocators. Note that it calls unsafe functions. This
-	/// function should generally be called through the [`crate::init_slab_allocator`]
-	/// macro.
-	pub fn build_unsafe() -> UnsafeCell<Box<dyn SlabAllocator>> {
-		UnsafeCell::new(Box::new(SlabAllocatorImpl::new()))
-	}
-
-	/// Build a slab allocator on the heap. This function is used by [`crate::slab_allocator`]
-	/// to create slab allocators for use with the other macros.
-	pub fn build() -> Box<dyn SlabAllocator + Send + Sync> {
-		Box::new(SlabAllocatorImpl::new())
 	}
 }
 
@@ -278,7 +288,7 @@ impl SlabAllocatorBuilder {
 mod test {
 	use crate::slabs::SlabMut;
 	use crate::types::SlabAllocatorConfig;
-	use crate::SlabAllocatorBuilder;
+	use crate::Builder;
 	use bmw_err::Error;
 	use bmw_log::*;
 
@@ -286,7 +296,11 @@ mod test {
 
 	#[test]
 	fn test_simple() -> Result<(), Error> {
-		let mut slabs = SlabAllocatorBuilder::build();
+		let mut slabs = Builder::build_slabs();
+
+		assert!(slabs.slab_count().is_err());
+		assert!(slabs.slab_size().is_err());
+
 		slabs.init(SlabAllocatorConfig::default())?;
 
 		let (id1, id2);
@@ -328,7 +342,7 @@ mod test {
 
 	#[test]
 	fn test_capacity() -> Result<(), Error> {
-		let mut slabs = SlabAllocatorBuilder::build();
+		let mut slabs = Builder::build_slabs();
 		slabs.init(SlabAllocatorConfig {
 			slab_count: 10,
 			..SlabAllocatorConfig::default()
@@ -346,7 +360,7 @@ mod test {
 
 	#[test]
 	fn test_error_conditions() -> Result<(), Error> {
-		let mut slabs = SlabAllocatorBuilder::build();
+		let mut slabs = Builder::build_slabs();
 		assert!(slabs.allocate().is_err());
 		assert!(slabs.free(0).is_err());
 		assert!(slabs.get(0).is_err());
@@ -364,12 +378,14 @@ mod test {
 
 	#[test]
 	fn test_double_free() -> Result<(), Error> {
-		let mut slabs = SlabAllocatorBuilder::build();
+		let mut slabs = Builder::build_slabs();
 		slabs.init(SlabAllocatorConfig::default())?;
 		let id = {
 			let slab = slabs.allocate()?;
 			slab.id()
 		};
+		let slab = slabs.get(id)?;
+		assert_eq!(slab.id(), id);
 		slabs.free(id)?;
 		assert!(slabs.free(id).is_err());
 		let id2 = {
@@ -386,38 +402,38 @@ mod test {
 
 	#[test]
 	fn test_other_slabs_configs() -> Result<(), Error> {
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig::default())
 			.is_ok());
 
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig {
 				slab_size: 100,
 				..SlabAllocatorConfig::default()
 			})
 			.is_ok());
 
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig {
 				slab_size: 48,
 				..SlabAllocatorConfig::default()
 			})
 			.is_ok());
 
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig {
-				slab_size: 47,
+				slab_size: 7,
 				..SlabAllocatorConfig::default()
 			})
 			.is_err());
-		assert!(SlabAllocatorBuilder::build()
+		assert!(Builder::build_slabs()
 			.init(SlabAllocatorConfig {
 				slab_count: 0,
 				..SlabAllocatorConfig::default()
 			})
 			.is_err());
 
-		let mut sh = SlabAllocatorBuilder::build();
+		let mut sh = Builder::build_slabs();
 		sh.init(SlabAllocatorConfig {
 			slab_count: 1,
 			..SlabAllocatorConfig::default()

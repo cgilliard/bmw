@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bmw_deps::dyn_clone::{clone_trait_object, DynClone};
 use bmw_err::Error;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
@@ -173,7 +174,7 @@ pub enum LogConfigOption {
 /// };
 /// ```
 ///
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LogConfig {
 	/// See [`LogConfigOption::Colors`]. The default value is Colors(true).
 	pub colors: LogConfigOption,
@@ -280,7 +281,7 @@ impl Default for LogConfig {
 /// [2022-08-09 15:41:55.633]: (DEBUG) [../ops/function.rs:248]: test2
 /// test3
 ///```
-pub trait Log {
+pub trait Log: DynClone {
 	/// Log data to disk/stdout. Note that even though a log level is specified,
 	/// the line is always logged for display purposes. If you wish to use log levels to
 	/// filter, use the macros: [`crate::fatal`], [`crate::error`], [`crate::warn`], [`crate::info`],
@@ -346,6 +347,8 @@ pub trait Log {
 	/// [`crate::LogConfigOption`] or a [`bmw_err::Error`].
 	fn get_config_option(&self, option: LogConfigOptionName) -> Result<&LogConfigOption, Error>;
 }
+
+clone_trait_object!(Log);
 
 #[cfg(test)]
 mod test {

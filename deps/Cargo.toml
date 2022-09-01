@@ -8,9 +8,10 @@ repository = "https://github.com/37miners/bmw"
 keywords = [ "crypto", "bitcoinmw"]
 readme = "README.md"
 exclude = ["**/*.bmw", "**/*.bmw"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
+futures = "0.3.23"
 failure = "0.1.0"
 failure_derive = "0.1.0"
 substring = "1.4.5"
@@ -19,3 +20,7 @@ rand = "0.8.4"
 lazy_static = "1.4.0"
 backtrace = "0.3.63"
 chrono = "0.4"
+dyn-clone = "1.0.9"
+try-traits = "0.1.1"
+num-format = "0.4.0"
+random-string = "1.0.0"

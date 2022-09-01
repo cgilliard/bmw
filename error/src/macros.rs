@@ -106,6 +106,24 @@ macro_rules! err {
 				let error: bmw_err::Error = bmw_err::ErrorKind::Test($msg.to_string()).into();
 				error
 			}
+			bmw_err::ErrKind::Overflow => {
+				let error: bmw_err::Error = bmw_err::ErrorKind::Overflow($msg.to_string()).into();
+				error
+			}
+			bmw_err::ErrKind::ThreadPanic => {
+				let error: bmw_err::Error =
+					bmw_err::ErrorKind::ThreadPanic($msg.to_string()).into();
+				error
+			}
+			bmw_err::ErrKind::Alloc => {
+				let error: bmw_err::Error = bmw_err::ErrorKind::Alloc($msg.to_string()).into();
+				error
+			}
+			bmw_err::ErrKind::OperationNotSupported => {
+				let error: bmw_err::Error =
+					bmw_err::ErrorKind::OperationNotSupported($msg.to_string()).into();
+				error
+			}
 		}
 	}};
 }
@@ -176,6 +194,18 @@ macro_rules! map_err {
 				bmw_err::ErrKind::Test => {
 					bmw_err::ErrorKind::Test(format!("{}: {}", $msg, e)).into()
 				}
+				bmw_err::ErrKind::Overflow => {
+					bmw_err::ErrorKind::Overflow(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::ThreadPanic => {
+					bmw_err::ErrorKind::ThreadPanic(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::Alloc => {
+					bmw_err::ErrorKind::Alloc(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::OperationNotSupported => {
+					bmw_err::ErrorKind::OperationNotSupported(format!("{}: {}", $msg, e)).into()
+				}
 			};
 			error
 		})
@@ -232,6 +262,11 @@ mod test {
 		let x: Result<i32, TryFromIntError> = u64::MAX.try_into();
 		let map = map_err!(x, ErrKind::Misc);
 		assert!(matches!(map.unwrap_err().kind(), crate::ErrorKind::Misc(_)));
+
+		let map = map_err!(x, ErrKind::Poison);
+		let kind = map.unwrap_err().kind();
+		let _poison = crate::ErrorKind::Poison("".to_string());
+		assert!(matches!(kind, _poison));
 
 		Ok(())
 	}

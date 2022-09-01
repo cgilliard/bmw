@@ -13,15 +13,25 @@
 // limitations under the License.
 
 use bmw_deps::failure::{Backtrace, Context, Fail};
+use std::alloc::LayoutError;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
 use std::num::{ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
+use std::sync::mpsc::{RecvError, SendError};
+use std::sync::MutexGuard;
+use std::sync::{PoisonError, RwLockReadGuard, RwLockWriteGuard};
 
 /// Base Error struct which is used throughout bmw.
 #[derive(Debug, Fail)]
 pub struct Error {
 	inner: Context<ErrorKind>,
+}
+
+impl PartialEq for Error {
+	fn eq(&self, r: &Error) -> bool {
+		r.kind() == self.kind()
+	}
 }
 
 /// Kinds of errors that can occur.
@@ -69,40 +79,60 @@ pub enum ErrorKind {
 	/// Simulated Error used in testing
 	#[fail(display = "simulated test error: {}", _0)]
 	Test(String),
+	/// Overflow error
+	#[fail(display = "overflow error: {}", _0)]
+	Overflow(String),
+	/// Thread Panic
+	#[fail(display = "thread panic: {}", _0)]
+	ThreadPanic(String),
+	/// Memmory Allocation Error
+	#[fail(display = "memory allocation error: {}", _0)]
+	Alloc(String),
+	/// Operation not supported
+	#[fail(display = "operation not supported error: {}", _0)]
+	OperationNotSupported(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
 /// names using the [`crate::err`] and [`crate::map_err`] macros.
 pub enum ErrKind {
-	/// IO Error.
+	/// IO Error
 	IO,
-	/// Log Error.
+	/// Log Error
 	Log,
-	/// A conversion to the utf8 format resulted in an error.
+	/// A conversion to the utf8 format resulted in an error
 	Utf8,
-	/// An array index was out of bounds.
+	/// An array index was out of bounds
 	ArrayIndexOutOfBounds,
-	/// Configuration error.
+	/// Configuration error
 	Configuration,
 	/// Attempt to obtain a lock resulted in a poison error. See [`std::sync::PoisonError`]
-	/// for further details.
+	/// for further details
 	Poison,
-	/// Data is corrupted.
+	/// Data is corrupted
 	CorruptedData,
-	/// A timeout has occurred.
+	/// A timeout has occurred
 	Timeout,
-	/// The capacity is exceeded.
+	/// The capacity is exceeded
 	CapacityExceeded,
-	/// Unexpected end of file.
+	/// Unexpected end of file
 	UnexpectedEof,
-	/// Illegal argument was specified.
+	/// Illegal argument was specified
 	IllegalArgument,
-	/// A Miscellaneous Error occurred.
+	/// A Miscellaneous Error occurred
 	Misc,
-	/// Application is in an illegal state.
+	/// Application is in an illegal state
 	IllegalState,
+	/// Overflow error
+	Overflow,
 	/// A simulated error used in tests
 	Test,
+	/// Thread panic
+	ThreadPanic,
+	/// Memory allocation error
+	Alloc,
+	/// Operation not supported
+	OperationNotSupported,
 }
 
 impl Display for Error {
@@ -176,19 +206,70 @@ impl From<ParseIntError> for Error {
 
 impl From<Utf8Error> for Error {
 	fn from(e: Utf8Error) -> Error {
-		println!("x");
 		Error {
 			inner: Context::new(ErrorKind::Utf8(format!("Utf8 error: {}", e))),
 		}
 	}
 }
 
+impl<T> From<PoisonError<RwLockWriteGuard<'_, T>>> for Error {
+	fn from(e: PoisonError<RwLockWriteGuard<'_, T>>) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Poison(format!("Poison error: {}", e))),
+		}
+	}
+}
+
+impl<T> From<PoisonError<RwLockReadGuard<'_, T>>> for Error {
+	fn from(e: PoisonError<RwLockReadGuard<'_, T>>) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Poison(format!("Poison error: {}", e))),
+		}
+	}
+}
+
+impl<T> From<PoisonError<MutexGuard<'_, T>>> for Error {
+	fn from(e: PoisonError<MutexGuard<'_, T>>) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Poison(format!("Poison error: {}", e))),
+		}
+	}
+}
+
+impl From<RecvError> for Error {
+	fn from(e: RecvError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::IllegalState(format!("Recv error: {}", e))),
+		}
+	}
+}
+
+impl<T> From<SendError<T>> for Error {
+	fn from(e: SendError<T>) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::IllegalState(format!("Send error: {}", e))),
+		}
+	}
+}
+
+impl From<LayoutError> for Error {
+	fn from(e: LayoutError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Alloc(format!("Layout error: {}", e))),
+		}
+	}
+}
+
 #[cfg(test)]
 mod test {
-	use crate::{Error, ErrorKind};
+	use crate as bmw_err;
+	use crate::{err, ErrKind, Error, ErrorKind};
 	use bmw_deps::substring::Substring;
+	use std::alloc::Layout;
 	use std::convert::TryInto;
 	use std::ffi::OsString;
+	use std::sync::mpsc::channel;
+	use std::sync::{Arc, Mutex, RwLock};
 
 	fn get_os_string() -> Result<(), Error> {
 		Err(OsString::new().into())
@@ -242,6 +323,70 @@ mod test {
 		let x: Result<u32, _> = "abc".parse();
 		check_error(x, ErrorKind::Misc(format!("ParseIntError..")).into())?;
 		check_error(get_utf8(), ErrorKind::Utf8(format!("Utf8 Error..")).into())?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_other_errors() -> Result<(), Error> {
+		let mutex = Arc::new(Mutex::new(0));
+		let mutex_clone = mutex.clone();
+		let lock = Arc::new(RwLock::new(0));
+		let lock_clone = lock.clone();
+		let _ = std::thread::spawn(move || -> Result<u32, Error> {
+			let _mutex = mutex_clone.lock();
+			let _x = lock.write();
+			let y: Option<u32> = None;
+			Ok(y.unwrap())
+		})
+		.join();
+
+		check_error(
+			lock_clone.write(),
+			ErrorKind::Poison(format!("Poison..")).into(),
+		)?;
+
+		check_error(
+			lock_clone.read(),
+			ErrorKind::Poison(format!("Poison..")).into(),
+		)?;
+
+		check_error(mutex.lock(), ErrorKind::Poison(format!("Poison..")).into())?;
+
+		let x = err!(ErrKind::Poison, "");
+		let y = err!(ErrKind::IllegalArgument, "");
+		let z = err!(ErrKind::Poison, "");
+
+		assert_ne!(x, y);
+		assert_eq!(x, z);
+
+		let (tx, rx) = channel();
+
+		std::thread::spawn(move || -> Result<(), Error> {
+			tx.send(1)?;
+			Ok(())
+		});
+
+		assert!(rx.recv().is_ok());
+		let err = rx.recv();
+		assert!(err.is_err());
+		check_error(
+			err,
+			ErrorKind::IllegalState(format!("IllegalState..")).into(),
+		)?;
+		let tx = {
+			let (tx, _rx) = channel();
+			tx
+		};
+
+		let err = tx.send(1);
+		check_error(
+			err,
+			ErrorKind::IllegalState(format!("IllegalState..")).into(),
+		)?;
+
+		let err = Layout::from_size_align(7, 7);
+		check_error(err, ErrorKind::Alloc(format!("LayoutError..")).into())?;
 
 		Ok(())
 	}

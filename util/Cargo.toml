@@ -8,13 +8,15 @@ repository = "https://github.com/37miners/bmw"
 keywords = [ "crypto", "bitcoinmw"]
 readme = "README.md"
 exclude = ["**/*.bmw", "**/*.bmw"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 
-bmw_deps = { path = "../deps"  }
-bmw_err  = { path = "../error" }
-bmw_log  = { path = "../log"   }
+bmw_deps   = { path = "../deps"   }
+bmw_err    = { path = "../error"  }
+bmw_log    = { path = "../log"    }
+bmw_ser    = { path = "../ser"    }
+bmw_derive = { path = "../derive" }
 
 [dev-dependencies]
 bmw_test = { path = "../test" }

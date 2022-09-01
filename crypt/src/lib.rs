@@ -12,20 +12,77 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmw_err::*;
-use bmw_log::*;
-use bmw_util::*;
+//! Crypt library for bmw. Not yet implemented.
 
-info!();
+#[cfg(test)]
+mod test {
+	use bmw_derive::Serializable;
+	use bmw_err::*;
+	use bmw_log::*;
+	use bmw_ser::*;
+	use bmw_util::*;
 
-pub fn test() -> Result<(), Error> {
-	info!("test")?;
-	let ctx = ctx!();
-	let mut hash = hashtable!()?;
-	hash.insert(ctx, &1, &"ok".to_string())?;
-	hash.insert(ctx, &3, &"hithere".to_string())?;
-	for (k, v) in &hash {
-		info!("k={},v={}", k, v)?;
+	#[derive(Serializable, Debug, Clone, PartialEq)]
+	enum TestEnum {
+		A(String),
+		B(Vec<u8>),
+		C(Option<u16>),
 	}
-	Ok(())
+
+	#[derive(Serializable, Debug, Clone)]
+	struct TestStruct {
+		id: u128,
+		a: u16,
+		v: Box<dyn SortableList<String>>,
+		w: Array<u32>,
+		x: Vec<u8>,
+		y: Option<String>,
+		z: [u8; 8],
+	}
+
+	info!();
+
+	#[test]
+	fn test_ser() -> Result<(), Error> {
+		let mut x: Array<String> = Builder::build_array(2, &"".to_string())?;
+		{
+			let test = "testing123".to_string();
+			x[1] = test;
+		}
+		let ok =
+			"ok22222222222222222222222222222222222222222222222222222222222222222222222222222222222"
+				.to_string();
+		let ok2 =
+			"ok222222222222222222222222222222222222222222222222222222222222222222222222222222222222"
+				.to_string();
+		let ok3 =
+			"notok11111111111111111111111111111111111111111111111111111111111111111111111111111111"
+				.to_string();
+		{
+			x[0] = ok;
+			x[0].push('2');
+			assert_eq!(x[0], ok2);
+			assert_ne!(x[0], ok3);
+			assert_eq!(x[1], "testing123".to_string());
+		}
+		let s = TestStruct {
+			id: 1234,
+			a: 2,
+			v: array_list_box!(10, &"".to_string())?,
+			w: array!(10, &0)?,
+			x: vec![0, 1, 2],
+			y: Some("test".to_string()),
+			z: [0u8; 8],
+		};
+
+		let mut hashtable = hashtable!()?;
+		hashtable.insert(&1, &s)?;
+		assert_eq!(hashtable.get(&1)?.unwrap().id, s.id);
+
+		let t = TestEnum::A("str123".to_string());
+		let mut hashtable = hashtable!()?;
+		hashtable.insert(&1, &t)?;
+		assert_eq!(hashtable.get(&1)?.unwrap(), t);
+		Ok(())
+	}
 }
