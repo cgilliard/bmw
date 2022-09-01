@@ -1269,18 +1269,40 @@ mod test {
 
 	#[test]
 	fn test_static_hashtable() -> Result<(), Error> {
-		let mut hashtable = Builder::build_hashtable(
-			HashtableConfig {
-				max_entries: 100,
-				..Default::default()
-			},
-			None,
-		)?;
-		hashtable.insert(&1, &2)?;
-		let v = hashtable.get(&1)?;
-		assert_eq!(v.unwrap(), 2);
-		assert_eq!(hashtable.size(), 1);
-		assert_eq!(hashtable.get(&2)?, None);
+		let free_count1;
+
+		{
+			let mut hashtable = Builder::build_hashtable(
+				HashtableConfig {
+					max_entries: 100,
+					..Default::default()
+				},
+				None,
+			)?;
+			free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+			})?;
+
+			hashtable.insert(&1, &2)?;
+			let v = hashtable.get(&1)?;
+			assert_eq!(v.unwrap(), 2);
+			assert_eq!(hashtable.size(), 1);
+			assert_eq!(hashtable.get(&2)?, None);
+			hashtable.insert(&1, &3)?;
+			assert_eq!(hashtable.get(&1)?, Some(3));
+			assert_eq!(hashtable.size(), 1);
+			let free_count3 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+			})?;
+			assert_eq!(free_count3, free_count1 - 1);
+		}
+
+		let free_count2 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
+			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
+		})?;
+
+		assert_eq!(free_count1, free_count2);
+
 		Ok(())
 	}
 

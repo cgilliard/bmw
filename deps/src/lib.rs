@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! This is the dependency crate. All bmw dependencies are included in this crate as re-exports and
+//! used by the other crates within the repo.
+
 pub use backtrace;
 pub use chrono;
 pub use colored;

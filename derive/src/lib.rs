@@ -12,6 +12,45 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! This crate is a proc_macro crate and it includes the Serializable macro.
+//! This macro will implement the [`bmw_ser::Serializable`] trait for any struct or enum.
+//!
+//! # Examples
+//!
+//!```
+//! use bmw_derive::Serializable;
+//! use bmw_ser::Serializable;
+//! use bmw_err::Error;
+//!
+//! #[derive(Serializable)]
+//! struct MyStruct {
+//!     id: u64,
+//!     is_member: bool,
+//!     name: String,
+//! }
+//!
+//! #[derive(Serializable)]
+//! enum MyEnum {
+//!     Type1(String),
+//!     Type2(u64),
+//! }
+//!
+//! fn main() -> Result<(), Error> {
+//!     let _s1 = MyStruct {
+//!         id: 1234,
+//!         is_member: true,
+//!         name: "Hagrid".to_string(),
+//!     };
+//!
+//!     let _s2 = MyEnum::Type1("something".to_string());
+//!
+//!     Ok(())
+//! }
+//!
+//!```
+//!
+//! For additional examples, see the bmw_util documentation.
+
 extern crate proc_macro;
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -84,6 +123,8 @@ impl MacroState {
 	}
 }
 
+/// This is a proc macro for implementing the [`bmw_ser::Serializable`] trait. See the [`crate`]
+/// documentation for examples.
 #[proc_macro_derive(Serializable)]
 #[cfg(not(tarpaulin_include))]
 pub fn derive_serialize(strm: TokenStream) -> TokenStream {

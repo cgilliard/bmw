@@ -11,6 +11,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! This crate includes the [`crate::Serializable`] trait, the [`crate::Reader`] trait and the
+//! [`crate::Writer`] trait. They are separated from the bmw_util crate so that the util crate
+//! does not have to be a dependancy of bmw_derive and can therefore use the Serializable
+//! proc_macro that is included in that crate. The Serializable trait is the key to several of the
+//! data structures in the bmw_util crate. It allows a specific way for data to be serialized so
+//! that it can be stored in various forms. The Reader and Writer traits are abstractions
+//! for reading and writing serializable data structures. The Serializable macro is implemented for
+//! several data structures in this crate as well.
+
 use bmw_err::{err, ErrKind, Error};
 
 macro_rules! impl_int {
@@ -163,17 +172,54 @@ where
 	}
 }
 
-impl Serializable for [u8; 8] {
-	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-		writer.write_fixed_bytes(self)?;
-		Ok(())
-	}
-	fn read<R: Reader>(reader: &mut R) -> Result<[u8; 8], Error> {
-		let mut r = [0u8; 8];
-		reader.read_fixed_bytes(&mut r)?;
-		Ok(r)
-	}
+macro_rules! impl_arr {
+	($count:expr) => {
+		impl Serializable for [u8; $count] {
+			fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+				writer.write_fixed_bytes(self)?;
+				Ok(())
+			}
+			fn read<R: Reader>(reader: &mut R) -> Result<[u8; $count], Error> {
+				let mut r = [0u8; $count];
+				reader.read_fixed_bytes(&mut r)?;
+				Ok(r)
+			}
+		}
+	};
 }
+
+impl_arr!(1);
+impl_arr!(2);
+impl_arr!(3);
+impl_arr!(4);
+impl_arr!(5);
+impl_arr!(6);
+impl_arr!(7);
+impl_arr!(8);
+impl_arr!(9);
+impl_arr!(10);
+impl_arr!(11);
+impl_arr!(12);
+impl_arr!(13);
+impl_arr!(14);
+impl_arr!(15);
+impl_arr!(16);
+impl_arr!(17);
+impl_arr!(18);
+impl_arr!(19);
+impl_arr!(20);
+impl_arr!(21);
+impl_arr!(22);
+impl_arr!(23);
+impl_arr!(24);
+impl_arr!(25);
+impl_arr!(26);
+impl_arr!(27);
+impl_arr!(28);
+impl_arr!(29);
+impl_arr!(30);
+impl_arr!(31);
+impl_arr!(32);
 
 /// Writer trait used to serializing data.
 pub trait Writer {

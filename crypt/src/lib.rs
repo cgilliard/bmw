@@ -12,14 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmw_err::*;
-use bmw_log::*;
-
-info!();
-
-pub fn test() -> Result<(), Error> {
-	Ok(())
-}
+//! Crypt library for bmw. Not yet implemented.
 
 #[cfg(test)]
 mod test {
