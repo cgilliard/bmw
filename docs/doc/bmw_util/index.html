@@ -1,229 +1,142 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="This utility crate provides data structures and other utilities used in bmw. Currently, [`crate::hashtable`] and [`crate::hashset`] data structures are supported. Both use a [`crate::SlabAllocator`] to allocate memory. By default, the data structures use a global shared thread local slab allocator, but if multi-threaded applications are needed, a dedicated thread-safe, slab allocator may be specified. It is important to note that if the default slab allocator is used (i.e. if you just call the [`crate::hashtable`] macro without specifying a slab allocator, the values stored in the data structure will be unique to each thread."><meta name="keywords" content="rust, rustlang, rust-lang, bmw_util"><title>bmw_util - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../dark.css" disabled><link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../storage.js"></script><script defer src="../crates.js"></script><script defer src="../main.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../favicon.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../bmw_util/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="The util crate provides the data structures that are used in bmw. The data structures implemented include [`crate::Hashtable`], [`crate::Hashset`], [`crate::List`], [`crate::Array`], [`crate::ArrayList`], [`crate::Stack`], [`crate::Queue`], and [`crate::SuffixTree`]. Additionally a [`crate::ThreadPool`] implementation is provided. Each data structure can be instantiated in a impl and Box form using the [`crate::Builder`] or through macros. The impls completely stack based and the box forms are Box&lt;dyn ..&gt;’s that can be stored in other structs and Enums."><meta name="keywords" content="rust, rustlang, rust-lang, bmw_util"><title>bmw_util - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../dark.css" disabled><link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../storage.js"></script><script defer src="../crates.js"></script><script defer src="../main.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../favicon.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../bmw_util/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
         </a><h2 class="location"></h2>
     </nav>
     <nav class="sidebar"><a class="sidebar-logo" href="../bmw_util/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
-        </a><h2 class="location"><a href="#">Crate bmw_util</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 0.0.2-beta1</li><li><a id="all-types" href="all.html">All Items</a></li></ul></div><section><div class="block"><ul><li><a href="#macros">Macros</a></li><li><a href="#structs">Structs</a></li><li><a href="#traits">Traits</a></li><li><a href="#functions">Functions</a></li></ul></div></section></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../bmw_util/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><div id="settings-menu" tabindex="-1">
+        </a><h2 class="location"><a href="#">Crate bmw_util</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 0.0.2-beta1</li><li><a id="all-types" href="all.html">All Items</a></li></ul></div><section><div class="block"><ul><li><a href="#macros">Macros</a></li><li><a href="#structs">Structs</a></li><li><a href="#enums">Enums</a></li><li><a href="#traits">Traits</a></li><li><a href="#functions">Functions</a></li></ul></div></section></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../bmw_util/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><div id="settings-menu" tabindex="-1">
                                 <a href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../wheel.svg"></a></div>
                         </div></form></nav></div><section id="main-content" class="content"><div class="main-heading">
-    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">bmw_util</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/bmw_util/lib.rs.html#14-215">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>This utility crate provides data structures and other utilities used in bmw.
-Currently, <a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a> and <a href="macro.hashset.html" title="crate::hashset"><code>crate::hashset</code></a> data structures
-are supported. Both use a <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> to allocate memory.
-By default, the data structures use a global shared thread local slab allocator, but
-if multi-threaded applications are needed, a dedicated thread-safe,
-slab allocator may be specified. It is important to note that if the
-default slab allocator is used (i.e. if you just call the
-<a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a> macro without specifying a slab allocator, the values
-stored in the data structure will be unique to each thread.</p>
+    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">bmw_util</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/bmw_util/lib.rs.html#14-169">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>The util crate provides the data structures that are used in bmw. The data structures
+implemented include <a href="trait.Hashtable.html" title="crate::Hashtable"><code>crate::Hashtable</code></a>, <a href="trait.Hashset.html" title="crate::Hashset"><code>crate::Hashset</code></a>, <a href="trait.List.html" title="crate::List"><code>crate::List</code></a>, <a href="struct.Array.html" title="crate::Array"><code>crate::Array</code></a>,
+<a href="struct.ArrayList.html" title="crate::ArrayList"><code>crate::ArrayList</code></a>, <a href="trait.Stack.html" title="crate::Stack"><code>crate::Stack</code></a>, <a href="trait.Queue.html" title="crate::Queue"><code>crate::Queue</code></a>, and <a href="trait.SuffixTree.html" title="crate::SuffixTree"><code>crate::SuffixTree</code></a>. Additionally
+a <a href="trait.ThreadPool.html" title="crate::ThreadPool"><code>crate::ThreadPool</code></a> implementation is provided. Each data structure can be instantiated in
+a impl and Box form using the <a href="struct.Builder.html" title="crate::Builder"><code>crate::Builder</code></a> or through macros. The impls completely stack
+based and the box forms are Box&lt;dyn ..&gt;’s that can be stored in other structs and Enums.</p>
 <h2 id="motivation"><a href="#motivation">Motivation</a></h2>
 <p>The advantage of these implementations is that they do not allocate memory on the
-heap after initialization of the data structure. So, we can create a <a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a>
-or a <a href="macro.hashset.html" title="crate::hashset"><code>crate::hashset</code></a> and do millions of inserts, gets, removes and iterations and
-no heap memory will be allocated or deallocated other than some ephemeral data
-structures used to do serialization. If the ‘raw’ versions of these functions are called,
-no heap allocations are done for serialization either. Note: there are some minor exceptions
-since things like the <a href="struct.Slab.html" title="crate::Slab"><code>crate::Slab</code></a> are returned in a Box which is stored on the heap, but
-those data structures are just pointers so they are small and quickly allocated and deallocated
-and don’t pose any concerns. Dynamic heap allocations that are long-lived can cause
-substantial problems and these data structures are intended to alleviate those problems.
-The <a href="https://doc.rust-lang.org/1.63.0/core/ops/drop/trait.Drop.html" title="core::ops::Drop"><code>core::ops::Drop</code></a> trait is also implemented so all slabs used by the data structure
-are freed upon the data structure going out of scope.</p>
+heap after initialization of the data structure. So, we can create a <a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a>,
+<a href="trait.List.html" title="crate::List"><code>crate::List</code></a> or a <a href="macro.hashset.html" title="crate::hashset"><code>crate::hashset</code></a> and do millions of operations and
+no heap memory will be allocated or deallocated. Dynamic heap allocations that are long-lived can cause
+substantial problems like slowness and memory fragmentation and even system crashes and these data structures
+are intended to alleviate those problems. The <a href="https://doc.rust-lang.org/1.63.0/core/ops/drop/trait.Drop.html" title="core::ops::Drop"><code>core::ops::Drop</code></a> trait is also implemented so all
+slabs used by the data structure are freed when the data structure goes out of scope.</p>
 <h2 id="performance"><a href="#performance">Performance</a></h2>
-<p>These data structures will never be as fast as the native Rust data structures because they
+<p>The hashtable/set are not as fast as the native Rust data structures because they
 require serialization and deserialization of the entries on each operation. However, the
-peformance is at least in the ballpark of the standard data structures. A performance tool
-is included in the project in the etc directory
-<a href="https://github.com/37miners/bmw/tree/main/etc/hash_perf">hash_perf</a>.</p>
-<p>Below is the output of some runs on a linux machine. All runs use get_raw/insert_raw on small
-pieces of data.</p>
-<p>First, static hashtable 1000 inserts, and no gets. Performance is fairly close.</p>
-<div class="example-wrap"><pre class="language-text"><code> [2022-08-14 16:44:19.387]: (INFO) Starting tests
- [2022-08-14 16:44:19.458]: (INFO) Memory used (pre_drop) = 43.116107mb
- [2022-08-14 16:44:19.458]: (INFO) Memory Allocated (pre_drop) = 66.940703mb
- [2022-08-14 16:44:19.458]: (INFO) Memory De-allocated (pre_drop) = 23.827242mb
- [2022-08-14 16:44:19.459]: (INFO) Memory used (post_drop) = 43.011571mb
- [2022-08-14 16:44:19.459]: (INFO) Memory Allocated (post_drop) = 67.020615mb
- [2022-08-14 16:44:19.459]: (INFO) Memory De-allocated (post_drop) = 24.011692mb
- [2022-08-14 16:44:19.459]: (INFO) (StaticHash) Elapsed time = 0.51ms</code></pre></div>
-<p>With rust’s standard hashmap for comparison.</p>
-<div class="example-wrap"><pre class="language-text"><code> [2022-08-14 16:45:38.840]: (INFO) Starting tests
- [2022-08-14 16:45:38.912]: (INFO) Memory used (pre_drop) = 43.062101mb
- [2022-08-14 16:45:38.912]: (INFO) Memory Allocated (pre_drop) = 66.858088mb
- [2022-08-14 16:45:38.912]: (INFO) Memory De-allocated (pre_drop) = 23.798633mb
- [2022-08-14 16:45:38.912]: (INFO) Memory used (post drop) = 43.010885mb
- [2022-08-14 16:45:38.912]: (INFO) Memory Allocated (post_drop) = 66.866024mb
- [2022-08-14 16:45:38.912]: (INFO) Memory De-allocated (post_drop) = 23.857787mb
- [2022-08-14 16:45:38.912]: (INFO) (HashMap) Elapsed time = 0.33ms</code></pre></div>
-<p>With 100 gets per insert on static hashtable.</p>
-<div class="example-wrap"><pre class="language-text"><code> [2022-08-14 16:47:04.933]: (INFO) Starting tests
- [2022-08-14 16:47:05.014]: (INFO) Memory used (pre_drop) = 43.116075mb
- [2022-08-14 16:47:05.014]: (INFO) Memory Allocated (pre_drop) = 71.5672mb
- [2022-08-14 16:47:05.014]: (INFO) Memory De-allocated (pre_drop) = 28.453781mb
- [2022-08-14 16:47:05.014]: (INFO) Memory used (post_drop) = 43.011539mb
- [2022-08-14 16:47:05.014]: (INFO) Memory Allocated (post_drop) = 71.647142mb
- [2022-08-14 16:47:05.014]: (INFO) Memory De-allocated (post_drop) = 28.638261mb
- [2022-08-14 16:47:05.014]: (INFO) (StaticHash) Elapsed time = 9.49ms</code></pre></div>
-<p>With rust’s standard hashmap for comparison.</p>
-<div class="example-wrap"><pre class="language-text"><code> [2022-08-14 16:47:16.677]: (INFO) Starting tests
- [2022-08-14 16:47:16.750]: (INFO) Memory used (pre_drop) = 43.062201mb
- [2022-08-14 16:47:16.750]: (INFO) Memory Allocated (pre_drop) = 66.858245mb
- [2022-08-14 16:47:16.750]: (INFO) Memory De-allocated (pre_drop) = 23.79869mb
- [2022-08-14 16:47:16.750]: (INFO) Memory used (post drop) = 43.010985mb
- [2022-08-14 16:47:16.750]: (INFO) Memory Allocated (post_drop) = 66.866181mb
- [2022-08-14 16:47:16.750]: (INFO) Memory De-allocated (post_drop) = 23.857844mb
- [2022-08-14 16:47:16.750]: (INFO) (HashMap) Elapsed time = 2.06ms</code></pre></div>
+peformance is at least in the ballpark of the standard data structures. The array, arraylist,
+queue, and stack are faster for insert, slower for initialization and about the same for
+iteration and drop. A performance tool is included in the project in the etc directory
+<a href="https://github.com/37miners/bmw/tree/main/etc/ds_perf">ds_perf</a>.</p>
+<p>Below is the output of some runs on a linux machine.</p>
+<div class="example-wrap"><pre class="language-text"><code> $ ./target/release/perf  --help
+ ds_perf 1.0
+ 37 Miners, LLC
+
+ USAGE:
+    perf [FLAGS]
+
+ FLAGS:
+     --array           run tests for array
+     --array_string    run tests for array with strings
+     --arraylist       run tests for array list
+     --hashmap         run tests for standard rust library hashmap
+     --hashtable       run tests for hashtable
+ -h, --help            Prints help information
+ -V, --version         Prints version information
+     --vec             run tests for standard rust library vec
+     --vec_string      run tests for vec with strings
+
+ $ ./target/release/perf  --array_string
+ [2022-09-01 13:02:41.974]: Starting ds_perf
+ [2022-09-01 13:02:41.974]: Testing array string
+ [2022-09-01 13:02:41.974]: array init: alloc: 240,000, dealloc: 0, alloc_qty: 1, dealloc_qty: 0, delta: 240,000, elapsed: 180.336µs
+ [2022-09-01 13:02:41.975]: array insert: alloc: 110,000, dealloc: 0, alloc_qty: 10,000, dealloc_qty: 0, delta: 110,000, elapsed: 332.891µs
+ [2022-09-01 13:02:41.975]: array iter: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 27ns
+ [2022-09-01 13:02:41.975]: array drop: alloc: 0, dealloc: 350,000, alloc_qty: 0, dealloc_qty: 10,001, delta: -350,000, elapsed: 121.148µs
+
+ $ ./target/release/perf  --vec_string
+ [2022-09-01 13:02:38.151]: Starting ds_perf
+ [2022-09-01 13:02:38.151]: Testing vec string
+ [2022-09-01 13:02:38.151]: vec init: alloc: 240,000, dealloc: 0, alloc_qty: 1, dealloc_qty: 0, delta: 240,000, elapsed: 177.351µs
+ [2022-09-01 13:02:38.151]: vec insert: alloc: 110,000, dealloc: 0, alloc_qty: 10,000, dealloc_qty: 0, delta: 110,000, elapsed: 324.671µs
+ [2022-09-01 13:02:38.151]: vec iter: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 40ns
+ [2022-09-01 13:02:38.152]: vec drop: alloc: 0, dealloc: 350,000, alloc_qty: 0, dealloc_qty: 10,001, delta: -350,000, elapsed: 121.868µs
+
+ $ ./target/release/perf  --array
+ [2022-09-01 13:00:22.190]: Starting ds_perf
+ [2022-09-01 13:00:22.190]: Testing array
+ [2022-09-01 13:00:22.190]: array init: alloc: 40,000, dealloc: 0, alloc_qty: 1, dealloc_qty: 0, delta: 40,000, elapsed: 27.454µs
+ [2022-09-01 13:00:22.190]: array insert: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 999ns
+ [2022-09-01 13:00:22.190]: array iter: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 29ns
+ [2022-09-01 13:00:22.190]: array drop: alloc: 0, dealloc: 40,000, alloc_qty: 0, dealloc_qty: 1, delta: -40,000, elapsed: 121ns
+
+ $ ./target/release/perf  --vec
+ [2022-09-01 13:00:27.820]: Starting ds_perf
+ [2022-09-01 13:00:27.820]: testing vec
+ [2022-09-01 13:00:27.820]: vec init: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 120ns
+ [2022-09-01 13:00:27.820]: vec insert: alloc: 131,056, dealloc: 65,520, alloc_qty: 13, dealloc_qty: 12, delta: 65,536, elapsed: 48.554µs
+ [2022-09-01 13:00:27.820]: vec iter: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 29ns
+ [2022-09-01 13:00:27.820]: vec drop: alloc: 0, dealloc: 65,536, alloc_qty: 0, dealloc_qty: 1, delta: -65,536, elapsed: 5.096µs
+
+ $ ./target/release/perf  --hashtable
+ [2022-09-01 13:07:30.861]: Starting ds_perf
+ [2022-09-01 13:07:30.861]: Testing hashtable
+ [2022-09-01 13:07:30.861]: hashtable init: alloc: 100,096, dealloc: 96, alloc_qty: 2, dealloc_qty: 1, delta: 100,000, elapsed: 55.208µs
+ [2022-09-01 13:07:30.863]: hashtable insert: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 2.296961ms
+ [2022-09-01 13:07:30.865]: hashtable get: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 1.462402ms
+ [2022-09-01 13:07:30.865]: hashtable drop: alloc: 100,000, dealloc: 200,000, alloc_qty: 1, dealloc_qty: 2, delta: -100,000, elapsed: 512.423µs
+
+ $ ./target/release/perf  --hashmap
+ [2022-09-01 13:07:39.269]: Starting ds_perf
+ [2022-09-01 13:07:39.269]: Testing hashmap
+ [2022-09-01 13:07:39.269]: hashmap init: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 69ns
+ [2022-09-01 13:07:39.270]: hashmap insert: alloc: 688,252, dealloc: 344,172, alloc_qty: 26, dealloc_qty: 24, delta: 344,080, elapsed: 611.785µs
+ [2022-09-01 13:07:39.270]: hashmap get: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 199.428µs
+ [2022-09-01 13:07:39.270]: hashmap drop: alloc: 0, dealloc: 344,080, alloc_qty: 0, dealloc_qty: 2, delta: -344,080, elapsed: 25.252µs
+
+ $ ./target/release/perf  --arraylist
+ [2022-09-01 13:08:08.434]: Starting ds_perf
+ [2022-09-01 13:08:08.435]: testing arraylist
+ [2022-09-01 13:08:08.435]: arraylist init: alloc: 40,000, dealloc: 0, alloc_qty: 1, dealloc_qty: 0, delta: 40,000, elapsed: 27.827µs
+ [2022-09-01 13:08:08.435]: arraylist insert: alloc: 0, dealloc: 0, alloc_qty: 0, dealloc_qty: 0, delta: 0, elapsed: 18.963µs
+ [2022-09-01 13:08:08.435]: arraylist iter: alloc: 24, dealloc: 24, alloc_qty: 1, dealloc_qty: 1, delta: 0, elapsed: 20.341µs
+ [2022-09-01 13:08:08.435]: arraylist drop: alloc: 1,856, dealloc: 41,856, alloc_qty: 27, dealloc_qty: 28, delta: -40,000, elapsed: 110ns
+
+</code></pre></div>
 <p>So, as seen, the performance is somewhat comparable and keep in mind, that these operations are
 being done in the sub millisecond time frame, so it’s very unlikely that this will ultimately
 impact the performance of the application unless it’s an already very optimized application
-that needs to be very scalable. It’s important to note that the “non-raw” versions of these
-operations are substantially slower, but if performance is needed in parts of the application,
-raw access can be used and when performance doesn’t matter as much the regular/convenient
-serialization functions can be used. Mix and match is possible.</p>
+that needs to be very scalable.</p>
+<h2 id="using-bmw-in-your-project"><a href="#using-bmw-in-your-project">Using bmw in your project</a></h2>
+<p>To use the crates in bmw in your project, add the following to your Cargo.toml</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code></code></pre></div>
 <h2 id="use-cases"><a href="#use-cases">Use cases</a></h2>
 <p>The main use case for these data structures is in server applications to avoid making dynamic
-heap allocations, but they also offer some other interesting properties. For instance, with
-the standard rust collections, the entries in the hashtable are just references so they must
-stay in scope while they are in the hashtable. With this implementation, that is not required.
+heap allocations as runtime, but they also offer some other interesting properties. For instance, with
+the standard rust collections, the entries in the hashmap are just references so they must
+stay in scope while they are in the hashmap. With this implementation, that is not required.
 The inserted items can be dropped and they will remain in the hashtable/hashset. Also,
-<a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a> and <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a> both implement the
-<a href="trait.Serializable.html" title="crate::Serializable"><code>crate::Serializable</code></a> trait so they can be sent from one part of an app to another or even
+<a href="trait.Hashtable.html" title="crate::Hashtable"><code>crate::Hashtable</code></a> and <a href="trait.Hashset.html" title="crate::Hashset"><code>crate::Hashset</code></a> both implement the
+<a href="trait.Serializable.html" title="bmw_ser::Serializable"><code>bmw_ser::Serializable</code></a> trait so they can be sent from one part of an app to another or even
 sent over the network.</p>
-<h2 id="examples"><a href="#examples">Examples</a></h2>
-<div class="example-wrap"><pre class="rust rust-example-rendered"><code> <span class="kw">use</span> <span class="ident">bmw_err</span>::<span class="kw-2">*</span>; <span class="comment">// errors</span>
- <span class="kw">use</span> <span class="ident">bmw_log</span>::<span class="kw-2">*</span>; <span class="comment">// logging</span>
- <span class="kw">use</span> <span class="ident">bmw_util</span>::{<span class="ident">ctx</span>, <span class="ident">hashtable</span>}; <span class="comment">// use ctx and hashtable macro</span>
-
- <span class="macro">info!</span>(); <span class="comment">// log at info level in this example</span>
-
- <span class="kw">fn</span> <span class="ident">test</span>() -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {
-     <span class="comment">// create a context for the hashtable</span>
-     <span class="kw">let</span> <span class="ident">ctx</span> <span class="op">=</span> <span class="macro">ctx!</span>();
-
-     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">hash</span> <span class="op">=</span> <span class="macro">hashtable!</span>()<span class="question-mark">?</span>; <span class="comment">// hashtable with default settings</span>
-
-     <span class="ident">hash</span>.<span class="ident">insert</span>(<span class="ident">ctx</span>, <span class="kw-2">&amp;</span><span class="number">1</span>, <span class="kw-2">&amp;</span><span class="number">2</span>)<span class="question-mark">?</span>; <span class="comment">// insert 1 -&gt; 2 (default is i32)</span>
-     <span class="macro">assert_eq!</span>(<span class="ident">hash</span>.<span class="ident">get</span>(<span class="ident">ctx</span>, <span class="kw-2">&amp;</span><span class="number">1</span>)<span class="question-mark">?</span>.<span class="ident">unwrap</span>(), <span class="number">2</span>); <span class="comment">// confirm that 1 is in the table</span>
-     <span class="ident">hash</span>.<span class="ident">remove</span>(<span class="ident">ctx</span>, <span class="kw-2">&amp;</span><span class="number">1</span>)<span class="question-mark">?</span>; <span class="comment">// remove</span>
-     <span class="macro">assert!</span>(<span class="ident">hash</span>.<span class="ident">get</span>(<span class="ident">ctx</span>, <span class="kw-2">&amp;</span><span class="number">1</span>)<span class="question-mark">?</span>.<span class="ident">is_none</span>()); <span class="comment">// confirm that 1 has been removed</span>
-
-     <span class="prelude-val">Ok</span>(())
- }
-
- <span class="kw">fn</span> <span class="ident">test_advanced</span>() -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {
-     <span class="comment">// create a context for the hashtable</span>
-     <span class="kw">let</span> <span class="ident">ctx</span> <span class="op">=</span> <span class="macro">ctx!</span>();
-
-     <span class="comment">// create a hashtable with maximum_entries of 10.</span>
-     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">hash1</span> <span class="op">=</span> <span class="macro">hashtable!</span>(<span class="number">10</span>)<span class="question-mark">?</span>;
-
-     <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> <span class="number">0</span>..<span class="number">10</span> {
-         <span class="kw">let</span> <span class="ident">key</span> <span class="op">=</span> <span class="ident">i</span> <span class="kw">as</span> <span class="ident">u128</span>;
-
-         <span class="comment">// insert with a u128 key and value of String.</span>
-         <span class="comment">// note that anything inserted must implement the [`crate::Serializable`]</span>
-         <span class="comment">// trait.</span>
-         <span class="ident">hash1</span>.<span class="ident">insert</span>(<span class="ident">ctx</span>, <span class="kw-2">&amp;</span><span class="ident">key</span>, <span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">&quot;something{}&quot;</span>, <span class="ident">i</span>))<span class="question-mark">?</span>;
-     }
-
-     <span class="macro">assert!</span>(<span class="ident">hash1</span>.<span class="ident">insert</span>(<span class="ident">ctx</span>, <span class="kw-2">&amp;</span><span class="number">100u128</span>, <span class="kw-2">&amp;</span><span class="string">&quot;anything&quot;</span>.<span class="ident">to_string</span>()).<span class="ident">is_err</span>());
-
-     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">count</span> <span class="op">=</span> <span class="number">0</span>;
-     <span class="comment">// The [`std::iter::IntoIterator`] trait is implemented, so iteration</span>
-     <span class="comment">// is simple</span>
-     <span class="kw">for</span> (<span class="ident">k</span>,<span class="ident">v</span>) <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">hash1</span> {
-         <span class="macro">info!</span>(<span class="string">&quot;k={},v={}&quot;</span>, <span class="ident">k</span>, <span class="ident">v</span>)<span class="question-mark">?</span>;
-         <span class="ident">count</span> <span class="op">+</span><span class="op">=</span> <span class="number">1</span>;
-     }
-
-     <span class="macro">assert_eq!</span>(<span class="ident">count</span>, <span class="number">9</span>);
-
-     <span class="comment">// create a hash with a non-default maximum load capacity.</span>
-     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">hash2</span> <span class="op">=</span> <span class="macro">hashtable!</span>(<span class="number">10</span>, <span class="number">0.5</span>)<span class="question-mark">?</span>;
-
-     <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> <span class="number">0</span>..<span class="number">10</span> {
-         <span class="kw">let</span> <span class="ident">key</span> <span class="op">=</span> <span class="ident">i</span> <span class="kw">as</span> <span class="ident">u128</span>;
-
-         <span class="comment">// insert with a u128 key and value of String.</span>
-         <span class="comment">// note that anything inserted must implement the [`crate::Serializable`]</span>
-         <span class="comment">// trait.</span>
-         <span class="ident">hash2</span>.<span class="ident">insert</span>(<span class="ident">ctx</span>, <span class="kw-2">&amp;</span><span class="ident">key</span>, <span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">&quot;something{}&quot;</span>, <span class="ident">i</span>))<span class="question-mark">?</span>;
-     }
-
-     <span class="comment">// note that hash2 appears to behave the same way as hash1. Both allow</span>
-     <span class="comment">// for 10 entries regardless of the load factor (hash1 has a default load factor of</span>
-     <span class="comment">// 0.75 and hash2 has a load factor configured to 0.5). The difference is that</span>
-     <span class="comment">// when hash2 was instantiated, an entry array of length 20 would be used, whereas</span>
-     <span class="comment">// with hash1, an array of 14 would have been used. Both ensure that exactly max_entries</span>
-     <span class="comment">// items can be inserted. The main considerations for the user is memory consuption and</span>
-     <span class="comment">// performance.</span>
-     <span class="macro">assert!</span>(<span class="ident">hash2</span>.<span class="ident">insert</span>(<span class="ident">ctx</span>, <span class="kw-2">&amp;</span><span class="number">100u128</span>, <span class="kw-2">&amp;</span><span class="string">&quot;anything&quot;</span>.<span class="ident">to_string</span>()).<span class="ident">is_err</span>());
-
-     <span class="prelude-val">Ok</span>(())
- }</code></pre></div>
-</div></details><h2 id="macros" class="small-section-header"><a href="#macros">Macros</a></h2>
-<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.ctx.html" title="bmw_util::ctx macro">ctx</a></div><div class="item-right docblock-short"><p>Macro to create a context which is used by the data structures.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashset.html" title="bmw_util::hashset macro">hashset</a></div><div class="item-right docblock-short"><p>The <a href="macro.hashset.html" title="crate::hashset"><code>crate::hashset</code></a> macro is used to instantiate a <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a>. If no
-parameters are specified, default values of <code>max_entries</code> = 1_000_000 and <code>max_load_factor</code> =
-0.75 are used. If one parameter is specified, it will be use for <code>max_entries</code>. If two
-parameters are specified, they will be used for <code>max_entries</code> and <code>max_load_factor</code>
-respectively. The <code>max_entries</code> value is the maximum number of entries that can exist in this
-<a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a>. The <code>max_load_factor</code> is the maximum load factor that
-this <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a> can support. The <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a> will calculate
-the size of the entry array based on these values. With a lower load factor a larger entry
-array must be used to support <code>max_entries</code> so the lower the load factor the more resources
-are required.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashset_set_raw.html" title="bmw_util::hashset_set_raw macro">hashset_set_raw</a></div><div class="item-right docblock-short"><p>This macro is used to put a hashset into ‘raw’ mode. After this
-function is called, only the ‘raw’ functions (i.e. <a href="trait.StaticHashset.html#tymethod.insert_raw" title="crate::StaticHashset::insert_raw"><code>crate::StaticHashset::insert_raw</code></a>,
-<a href="trait.StaticHashset.html#tymethod.contains_raw" title="crate::StaticHashset::contains_raw"><code>crate::StaticHashset::contains_raw</code></a>, <a href="trait.StaticHashset.html#tymethod.remove_raw" title="crate::StaticHashset::remove_raw"><code>crate::StaticHashset::remove_raw</code></a> and
-<a href="trait.StaticHashset.html#tymethod.iter_raw" title="crate::StaticHashset::iter_raw"><code>crate::StaticHashset::iter_raw</code></a>) will return useful values.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable.html" title="bmw_util::hashtable macro">hashtable</a></div><div class="item-right docblock-short"><p>The <a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a> macro is used to instantiate a <a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a>. If no
-parameters are specified, default values of <code>max_entries</code> = 1_000_000 and <code>max_load_factor</code> =
-0.75 are used. If one parameter is specified, it will be use for <code>max_entries</code>. If two
-parameters are specified, they will be used for <code>max_entries</code> and <code>max_load_factor</code>
-respectively. The <code>max_entries</code> value is the maximum number of entries that can exist in this
-<a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a>. The <code>max_load_factor</code> is the maximum load factor that
-this <a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a> can support. The <a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a> will calculate
-the size of the entry array based on these values. With a lower load factor a larger entry
-array must be used to support <code>max_entries</code> so the lower the load factor the more resources
-are required.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable_set_raw.html" title="bmw_util::hashtable_set_raw macro">hashtable_set_raw</a></div><div class="item-right docblock-short"><p>This macro is used to put a hashtable into ‘raw’ mode. After this
-function is called, only the ‘raw’ functions (i.e. <a href="trait.StaticHashtable.html#tymethod.insert_raw" title="crate::StaticHashtable::insert_raw"><code>crate::StaticHashtable::insert_raw</code></a>,
-<a href="trait.StaticHashtable.html#tymethod.get_raw" title="crate::StaticHashtable::get_raw"><code>crate::StaticHashtable::get_raw</code></a>, <a href="trait.StaticHashtable.html#tymethod.remove_raw" title="crate::StaticHashtable::remove_raw"><code>crate::StaticHashtable::remove_raw</code></a> and
-<a href="trait.StaticHashtable.html#tymethod.iter_raw" title="crate::StaticHashtable::iter_raw"><code>crate::StaticHashtable::iter_raw</code></a>) will return useful values.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.init_slab_allocator.html" title="bmw_util::init_slab_allocator macro">init_slab_allocator</a></div><div class="item-right docblock-short"><p>Macro to initialize the global slab allocator. It is important to note that
-this macro only affects the thread in which it is executed in and must be called
-separately in each thread that you wish to initialize the global slab allocator
-in. Also, the data structures, like <a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a> and
-<a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a>, will initialized this slab allocator with default values
-if this macro is not called first. Therefore, it makes sense to call this very soon
-after starting a thread that will use it. The slab allocator is initialized with
-<code>slab_size</code> and <code>slab_count</code> parameters respecitvely. <code>slab_size</code> is the size in bytes
-of slabs. The default value is 1_024 bytes. <code>slab_count</code> is the number of slabs to
-initialize. The default value is 10_240. The defaults will be used if this macro is
-not called.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.slab_allocator.html" title="bmw_util::slab_allocator macro">slab_allocator</a></div><div class="item-right docblock-short"><p>The <a href="macro.slab_allocator.html" title="crate::slab_allocator"><code>crate::slab_allocator</code></a> macro allows for creation of a slab allocator that may be used
-by the data structures in this crate. If no parameters are specified, the default values of
-<code>slab_size</code> equal to 1_024 and <code>slab_count</code> of 10_240 are used. If one paramater is specifed,
-it is used as <code>slab_count</code> and the default is used for <code>slab_size</code>. If two parameters are
-specified, it is used as <code>slab_count</code> and <code>slab_size</code> respectively. The <code>slab_count</code> is
-the total number of slabs in this slab allocator. It is important to note that additional
-slabs may not be added after startup. <code>The slab_size</code> is the size in bytes of the slabs
-in this instance.</p>
+<h2 id="examples"><a href="#examples">Examples</a></h2></div></details><h2 id="reexports" class="small-section-header"><a href="#reexports">Re-exports</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left import-item"><code>pub use crate::types::<a class="enum" href="enum.ConfigOption.html" title="enum bmw_util::ConfigOption">ConfigOption</a>::*;</code></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left import-item"><code>pub use crate::types::<a class="enum" href="enum.PatternParam.html" title="enum bmw_util::PatternParam">PatternParam</a>::*;</code></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left import-item"><code>pub use crate::types::<a class="enum" href="enum.SuffixParam.html" title="enum bmw_util::SuffixParam">SuffixParam</a>::*;</code></div><div class="item-right docblock-short"></div></div></div><h2 id="macros" class="small-section-header"><a href="#macros">Macros</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.array.html" title="bmw_util::array macro">array</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.array_list.html" title="bmw_util::array_list macro">array_list</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.array_list_box.html" title="bmw_util::array_list_box macro">array_list_box</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.block_on.html" title="bmw_util::block_on macro">block_on</a></div><div class="item-right docblock-short"><p>Macro used to block until a thread pool has completed the task. See <a href="trait.ThreadPool.html" title="crate::ThreadPool"><code>crate::ThreadPool</code></a> for working examples.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.execute.html" title="bmw_util::execute macro">execute</a></div><div class="item-right docblock-short"><p>Macro used to execute tasks in a thread pool. See <a href="trait.ThreadPool.html" title="crate::ThreadPool"><code>crate::ThreadPool</code></a> for working examples.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashset.html" title="bmw_util::hashset macro">hashset</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashset_box.html" title="bmw_util::hashset_box macro">hashset_box</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashset_config.html" title="bmw_util::hashset_config macro">hashset_config</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashset_sync.html" title="bmw_util::hashset_sync macro">hashset_sync</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashset_sync_box.html" title="bmw_util::hashset_sync_box macro">hashset_sync_box</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashset_sync_config.html" title="bmw_util::hashset_sync_config macro">hashset_sync_config</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable.html" title="bmw_util::hashtable macro">hashtable</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable_box.html" title="bmw_util::hashtable_box macro">hashtable_box</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable_config.html" title="bmw_util::hashtable_config macro">hashtable_config</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable_sync.html" title="bmw_util::hashtable_sync macro">hashtable_sync</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable_sync_box.html" title="bmw_util::hashtable_sync_box macro">hashtable_sync_box</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.hashtable_sync_config.html" title="bmw_util::hashtable_sync_config macro">hashtable_sync_config</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.init_slab_allocator.html" title="bmw_util::init_slab_allocator macro">init_slab_allocator</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.list.html" title="bmw_util::list macro">list</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.list_append.html" title="bmw_util::list_append macro">list_append</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.list_box.html" title="bmw_util::list_box macro">list_box</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.list_eq.html" title="bmw_util::list_eq macro">list_eq</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.list_sync.html" title="bmw_util::list_sync macro">list_sync</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.list_sync_box.html" title="bmw_util::list_sync_box macro">list_sync_box</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.pattern.html" title="bmw_util::pattern macro">pattern</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.queue.html" title="bmw_util::queue macro">queue</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.queue_box.html" title="bmw_util::queue_box macro">queue_box</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.slab_allocator.html" title="bmw_util::slab_allocator macro">slab_allocator</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.stack.html" title="bmw_util::stack macro">stack</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.stack_box.html" title="bmw_util::stack_box macro">stack_box</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.suffix_tree.html" title="bmw_util::suffix_tree macro">suffix_tree</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.thread_pool.html" title="bmw_util::thread_pool macro">thread_pool</a></div><div class="item-right docblock-short"><p>Macro used to configure/build a thread pool. See <a href="trait.ThreadPool.html" title="crate::ThreadPool"><code>crate::ThreadPool</code></a> for working examples.</p>
 </div></div></div><h2 id="structs" class="small-section-header"><a href="#structs">Structs</a></h2>
-<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.BinReader.html" title="bmw_util::BinReader struct">BinReader</a></div><div class="item-right docblock-short"><p>Utility wrapper for an underlying byte Reader. Defines higher level methods
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Array.html" title="bmw_util::Array struct">Array</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.ArrayIterator.html" title="bmw_util::ArrayIterator struct">ArrayIterator</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.ArrayList.html" title="bmw_util::ArrayList struct">ArrayList</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.BinReader.html" title="bmw_util::BinReader struct">BinReader</a></div><div class="item-right docblock-short"><p>Utility wrapper for an underlying byte Reader. Defines higher level methods
 to write numbers, byte vectors, hashes, etc.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.BinWriter.html" title="bmw_util::BinWriter struct">BinWriter</a></div><div class="item-right docblock-short"><p>Utility wrapper for an underlying byte Writer. Defines higher level methods
 to write numbers, byte vectors, hashes, etc.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Context.html" title="bmw_util::Context struct">Context</a></div><div class="item-right docblock-short"><p>A context which is used in many of the methods in this crate. The reason for using
-the context is to avoid creating new Vectors, and other structures that require heap
-allocations at run time. Instead the context may be created at startup and used
-throughout the lifecycle of the application. The <a href="struct.Context.html" title="crate::Context"><code>crate::Context</code></a> struct may be
-conveniently built through the <a href="macro.ctx.html" title="crate::ctx"><code>crate::ctx</code></a> macro.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Slab.html" title="bmw_util::Slab struct">Slab</a></div><div class="item-right docblock-short"><p>Struct that is used as a immutable refernce to data in a slab. See <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> for
+</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Builder.html" title="bmw_util::Builder struct">Builder</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.HashsetConfig.html" title="bmw_util::HashsetConfig struct">HashsetConfig</a></div><div class="item-right docblock-short"><p>The configuration struct for a <a href="trait.Hashset.html" title="Hashset"><code>Hashset</code></a>. This struct is passed
+into the <a href="struct.Builder.html#method.build_hashset" title="crate::Builder::build_hashset"><code>crate::Builder::build_hashset</code></a> function. The <a href="https://doc.rust-lang.org/1.63.0/core/default/trait.Default.html" title="std::default::Default"><code>std::default::Default</code></a>
+trait is implemented for this trait.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.HashsetIterator.html" title="bmw_util::HashsetIterator struct">HashsetIterator</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.HashtableConfig.html" title="bmw_util::HashtableConfig struct">HashtableConfig</a></div><div class="item-right docblock-short"><p>The configuration struct for a <a href="trait.Hashtable.html" title="Hashtable"><code>Hashtable</code></a>. This struct is passed
+into the <a href="struct.Builder.html#method.build_hashtable" title="crate::Builder::build_hashtable"><code>crate::Builder::build_hashtable</code></a> function. The <a href="https://doc.rust-lang.org/1.63.0/core/default/trait.Default.html" title="std::default::Default"><code>std::default::Default</code></a>
+trait is implemented for this trait.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.HashtableIterator.html" title="bmw_util::HashtableIterator struct">HashtableIterator</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.ListConfig.html" title="bmw_util::ListConfig struct">ListConfig</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.ListIterator.html" title="bmw_util::ListIterator struct">ListIterator</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Match.html" title="bmw_util::Match struct">Match</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Pattern.html" title="bmw_util::Pattern struct">Pattern</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Slab.html" title="bmw_util::Slab struct">Slab</a></div><div class="item-right docblock-short"><p>Struct that is used as a immutable refernce to data in a slab. See <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> for
 further details.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabAllocatorBuilder.html" title="bmw_util::SlabAllocatorBuilder struct">SlabAllocatorBuilder</a></div><div class="item-right docblock-short"><p>Builder struct used to build slab allocators. The build functions are generally called
-through the <a href="macro.slab_allocator.html" title="crate::slab_allocator"><code>crate::slab_allocator</code></a> macro to create instances of <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a>
-or through the <a href="macro.init_slab_allocator.html" title="crate::init_slab_allocator"><code>crate::init_slab_allocator</code></a> to configure the global thread local
-<a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a>.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabAllocatorConfig.html" title="bmw_util::SlabAllocatorConfig struct">SlabAllocatorConfig</a></div><div class="item-right docblock-short"><p>Slab Allocator configuration struct. This struct is the input to the
 <a href="trait.SlabAllocator.html#tymethod.init" title="crate::SlabAllocator::init"><code>crate::SlabAllocator::init</code></a> function. The two parameters are <code>slab_size</code>
 which is the size of the slabs in bytes allocated by this
@@ -231,20 +144,18 @@ which is the size of the slabs in bytes allocated by this
 that can be allocated by this <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a>.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabMut.html" title="bmw_util::SlabMut struct">SlabMut</a></div><div class="item-right docblock-short"><p>Struct that is used as a mutable refernce to data in a slab. See <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> for
 further details.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashsetBuilder.html" title="bmw_util::StaticHashsetBuilder struct">StaticHashsetBuilder</a></div><div class="item-right docblock-short"><p>A builder struct used to build a <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a>. This macro
-is called by <a href="macro.hashset.html" title="crate::hashset"><code>crate::hashset</code></a>. <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a>s are generally built
-through that macro.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashsetConfig.html" title="bmw_util::StaticHashsetConfig struct">StaticHashsetConfig</a></div><div class="item-right docblock-short"><p>The configuration struct for a <a href="trait.StaticHashset.html" title="StaticHashset"><code>StaticHashset</code></a>. This struct is passed
-into the <a href="struct.StaticHashsetBuilder.html#method.build" title="crate::StaticHashsetBuilder::build"><code>crate::StaticHashsetBuilder::build</code></a> function. The <a href="https://doc.rust-lang.org/1.63.0/core/default/trait.Default.html" title="std::default::Default"><code>std::default::Default</code></a>
-trait is implemented for this trait.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashtableBuilder.html" title="bmw_util::StaticHashtableBuilder struct">StaticHashtableBuilder</a></div><div class="item-right docblock-short"><p>A builder struct used to build a <a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a>. This macro
-is called by <a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a>. <a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a>s are generally built
-through that macro.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.StaticHashtableConfig.html" title="bmw_util::StaticHashtableConfig struct">StaticHashtableConfig</a></div><div class="item-right docblock-short"><p>The configuration struct for a <a href="trait.StaticHashtable.html" title="StaticHashtable"><code>StaticHashtable</code></a>. This struct is passed
-into the <a href="struct.StaticHashtableBuilder.html#method.build" title="crate::StaticHashtableBuilder::build"><code>crate::StaticHashtableBuilder::build</code></a> function. The <a href="https://doc.rust-lang.org/1.63.0/core/default/trait.Default.html" title="std::default::Default"><code>std::default::Default</code></a>
-trait is implemented for this trait.</p>
-</div></div></div><h2 id="traits" class="small-section-header"><a href="#traits">Traits</a></h2>
-<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Reader.html" title="bmw_util::Reader trait">Reader</a></div><div class="item-right docblock-short"><p>Reader trait used for deserializing data.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabReader.html" title="bmw_util::SlabReader struct">SlabReader</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabWriter.html" title="bmw_util::SlabWriter struct">SlabWriter</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.ThreadPoolConfig.html" title="bmw_util::ThreadPoolConfig struct">ThreadPoolConfig</a></div><div class="item-right docblock-short"><p>The configuration struct for a <a href="trait.ThreadPool.html" title="crate::ThreadPool"><code>crate::ThreadPool</code></a>. This struct is passed into the
+<a href="struct.Builder.html#method.build_thread_pool" title="crate::Builder::build_thread_pool"><code>crate::Builder::build_thread_pool</code></a> function or the <a href="macro.thread_pool.html" title="crate::thread_pool"><code>crate::thread_pool</code></a> macro. The
+<a href="https://doc.rust-lang.org/1.63.0/core/default/trait.Default.html" title="std::default::Default"><code>std::default::Default</code></a> trait is implemented for this trait. Also see <a href="enum.ConfigOption.html" title="crate::ConfigOption"><code>crate::ConfigOption</code></a>
+for details on configuring via macro.</p>
+</div></div></div><h2 id="enums" class="small-section-header"><a href="#enums">Enums</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="enum" href="enum.ConfigOption.html" title="bmw_util::ConfigOption enum">ConfigOption</a></div><div class="item-right docblock-short"><p>Configuration options used throughout this crate via macro.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="enum" href="enum.PatternParam.html" title="bmw_util::PatternParam enum">PatternParam</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="enum" href="enum.PoolResult.html" title="bmw_util::PoolResult enum">PoolResult</a></div><div class="item-right docblock-short"><p>The result returned from a call to <a href="trait.ThreadPool.html#tymethod.execute" title="crate::ThreadPool::execute"><code>crate::ThreadPool::execute</code></a>. This is
+similar to <a href="https://doc.rust-lang.org/1.63.0/core/result/enum.Result.html" title="std::result::Result"><code>std::result::Result</code></a> except that it implements <a href="https://doc.rust-lang.org/1.63.0/core/marker/trait.Send.html" title="std::marker::Send"><code>std::marker::Send</code></a>
+and <a href="https://doc.rust-lang.org/1.63.0/core/marker/trait.Sync.html" title="std::marker::Sync"><code>std::marker::Sync</code></a> so that it can be passed through threads. Also a type
+<a href="enum.PoolResult.html#variant.Panic" title="crate::PoolResult::Panic"><code>crate::PoolResult::Panic</code></a> is returned if a thread panic occurs in the thread pool.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="enum" href="enum.SuffixParam.html" title="bmw_util::SuffixParam enum">SuffixParam</a></div><div class="item-right docblock-short"></div></div></div><h2 id="traits" class="small-section-header"><a href="#traits">Traits</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Hashset.html" title="bmw_util::Hashset trait">Hashset</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Hashtable.html" title="bmw_util::Hashtable trait">Hashtable</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.List.html" title="bmw_util::List trait">List</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Queue.html" title="bmw_util::Queue trait">Queue</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Reader.html" title="bmw_util::Reader trait">Reader</a></div><div class="item-right docblock-short"><p>Reader trait used for deserializing data.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Serializable.html" title="bmw_util::Serializable trait">Serializable</a></div><div class="item-right docblock-short"><p>This is the trait used by all data structures to serialize and deserialize data.
 Anthing stored in them must implement this trait. Commonly needed implementations
 are built in the ser module in this crate. These include Vec, String, integer types among
@@ -255,31 +166,12 @@ allocations. By itself, the slab allocator is fairly simple. It only allocates a
 slabs. <a href="trait.SlabAllocator.html#tymethod.get" title="crate::SlabAllocator::get"><code>crate::SlabAllocator::get</code></a> and <a href="trait.SlabAllocator.html#tymethod.get_mut" title="crate::SlabAllocator::get_mut"><code>crate::SlabAllocator::get_mut</code></a> are also
 provided to obtain immutable and mutable references to a slab respectively. They only
 contain references to the data and not copies.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.StaticHashset.html" title="bmw_util::StaticHashset trait">StaticHashset</a></div><div class="item-right docblock-short"><p>The <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a> trait defines the public interface to the
-static hashset. The hashset in this crate uses linear probing to handle
-collisions and it cannot be resized after it is intialized. Configuration of the
-hashset is done via the <a href="struct.StaticHashsetConfig.html" title="crate::StaticHashsetConfig"><code>crate::StaticHashsetConfig</code></a> struct. The shared
-implementation can be instantiated as a <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a> through the
-<a href="struct.StaticHashsetBuilder.html#method.build" title="crate::StaticHashsetBuilder::build"><code>crate::StaticHashsetBuilder::build</code></a> function or as a <a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a>
-through the <a href="struct.StaticHashtableBuilder.html#method.build" title="crate::StaticHashtableBuilder::build"><code>crate::StaticHashtableBuilder::build</code></a> function. Although there
-is a different interface for each, they are very similar and share most of the
-implementation code. In most cases, the data structures in this crate should be
-instantiated through the macros, but they can also be instantiated through the
-builder structs as well. See <a href="macro.hashset.html" title="crate::hashset"><code>crate::hashset</code></a>.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.StaticHashtable.html" title="bmw_util::StaticHashtable trait">StaticHashtable</a></div><div class="item-right docblock-short"><p>The <a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a> trait defines the public interface to the
-static hashtable. The hashtable in this crate uses linear probing to handle
-collisions and it cannot be resized after it is intialized. Configuration of the
-hashtable is done via the <a href="struct.StaticHashtableConfig.html" title="crate::StaticHashtableConfig"><code>crate::StaticHashtableConfig</code></a> struct. The shared
-implementation can be instantiated as a <a href="trait.StaticHashtable.html" title="crate::StaticHashtable"><code>crate::StaticHashtable</code></a> through the
-<a href="struct.StaticHashtableBuilder.html#method.build" title="crate::StaticHashtableBuilder::build"><code>crate::StaticHashtableBuilder::build</code></a> function or as a <a href="trait.StaticHashset.html" title="crate::StaticHashset"><code>crate::StaticHashset</code></a>
-through the <a href="struct.StaticHashsetBuilder.html#method.build" title="crate::StaticHashsetBuilder::build"><code>crate::StaticHashsetBuilder::build</code></a> function. Although there
-is a different interface for each, they are very similar and share most of the
-implementation code. In most cases, the data structures in this crate should be
-instantiated through the macros, but they can also be instantiated through the
-builder structs as well. See <a href="macro.hashtable.html" title="crate::hashtable"><code>crate::hashtable</code></a>.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.StaticList.html" title="bmw_util::StaticList trait">StaticList</a></div><div class="item-right docblock-short"><p>TODO: not implemented</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.StaticQueue.html" title="bmw_util::StaticQueue trait">StaticQueue</a></div><div class="item-right docblock-short"><p>TODO: not implemented</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.ThreadPool.html" title="bmw_util::ThreadPool trait">ThreadPool</a></div><div class="item-right docblock-short"><p>TODO: not implemented</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.SortableList.html" title="bmw_util::SortableList trait">SortableList</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Stack.html" title="bmw_util::Stack trait">Stack</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.SuffixTree.html" title="bmw_util::SuffixTree trait">SuffixTree</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.ThreadPool.html" title="bmw_util::ThreadPool trait">ThreadPool</a></div><div class="item-right docblock-short"><p>This trait defines the public interface to the ThreadPool. A pool can be configured
+via the <a href="struct.ThreadPoolConfig.html" title="crate::ThreadPoolConfig"><code>crate::ThreadPoolConfig</code></a> struct. The thread pool should be accessed through the
+macros under normal circumstances. See <a href="macro.thread_pool.html" title="crate::thread_pool"><code>crate::thread_pool</code></a>, <a href="macro.execute.html" title="crate::execute"><code>crate::execute</code></a> and
+<a href="macro.block_on.html" title="crate::block_on"><code>crate::block_on</code></a> for additional details. The thread pool can be passed through threads via a
+<a href="../bmw_log/lock/trait.Lock.html" title="bmw_log::Lock"><code>bmw_log::Lock</code></a> or <a href="../bmw_log/lock/trait.LockBox.html" title="bmw_log::LockBox"><code>bmw_log::LockBox</code></a> so a single thread pool can service multiple
+worker threads. See examples below.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="trait" href="trait.Writer.html" title="bmw_util::Writer trait">Writer</a></div><div class="item-right docblock-short"><p>Writer trait used to serializing data.</p>
 </div></div></div><h2 id="functions" class="small-section-header"><a href="#functions">Functions</a></h2>
 <div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.deserialize.html" title="bmw_util::deserialize fn">deserialize</a></div><div class="item-right docblock-short"><p>Deserializes a Serializable from any std::io::Read implementation.</p>
