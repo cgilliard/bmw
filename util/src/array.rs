@@ -27,7 +27,7 @@ impl<T: Clone> Array<T> {
 		if size == 0 {
 			return Err(err!(ErrKind::IllegalArgument, "size must not be 0"));
 		}
-		let mut data = vec![];
+		let mut data = Vec::with_capacity(size);
 		data.resize(size, d.clone());
 
 		let ret = Self { data };
