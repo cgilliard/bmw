@@ -104,20 +104,6 @@ where
 	}
 }
 
-/*
-impl<T> Drop for Array<T> {
-	fn drop(&mut self) {
-		unsafe {
-			for i in 0..self.size {
-				let ptr = &mut self[i] as *mut _;
-				std::ptr::drop_in_place(ptr);
-			}
-			dealloc(self.data, self.layout);
-		}
-	}
-}
-*/
-
 impl<T> IndexMut<usize> for Array<T> {
 	fn index_mut(&mut self, index: usize) -> &mut <Self as Index<usize>>::Output {
 		if index >= self.data.len() {
@@ -428,7 +414,7 @@ mod test {
 
 		let mut i = 0;
 		for x in arr.iter() {
-			assert_eq!(x, i as u64);
+			assert_eq!(x, &(i as u64));
 			i += 1;
 		}
 		Ok(())

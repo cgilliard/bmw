@@ -361,7 +361,7 @@ where
 			slabs.init(slab_allocator_config)?;
 		}
 
-		let static_impl = HashImpl::new(htc, hsc, list_config, Some(slabs), false)?;
+		let static_impl = HashImpl::new(htc, hsc, list_config, &Some(&slabs), false)?;
 		Ok(Self { static_impl })
 	}
 }
@@ -511,10 +511,10 @@ where
 		hashtable_config: Option<HashtableConfig>,
 		hashset_config: Option<HashsetConfig>,
 		list_config: Option<ListConfig>,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+		slabs: &Option<&Rc<RefCell<dyn SlabAllocator>>>,
 		debug_large_slab_count: bool,
 	) -> Result<Self, Error> {
-		let (slab_size, slab_count) = match slabs.as_ref() {
+		let (slab_size, slab_count) = match slabs {
 			Some(slabs) => {
 				let slabs: Ref<_> = slabs.borrow();
 				(slabs.slab_size()?, slabs.slab_count()?)
@@ -627,8 +627,21 @@ where
 			return Err(e);
 		}
 
-		let slab_reader = SlabReader::new(slabs.clone(), 0, Some(ptr_size))?;
-		let slab_writer = SlabWriter::new(slabs.clone(), 0, Some(ptr_size))?;
+		let (slab_reader, slab_writer, slabs) = match &slabs {
+			Some(slabs) => {
+				let slabs2: Rc<RefCell<(dyn SlabAllocator + 'static)>> = slabs.clone().clone();
+				(
+					SlabReader::new(Some(slabs2.clone()), 0, Some(ptr_size))?,
+					SlabWriter::new(Some(slabs2.clone()), 0, Some(ptr_size))?,
+					Some(slabs2.clone()),
+				)
+			}
+			None => (
+				SlabReader::new(None, 0, Some(ptr_size))?,
+				SlabWriter::new(None, 0, Some(ptr_size))?,
+				None,
+			),
+		};
 
 		let ret = Self {
 			slabs,
@@ -1276,7 +1289,7 @@ mod test {
 					max_entries: 100,
 					..Default::default()
 				},
-				None,
+				&None,
 			)?;
 			free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
@@ -1307,7 +1320,7 @@ mod test {
 
 	#[test]
 	fn test_remove_static_hashtable() -> Result<(), Error> {
-		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), &None)?;
 		hashtable.insert(&1, &2)?;
 		let v = hashtable.get(&1)?;
 		assert_eq!(v.unwrap(), 2);
@@ -1328,7 +1341,7 @@ mod test {
 			keys.push(random::<u32>());
 			values.push(random::<u32>());
 		}
-		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), &None)?;
 		let mut hashmap = HashMap::new();
 		for i in 0..1_000 {
 			hashtable.insert(&keys[i], &values[i])?;
@@ -1356,7 +1369,7 @@ mod test {
 
 	#[test]
 	fn test_iterator() -> Result<(), Error> {
-		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), &None)?;
 		hashtable.insert(&1, &10)?;
 		hashtable.insert(&2, &20)?;
 		hashtable.insert(&3, &30)?;
@@ -1399,7 +1412,7 @@ mod test {
 
 	#[test]
 	fn test_clear() -> Result<(), Error> {
-		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
+		let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), &None)?;
 		let free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 		})?;
@@ -1436,7 +1449,7 @@ mod test {
 	fn test_hashtable_drop() -> Result<(), Error> {
 		let free_count1;
 		{
-			let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), None)?;
+			let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), &None)?;
 			free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 				Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 			})?;
@@ -1469,7 +1482,7 @@ mod test {
 
 	#[test]
 	fn test_hashset1() -> Result<(), Error> {
-		let mut hashset = Builder::build_hashset::<i32>(HashsetConfig::default(), None)?;
+		let mut hashset = Builder::build_hashset::<i32>(HashsetConfig::default(), &None)?;
 		hashset.insert(&1)?;
 		hashset.insert(&2)?;
 		hashset.insert(&3)?;
@@ -1516,7 +1529,7 @@ mod test {
 
 	#[test]
 	fn test_list1() -> Result<(), Error> {
-		let mut list = Builder::build_list(ListConfig::default(), None)?;
+		let mut list = Builder::build_list(ListConfig::default(), &None)?;
 		list.push(1)?;
 		list.push(2)?;
 		list.push(3)?;
@@ -1544,37 +1557,6 @@ mod test {
 		Ok(())
 	}
 
-	/*
-	#[test]
-	fn test_append() -> Result<(), Error> {
-		let mut list = Builder::build_list(ListConfig::default(), None)?;
-		list.push(1)?;
-		list.push(2)?;
-		list.push(3)?;
-		list.push(4)?;
-		list.push(5)?;
-		list.push(6)?;
-
-		let mut list2 = Builder::build_list(ListConfig::default(), None)?;
-		list2.push(7)?;
-		list2.push(8)?;
-		list2.push(9)?;
-
-		list.append(&list2)?;
-
-		let mut i = 0;
-		for x in list.iter() {
-			i += 1;
-			info!("i={}", i)?;
-			assert_eq!(x, i);
-		}
-
-		assert_eq!(i, 9);
-
-		Ok(())
-	}
-		*/
-
 	#[test]
 	fn test_small_slabs() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(8))?;
@@ -1583,7 +1565,7 @@ mod test {
 				max_entries: 100,
 				..Default::default()
 			},
-			Some(slabs),
+			&Some(&slabs),
 		)?;
 
 		table.insert(&1u8, &1u8)?;
@@ -1622,12 +1604,12 @@ mod test {
 				max_entries: 1,
 				..Default::default()
 			};
-			let mut h = Builder::build_hashtable(config, Some(slabs.clone()))?;
+			let mut h = Builder::build_hashtable(config, &Some(&slabs))?;
 
 			info!("insert 1")?;
 			assert!(h.insert(&2u64, &6u64).is_err());
 			info!("insert 2")?;
-			let mut h = Builder::build_hashtable(config, Some(slabs.clone()))?;
+			let mut h = Builder::build_hashtable(config, &Some(&slabs))?;
 			h.insert(&2000u32, &1000u32)?;
 		}
 		Ok(())
@@ -1897,7 +1879,7 @@ mod test {
 			..Default::default()
 		};
 
-		let h = Builder::build_hashtable_box(config, None)?;
+		let h = Builder::build_hashtable_box(config, &None)?;
 		let mut thtb = TestHashtableBox { h };
 
 		let x = 1;
@@ -1909,11 +1891,11 @@ mod test {
 
 	#[test]
 	fn test_list_boxed() -> Result<(), Error> {
-		let mut list1 = Builder::build_list_box(ListConfig {}, None)?;
+		let mut list1 = Builder::build_list_box(ListConfig {}, &None)?;
 		list1.push(1)?;
 		list1.push(2)?;
 
-		let mut list2 = Builder::build_list(ListConfig {}, None)?;
+		let mut list2 = Builder::build_list(ListConfig {}, &None)?;
 		list2.push(1)?;
 		list2.push(2)?;
 
@@ -1985,7 +1967,7 @@ mod test {
 	#[test]
 	fn test_hash_impl_internal_errors() -> Result<(), Error> {
 		let mut hash_impl: HashImpl<u32> =
-			HashImpl::new(Some(HashtableConfig::default()), None, None, None, false)?;
+			HashImpl::new(Some(HashtableConfig::default()), None, None, &None, false)?;
 		hash_impl.set_debug_get_next_slot_error(true);
 		Hashtable::insert(&mut hash_impl, &0, &0u32)?;
 
@@ -2023,7 +2005,7 @@ mod test {
 	#[test]
 	fn test_hash_impl_aslist_internal_errors() -> Result<(), Error> {
 		let mut hash_impl: HashImpl<u32> =
-			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
+			HashImpl::new(None, None, Some(ListConfig {}), &None, false)?;
 		assert!(hash_impl.get_impl(&0, 0).is_err());
 		hash_impl.set_debug_get_next_slot_error(true);
 		List::push(&mut hash_impl, 0)?;
@@ -2047,7 +2029,7 @@ mod test {
 	#[test]
 	fn test_debug_entry_array_len() -> Result<(), Error> {
 		let mut hash_impl: HashImpl<u32> =
-			HashImpl::new(Some(HashtableConfig::default()), None, None, None, false)?;
+			HashImpl::new(Some(HashtableConfig::default()), None, None, &None, false)?;
 		Hashtable::insert(&mut hash_impl, &1, &2)?;
 		hash_impl.set_debug_entry_array_len(true);
 		assert!(hash_impl.get_impl(&1, 0).is_err());
@@ -2077,7 +2059,7 @@ mod test {
 	#[test]
 	fn test_hash_impl_ser_err() -> Result<(), Error> {
 		let mut hash_impl: HashImpl<SerErr> =
-			HashImpl::new(Some(HashtableConfig::default()), None, None, None, false)?;
+			HashImpl::new(Some(HashtableConfig::default()), None, None, &None, false)?;
 		Hashtable::insert(&mut hash_impl, &SerErr { exp: 100, empty: 0 }, &0)?;
 		let res: Result<Option<u32>, Error> =
 			Hashtable::get(&mut hash_impl, &SerErr { exp: 100, empty: 0 });
@@ -2106,13 +2088,13 @@ mod test {
 	#[test]
 	fn test_hash_impl_aslist_ser_err() -> Result<(), Error> {
 		let mut hash_impl: HashImpl<SerErr> =
-			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
+			HashImpl::new(None, None, Some(ListConfig {}), &None, false)?;
 		hash_impl.push(SerErr { exp: 100, empty: 0 })?;
 		let mut iter: Box<dyn Iterator<Item = SerErr>> = List::iter(&hash_impl);
 		assert_eq!(iter.next(), None);
 
 		let mut hash_impl: HashImpl<SerErr> =
-			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
+			HashImpl::new(None, None, Some(ListConfig {}), &None, false)?;
 		hash_impl.push(SerErr { exp: 99, empty: 0 })?;
 		{
 			let mut iter: Box<dyn Iterator<Item = SerErr>> = List::iter(&hash_impl);
@@ -2120,7 +2102,7 @@ mod test {
 		}
 
 		let mut hash_impl2: HashImpl<SerErr> =
-			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
+			HashImpl::new(None, None, Some(ListConfig {}), &None, false)?;
 		hash_impl.push(SerErr { exp: 99, empty: 0 })?;
 		hash_impl.push(SerErr { exp: 99, empty: 0 })?;
 
@@ -2135,9 +2117,9 @@ mod test {
 		assert_eq!(hash_impl, hash_impl2);
 
 		let mut hash_impl: HashImpl<u32> =
-			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
+			HashImpl::new(None, None, Some(ListConfig {}), &None, false)?;
 		let mut hash_impl2: HashImpl<u32> =
-			HashImpl::new(None, None, Some(ListConfig {}), None, false)?;
+			HashImpl::new(None, None, Some(ListConfig {}), &None, false)?;
 		hash_impl2.push(1)?;
 		hash_impl.push(8)?;
 
@@ -2151,11 +2133,11 @@ mod test {
 	fn test_hash_impl_error_conditions() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(100_000), SlabCount(1))?;
 		let hashtable =
-			Builder::build_hashtable::<u32, u32>(HashtableConfig::default(), Some(slabs));
+			Builder::build_hashtable::<u32, u32>(HashtableConfig::default(), &Some(&slabs));
 		assert!(hashtable.is_err());
 
 		let hash_impl: Result<HashImpl<u32>, Error> =
-			HashImpl::new(None, None, Some(ListConfig {}), None, true);
+			HashImpl::new(None, None, Some(ListConfig {}), &None, true);
 		assert!(hash_impl.is_err());
 
 		let hashtable = Builder::build_hashtable::<u32, u32>(
@@ -2163,7 +2145,7 @@ mod test {
 				max_entries: 0,
 				..Default::default()
 			},
-			None,
+			&None,
 		);
 		assert!(hashtable.is_err());
 
@@ -2172,7 +2154,7 @@ mod test {
 				max_load_factor: 2.0,
 				..Default::default()
 			},
-			None,
+			&None,
 		);
 		assert!(hashtable.is_err());
 
@@ -2181,7 +2163,7 @@ mod test {
 				max_entries: 0,
 				..Default::default()
 			},
-			None,
+			&None,
 		);
 		assert!(hashset.is_err());
 
@@ -2190,7 +2172,7 @@ mod test {
 				max_load_factor: 2.0,
 				..Default::default()
 			},
-			None,
+			&None,
 		);
 		assert!(hashset.is_err());
 
@@ -2200,7 +2182,7 @@ mod test {
 				max_entries: 10_000_000,
 				..Default::default()
 			},
-			Some(slabs),
+			&Some(&slabs),
 		);
 		assert_eq!(
 			hashset.unwrap_err(),
@@ -2216,8 +2198,7 @@ mod test {
 	#[test]
 	fn test_hashset_key_write_error() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(12), SlabCount(1))?;
-		let mut hashset =
-			Builder::build_hashset::<u128>(HashsetConfig::default(), Some(slabs.clone()))?;
+		let mut hashset = Builder::build_hashset::<u128>(HashsetConfig::default(), &Some(&slabs))?;
 		let e = hashset.insert(&1).unwrap_err().kind();
 		let m = matches!(e, ErrorKind::CapacityExceeded(_));
 		assert!(m);
@@ -2229,10 +2210,8 @@ mod test {
 	#[test]
 	fn test_hashtable_value_write_error() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(30), SlabCount(1))?;
-		let mut hashtable = Builder::build_hashtable::<u128, u128>(
-			HashtableConfig::default(),
-			Some(slabs.clone()),
-		)?;
+		let mut hashtable =
+			Builder::build_hashtable::<u128, u128>(HashtableConfig::default(), &Some(&slabs))?;
 		let e = hashtable.insert(&1, &2).unwrap_err().kind();
 		let m = matches!(e, ErrorKind::CapacityExceeded(_));
 		assert!(m);
@@ -2244,10 +2223,8 @@ mod test {
 	#[test]
 	fn test_hashtable_value_write_error_multi_slab() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(16), SlabCount(2))?;
-		let mut hashtable = Builder::build_hashtable::<u128, u128>(
-			HashtableConfig::default(),
-			Some(slabs.clone()),
-		)?;
+		let mut hashtable =
+			Builder::build_hashtable::<u128, u128>(HashtableConfig::default(), &Some(&slabs))?;
 		let e = hashtable.insert(&1, &2).unwrap_err().kind();
 		info!("e={}", e)?;
 		let m = matches!(e, ErrorKind::CapacityExceeded(_));
@@ -2262,7 +2239,7 @@ mod test {
 		let slabs = slab_allocator!(SlabSize(25), SlabCount(1))?;
 		{
 			let mut hashset =
-				Builder::build_hashset::<u128>(HashsetConfig::default(), Some(slabs.clone()))?;
+				Builder::build_hashset::<u128>(HashsetConfig::default(), &Some(&slabs))?;
 			hashset.insert(&2)?;
 			let e = hashset.insert(&1).unwrap_err().kind();
 			let m = matches!(e, ErrorKind::CapacityExceeded(_));
@@ -2284,7 +2261,7 @@ mod test {
 				max_load_factor: 1.0,
 				..Default::default()
 			},
-			Some(slabs),
+			&Some(&slabs),
 		)?;
 
 		for i in 0..10 {

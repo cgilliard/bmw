@@ -476,14 +476,14 @@ macro_rules! hashtable {
 	( $( $config:expr ),* ) => {{
                 use bmw_util::List;
 
-                let mut slabs: Option<std::rc::Rc<std::cell::RefCell<dyn bmw_util::SlabAllocator>>> = None;
+                let mut slabs: Option<&std::rc::Rc<std::cell::RefCell<dyn bmw_util::SlabAllocator>>> = None;
                 if slabs.is_some() {
                     slabs = None;
                 }
                 $(
                     match $config {
                         bmw_util::ConfigOption::Slabs(s) => {
-                            slabs = Some(s);
+                            slabs = Some(&s);
                         }
                         _ => {
                         }
@@ -492,7 +492,7 @@ macro_rules! hashtable {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        slabs.clone()
+                        &slabs.clone()
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -513,7 +513,7 @@ macro_rules! hashtable {
 		let (error, config) = bmw_util::hashtable_config!(config_list);
 		match error {
 			Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
-			None => bmw_util::Builder::build_hashtable(config.unwrap(), slabs),
+			None => bmw_util::Builder::build_hashtable(config.unwrap(), &slabs),
 		}
 	}};
 }
@@ -523,14 +523,14 @@ macro_rules! hashtable_box {
         ( $( $config:expr ),* ) => {{
                 use bmw_util::List;
 
-                let mut slabs: Option<std::rc::Rc<std::cell::RefCell<dyn bmw_util::SlabAllocator>>> = None;
+                let mut slabs: Option<&std::rc::Rc<std::cell::RefCell<dyn bmw_util::SlabAllocator>>> = None;
                 if slabs.is_some() {
                     slabs = None;
                 }
                 $(
                     match $config {
                         bmw_util::ConfigOption::Slabs(s) => {
-                            slabs = Some(s);
+                            slabs = Some(&s);
                         }
                         _ => {
                         }
@@ -539,7 +539,7 @@ macro_rules! hashtable_box {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        slabs.clone()
+                        &slabs.clone()
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -560,7 +560,7 @@ macro_rules! hashtable_box {
                 let (error, config) = bmw_util::hashtable_config!(config_list);
                 match error {
                         Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
-                        None => bmw_util::Builder::build_hashtable_box(config.unwrap(), slabs),
+                        None => bmw_util::Builder::build_hashtable_box(config.unwrap(), &slabs),
                 }
         }};
 }
@@ -585,7 +585,7 @@ macro_rules! hashtable_sync {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        None
+                        &None
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -630,7 +630,7 @@ macro_rules! hashtable_sync_box {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        None
+                        &None
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -660,14 +660,14 @@ macro_rules! hashset {
         ( $( $config:expr ),* ) => {{
                 use bmw_util::List;
 
-                let mut slabs: Option<std::rc::Rc<std::cell::RefCell<dyn bmw_util::SlabAllocator>>> = None;
+                let mut slabs: Option<&std::rc::Rc<std::cell::RefCell<dyn bmw_util::SlabAllocator>>> = None;
                 if slabs.is_some() {
                     slabs = None;
                 }
                 $(
                     match $config {
                         bmw_util::ConfigOption::Slabs(s) => {
-                            slabs = Some(s);
+                            slabs = Some(&s);
                         }
                         _ => {
                         }
@@ -676,7 +676,7 @@ macro_rules! hashset {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        slabs.clone()
+                        &slabs.clone()
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -697,7 +697,7 @@ macro_rules! hashset {
                 let (error, config) = bmw_util::hashset_config!(config_list);
                 match error {
                         Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
-                        None => bmw_util::Builder::build_hashset(config.unwrap(), slabs),
+                        None => bmw_util::Builder::build_hashset(config.unwrap(), &slabs),
                 }
         }};
 }
@@ -707,14 +707,14 @@ macro_rules! hashset_box {
         ( $( $config:expr ),* ) => {{
                 use bmw_util::List;
 
-                let mut slabs: Option<std::rc::Rc<std::cell::RefCell<dyn bmw_util::SlabAllocator>>> = None;
+                let mut slabs: Option<&std::rc::Rc<std::cell::RefCell<dyn bmw_util::SlabAllocator>>> = None;
                 if slabs.is_some() {
                     slabs = None;
                 }
                 $(
                     match $config {
                         bmw_util::ConfigOption::Slabs(s) => {
-                            slabs = Some(s);
+                            slabs = Some(&s);
                         }
                         _ => {
                         }
@@ -723,7 +723,7 @@ macro_rules! hashset_box {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        slabs.clone()
+                        &slabs
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -744,7 +744,7 @@ macro_rules! hashset_box {
                 let (error, config) = bmw_util::hashset_config!(config_list);
                 match error {
                         Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
-                        None => bmw_util::Builder::build_hashset_box(config.unwrap(), slabs),
+                        None => bmw_util::Builder::build_hashset_box(config.unwrap(), &slabs),
                 }
         }};
 }
@@ -769,7 +769,7 @@ macro_rules! hashset_sync {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        None
+                        &None
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -814,7 +814,7 @@ macro_rules! hashset_sync_box {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        None
+                        &None
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -844,7 +844,7 @@ macro_rules! list {
     ( $( $x:expr ),* ) => {
         {
             use bmw_util::List;
-            let mut temp_list = bmw_util::Builder::build_list(bmw_util::ListConfig::default(), None)?;
+            let mut temp_list = bmw_util::Builder::build_list(bmw_util::ListConfig::default(), &None)?;
             $(
                 temp_list.push($x)?;
             )*
@@ -857,7 +857,7 @@ macro_rules! list {
 macro_rules! list_box {
     ( $( $x:expr ),* ) => {
         {
-            let mut temp_list = bmw_util::Builder::build_list_box(bmw_util::ListConfig::default(), None)?;
+            let mut temp_list = bmw_util::Builder::build_list_box(bmw_util::ListConfig::default(), &None)?;
             $(
                 temp_list.push($x)?;
             )*
@@ -871,7 +871,7 @@ macro_rules! list_sync {
     ( $( $x:expr ),* ) => {
         {
             use bmw_util::List;
-            let mut temp_list = bmw_util::Builder::build_list_sync(bmw_util::ListConfig::default(), None)?;
+            let mut temp_list = bmw_util::Builder::build_list_sync(bmw_util::ListConfig::default(), &None)?;
             $(
                 temp_list.push($x)?;
             )*
@@ -885,7 +885,7 @@ macro_rules! list_sync_box {
     ( $( $x:expr ),* ) => {
         {
             use bmw_util::List;
-            let mut temp_list = bmw_util::Builder::build_list_sync_box(bmw_util::ListConfig::default(), None)?;
+            let mut temp_list = bmw_util::Builder::build_list_sync_box(bmw_util::ListConfig::default(), &None)?;
             $(
                 temp_list.push($x)?;
             )*
@@ -1104,7 +1104,7 @@ mod test {
 	fn test_hashset_macros() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(128), SlabCount(1))?;
 		{
-			let mut hashset = hashset!(Slabs(slabs.clone()))?;
+			let mut hashset = hashset!(Slabs(&slabs))?;
 			hashset.insert(&1)?;
 			assert!(hashset.contains(&1)?);
 			assert!(!hashset.contains(&2)?);
@@ -1112,7 +1112,7 @@ mod test {
 		}
 
 		{
-			let mut hashset = hashset_box!(Slabs(slabs.clone()))?;
+			let mut hashset = hashset_box!(Slabs(&slabs))?;
 			hashset.insert(&1)?;
 			assert!(hashset.contains(&1)?);
 			assert!(!hashset.contains(&2)?);
@@ -1166,7 +1166,7 @@ mod test {
 	#[test]
 	fn test_slabs_in_hashtable_macro() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(128), SlabCount(1))?;
-		let mut hashtable = hashtable!(Slabs(slabs.clone()))?;
+		let mut hashtable = hashtable!(Slabs(&slabs))?;
 		hashtable.insert(&1, &2)?;
 
 		assert_eq!(hashtable.get(&1).unwrap(), Some(2));
@@ -1179,7 +1179,7 @@ mod test {
 	#[test]
 	fn test_hashtable_box_macro() -> Result<(), Error> {
 		let slabs = slab_allocator!(SlabSize(128), SlabCount(1))?;
-		let mut hashtable = hashtable_box!(Slabs(slabs.clone()))?;
+		let mut hashtable = hashtable_box!(Slabs(&slabs))?;
 		hashtable.insert(&1, &2)?;
 
 		assert_eq!(hashtable.get(&1).unwrap(), Some(2));

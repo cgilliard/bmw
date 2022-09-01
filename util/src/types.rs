@@ -44,7 +44,7 @@ pub enum SuffixParam {
 
 /// Configuration options used throughout this crate via macro.
 #[derive(Clone, Debug)]
-pub enum ConfigOption {
+pub enum ConfigOption<'a> {
 	/// The maximum number of entries for a data structure. See [`crate::Hashtable`] and
 	/// [`crate::Hashset`].
 	MaxEntries(usize),
@@ -62,10 +62,10 @@ pub enum ConfigOption {
 	/// The size of the sync channel for a thread pool. See [`crate::ThreadPool`].
 	SyncChannelSize(usize),
 	/// Slab allocator to be used by this data structure.
-	Slabs(Rc<RefCell<dyn SlabAllocator>>),
+	Slabs(&'a Rc<RefCell<dyn SlabAllocator>>),
 }
 
-impl Serializable for ConfigOption {
+impl Serializable for ConfigOption<'_> {
 	// fully covered, but the wildcard match not counted by tarpaulin
 	#[cfg(not(tarpaulin_include))]
 	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
@@ -847,7 +847,7 @@ mod test {
 		assert!(err.is_err());
 
 		let slabs = slab_allocator!()?;
-		let config_option = ConfigOption::Slabs(slabs.clone());
+		let config_option = ConfigOption::Slabs(&slabs);
 		let mut v: Vec<u8> = vec![];
 		assert!(serialize(&mut v, &config_option).is_err());
 

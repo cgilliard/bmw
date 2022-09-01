@@ -71,7 +71,7 @@ impl<S: Serializable + PartialEq + Debug + Clone + 'static> Serializable
 	}
 	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
 		let len = reader.read_usize()?;
-		let mut list = Builder::build_list_box(ListConfig::default(), None)?;
+		let mut list = Builder::build_list_box(ListConfig::default(), &None)?;
 		for _ in 0..len {
 			list.push(Serializable::read(reader)?)?;
 		}
@@ -104,7 +104,7 @@ where
 			max_load_factor,
 			..Default::default()
 		};
-		let mut hashtable = Builder::build_hashtable_box(config, None)?;
+		let mut hashtable = Builder::build_hashtable_box(config, &None)?;
 		for _ in 0..len {
 			let k: K = Serializable::read(reader)?;
 			let v: V = Serializable::read(reader)?;
@@ -137,7 +137,7 @@ where
 			max_load_factor,
 			..Default::default()
 		};
-		let mut hashset = Builder::build_hashset_box(config, None)?;
+		let mut hashset = Builder::build_hashset_box(config, &None)?;
 		for _ in 0..len {
 			let k: K = Serializable::read(reader)?;
 			hashset.insert(&k)?;

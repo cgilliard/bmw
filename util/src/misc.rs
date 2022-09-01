@@ -17,7 +17,7 @@ use bmw_log::*;
 info!();
 
 /// Utility to convert a usize to an arbitrary length slice (up to 8 bytes).
-pub fn usize_to_slice(mut n: usize, slice: &mut [u8]) -> Result<(), Error> {
+pub(crate) fn usize_to_slice(mut n: usize, slice: &mut [u8]) -> Result<(), Error> {
 	let len = slice.len();
 	if len > 8 {
 		let fmt = format!("slice must be equal to or less than 8 bytes ({})", len);
@@ -40,7 +40,7 @@ pub fn usize_to_slice(mut n: usize, slice: &mut [u8]) -> Result<(), Error> {
 }
 
 /// Utility to convert an arbitrary length slice (up to 8 bytes) to a usize.
-pub fn slice_to_usize(slice: &[u8]) -> Result<usize, Error> {
+pub(crate) fn slice_to_usize(slice: &[u8]) -> Result<usize, Error> {
 	let len = slice.len();
 	if len > 8 {
 		let fmt = format!("slice must be equal to or less than 8 bytes ({})", len);
@@ -55,7 +55,8 @@ pub fn slice_to_usize(slice: &[u8]) -> Result<usize, Error> {
 	Ok(ret)
 }
 
-pub fn set_max(slice: &mut [u8]) {
+/// Set the maximum possible value in this slice
+pub(crate) fn set_max(slice: &mut [u8]) {
 	for i in 0..slice.len() {
 		slice[i] = 0xFF;
 	}

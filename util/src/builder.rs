@@ -113,7 +113,7 @@ impl Builder {
 
 	pub fn build_hashtable<K, V>(
 		config: HashtableConfig,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+		slabs: &Option<&Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<impl Hashtable<K, V>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
@@ -124,13 +124,13 @@ impl Builder {
 
 	pub fn build_hashtable_box<K, V>(
 		config: HashtableConfig,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+		slabs: &Option<&Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<Box<dyn Hashtable<K, V>>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
 		V: Serializable + Clone,
 	{
-		let ret = HashImpl::new(Some(config), None, None, slabs, false)?;
+		let ret = HashImpl::new(Some(config), None, None, &slabs.clone(), false)?;
 		let bx = Box::new(ret);
 		Ok(bx)
 	}
@@ -159,7 +159,7 @@ impl Builder {
 
 	pub fn build_hashset<K>(
 		config: HashsetConfig,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+		slabs: &Option<&Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<impl Hashset<K>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
@@ -169,7 +169,7 @@ impl Builder {
 
 	pub fn build_hashset_box<K>(
 		config: HashsetConfig,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+		slabs: &Option<&Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<Box<dyn Hashset<K>>, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + 'static + Clone,
@@ -203,7 +203,7 @@ impl Builder {
 
 	pub fn build_list<V>(
 		config: ListConfig,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+		slabs: &Option<&Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<impl SortableList<V>, Error>
 	where
 		V: Serializable + Debug + Clone,
@@ -213,7 +213,7 @@ impl Builder {
 
 	pub fn build_list_box<V>(
 		config: ListConfig,
-		slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
+		slabs: &Option<&Rc<RefCell<dyn SlabAllocator>>>,
 	) -> Result<Box<dyn SortableList<V>>, Error>
 	where
 		V: Serializable + Debug + PartialEq + Clone + 'static,
