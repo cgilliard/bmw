@@ -1397,7 +1397,7 @@ macro_rules! list_sync_box {
     };
 }
 
-/// The [`crate::array`] macro builds an [`crate::Array`]. The macro takes the following
+/// The [`crate::array!`] macro builds an [`crate::Array`]. The macro takes the following
 /// parameters:
 /// * size (required) - the size of the array
 /// * default (required) - a reference to the value to initialize the array with
