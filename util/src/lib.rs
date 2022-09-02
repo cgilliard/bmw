@@ -16,13 +16,15 @@
 //! [`crate::ArrayList`], [`crate::Stack`], [`crate::Queue`], and [`crate::SuffixTree`]. Additionally
 //! a [`crate::ThreadPool`] implementation is provided. Each data structure can be instantiated in
 //! a impl and Box form using the [`crate::Builder`] or through macros. The impls completely stack
-//! based and the box forms are Box<dyn ..>'s that can be stored in other structs and Enums.
+//! based and the box forms are Box<dyn ..>'s that can be stored in other structs and Enums. While
+//! the boxed versions do store data on the heap, it is only pointers and the vast majority of the
+//! data, in either form, is stored in a pre-allocated slabs.
 //!
 //! # Motivation
 //!
 //! The advantage of these implementations is that they do not allocate memory on the
 //! heap after initialization of the data structure. So, we can create a [`crate::hashtable`],
-//! [`crate::List`] or a [`crate::hashset`] and do millions of operations and
+//! [`crate::List`] or a [`crate::hashset`] and once created, do millions of operations and
 //! no heap memory will be allocated or deallocated. Dynamic heap allocations that are long-lived can cause
 //! substantial problems like slowness and memory fragmentation and even system crashes and these data structures
 //! are intended to alleviate those problems. The [`core::ops::Drop`] trait is also implemented so all
@@ -125,9 +127,32 @@
 //! # Using bmw in your project
 //!
 //! To use the crates in bmw in your project, add the following to your Cargo.toml
+//!```text
+//! bmw_err    = { git = "https://github.com/37miners/bmw"  }
+//! bmw_log    = { git = "https://github.com/37miners/bmw"  }
+//! bmw_util   = { git = "https://github.com/37miners/bmw"  }
+//! bmw_derive = { git = "https://github.com/37miners/bmw"  }
 //!```
 //!
+//! The linux dependencies can be installed with the following commands:
+//!
+//!```text
+//! $ sudo apt-get update -yqq
+//! $ sudo apt-get install -yqq --no-install-recommends libncursesw5-dev tor libssl-dev
 //!```
+//!
+//! The macos dependencies can be installed with the following commands
+//! ```text
+//! $ brew install llvm
+//! ```
+//!
+//! The windows dependencies can be installed with the following commands
+//!
+//! ```text
+//! $ choco install -y llvm
+//! ```
+//!
+//! BMW is tested with the latest version of rust. Please ensure to update it.
 //!
 //! # Use cases
 //!
@@ -142,6 +167,344 @@
 //!
 //! # Examples
 //!
+//! Use of the slab allocator, hashtable, and hashset via macros.
+//!
+//!```
+//! // import the util/log/err libraries
+//! use bmw_util::*;
+//! use bmw_log::*;
+//! use bmw_err::*;
+//!
+//! info!();
+//!
+//! fn main() -> Result<(), Error> {
+//!     // create a slab allocator to be used by our data structures
+//!     let slabs = slab_allocator!(SlabSize(128), SlabCount(15_000))?;
+//!
+//!     // instantiate a hashtable with specified MaxEntries and MaxLoadFactor
+//!     let mut hashtable = hashtable!(MaxEntries(10_000), MaxLoadFactor(0.85), Slabs(&slabs))?;
+//!
+//!     // insert a key/value pair (rust figures out the data types)
+//!     hashtable.insert(&1, &2)?;
+//!
+//!     // get the value for our key and assert it is correct
+//!     let v = hashtable.get(&1)?;
+//!     assert_eq!(v, Some(2));
+//!     info!("value = {:?}", v)?;
+//!
+//!     // instantiate a hashset that uses the same slab allocator. Since we don't specify
+//!     // the MaxLoadFactor, the default value of 0.8 will be used for this hashset.
+//!     let mut hashset = hashset!(MaxEntries(5_000), Slabs(&slabs))?;
+//!
+//!     // insert a key
+//!     hashset.insert(&"test".to_string())?;
+//!
+//!     // assert that our key is found in the hashset
+//!     assert!(hashset.contains(&"test".to_string())?);
+//!
+//!     // do a negative assertion
+//!     assert!(!hashset.contains(&"test2".to_string())?);
+//!
+//!     info!("complete!")?;
+//!
+//!     Ok(())
+//! }
+//!
+//!```
+//!
+//! Use of Sortable lists
+//!
+//!```
+//! // import the util/log/err libraries
+//! use bmw_util::*;
+//! use bmw_log::*;
+//! use bmw_err::*;
+//!
+//! fn main() -> Result<(), Error> {
+//!     // for this example we will use the global slab allocator which is a thread local slab
+//!     // allocator which we can configure via macro
+//!     init_slab_allocator!(SlabSize(64), SlabCount(100_000))?;
+//!
+//!     // create two lists (one linked and one array list). Note that all lists created via macro
+//!     // are interoperable.
+//!     let mut list1 = list![1u32, 2u32, 4u32, 5u32];
+//!     let mut list2 = array_list!(10, &0u32)?;
+//!     list2.push(5)?;
+//!     list2.push(2)?;
+//!     list2.push(4)?;
+//!     list2.push(1)?;
+//!
+//!     // sort the array list and assert it's equal to the other list
+//!     list2.sort()?;
+//!     assert!(list_eq!(list1, list2));
+//!
+//!     // append list2 to list1 and assert the value
+//!     list_append!(list1, list2);
+//!     assert!(list_eq!(list1, list![1,2,4,5,1,2,4,5]));
+//!
+//!     Ok(())
+//! }
+//!```
+//!
+//! Arrays
+//!
+//!```
+//! // import the util/log/err libraries
+//! use bmw_util::*;
+//! use bmw_log::*;
+//! use bmw_err::*;
+//!
+//! fn main() -> Result<(), Error> {
+//!     // instantiate an array of size 100 with the default values of 0usize
+//!     let mut arr = array!(100, &0usize)?;
+//!
+//!     // set the 10th element to 1
+//!     arr[10] = 1;
+//!
+//!     // set each item to the value of the iterator
+//!     for i in 0..100 {
+//!         arr[i] = i;
+//!     }
+//!
+//!     // assert the values
+//!     for i in 0..100 {
+//!         assert_eq!(arr[i], i);
+//!     }
+//!
+//!     Ok(())
+//! }
+//!```
+//!
+//! Thread pool and Locks
+//!
+//!```
+//! // import the util/log/err libraries
+//! use bmw_util::*;
+//! use bmw_log::*;
+//! use bmw_err::*;
+//!
+//! fn main() -> Result<(), Error> {
+//!     // create a thread pool with the default settings
+//!     let mut tp = thread_pool!()?;
+//!
+//!     // create a lock initializing it's value to 0
+//!     let x = lock!(0)?;
+//!     // clone the lock (one for the thread pool, one for the local thread
+//!     let mut x_clone = x.clone();
+//!
+//!     // execute in the thread pool
+//!     let handle = execute!(tp, {
+//!         // obtain the write lock for x
+//!         let mut x = x_clone.wlock()?;
+//!         // set the value to 1
+//!         (**x.guard()) = 1;
+//!
+//!         // return the value of 100
+//!         Ok(100)
+//!     })?;
+//!
+//!     // block on the thread and assert the value returned is 100
+//!     assert_eq!(block_on!(handle), PoolResult::Ok(100));
+//!
+//!     // obtain the read lock for x
+//!     let x = x.rlock()?;
+//!     // assert the value of x is now 1
+//!     assert_eq!(**x.guard(), 1);
+//!
+//!     Ok(())
+//! }
+//!```
+//!
+//! Boxed and Sync versions
+//!
+//!```
+//! // import the util/log/err libraries
+//! use bmw_util::*;
+//! use bmw_log::*;
+//! use bmw_err::*;
+//!
+//! struct MyStruct {
+//!     hashtable: Box<dyn Hashtable<u32, String>>,
+//! }
+//!
+//! fn main() -> Result<(), Error> {
+//!     // create a slab allocator to be used by our data structures
+//!     let slabs = slab_allocator!(SlabSize(128), SlabCount(15_000))?;
+//!
+//!     {
+//!     
+//!         // instantiate a hashtable with specified MaxEntries and MaxLoadFactor
+//!         let hashtable = hashtable_box!(MaxEntries(10_000), MaxLoadFactor(0.85), Slabs(&slabs))?;
+//!
+//!         let mut s = MyStruct {
+//!             hashtable,
+//!         };
+//!
+//!         s.hashtable.insert(&1, &"something".to_string())?;
+//!         s.hashtable.insert(&2, &"something else".to_string())?;
+//!
+//!         assert_eq!(s.hashtable.get(&1)?, Some("something".to_string()));
+//!
+//!     }
+//!
+//!
+//!     // sync hashtable with default configuration
+//!     let mut hashtable2 = hashtable_sync!()?;
+//!     hashtable2.insert(&1, &10)?;
+//!     hashtable2.insert(&2, &20)?;
+//!
+//!     // create a thread pool with the default settings
+//!     let mut tp = thread_pool!()?;
+//!
+//!     // put the hashtable into a lock and clone it
+//!     let mut lock = lock!(hashtable2)?;
+//!     let lock_clone = lock.clone();
+//!
+//!     // execute a task in the thread pool
+//!     let handle = execute!(tp, {
+//!         // obtain the write lock to the hashtable and insert an additional value
+//!         let mut hashtable2 = lock.wlock()?;
+//!         (**hashtable2.guard()).insert(&3, &30)?;
+//!         Ok(())
+//!     })?;
+//!
+//!     // block on the task that is in the thread pool
+//!     block_on!(handle);
+//!
+//!     // obtain the read lock and assert all three values are in the hashtable
+//!     let hashtable2 = lock_clone.rlock()?;
+//!     assert_eq!((**hashtable2.guard()).get(&1)?, Some(10));
+//!     assert_eq!((**hashtable2.guard()).get(&2)?, Some(20));
+//!     assert_eq!((**hashtable2.guard()).get(&3)?, Some(30));
+//!
+//!
+//!     Ok(())
+//! }
+//!```
+//!
+//! Suffix Tree
+//!
+//!```
+//! // import the util/log/err libraries
+//! use bmw_util::*;
+//! use bmw_log::*;
+//! use bmw_err::*;
+//!
+//! fn main() -> Result<(), Error> {
+//!     // create an array of matches for the suffix tree to populate in tmatch
+//!     let mut matches = [Builder::build_match_default(); 10];
+//!
+//!
+//!     // create a suffix tree with two patterns with distinct Regexes and Ids
+//!     // Setting a termination length (length to stop processing the text) of 100
+//!     // and a max wild card length (the maximum length of any wildcards) of 50
+//!     let mut suffix_tree = suffix_tree!(
+//!         list![
+//!             pattern!(Regex("abc"), Id(0))?,
+//!             pattern!(Regex("def.*ok"), Id(1))?
+//!         ],
+//!         TerminationLength(100),
+//!         MaxWildcardLength(50)
+//!     )?;
+//!
+//!     // run the matches and return the number of matches assert that it's one for the abc match
+//!     let match_count = suffix_tree.tmatch(b"abc", &mut matches)?;
+//!     assert_eq!(match_count, 1);
+//!
+//!     Ok(())
+//! }
+//!```
+//!
+//! Queues and Stacks
+//!
+//!```
+//! // import the util/log/err libraries
+//! use bmw_util::*;
+//! use bmw_log::*;
+//! use bmw_err::*;
+//!
+//! fn main() -> Result<(), Error> {
+//!     // create a stack and a queue both with capacity of 1_000 items and &0 is the default value
+//!     // used to initialize the queue's array
+//!     let mut queue = queue!(1_000, &0)?;
+//!     let mut stack = stack!(1_000, &0)?;
+//!
+//!     // add three items to the queue
+//!     queue.enqueue(1)?;
+//!     queue.enqueue(2)?;
+//!     queue.enqueue(3)?;
+//!
+//!     // add the same three items to the stack
+//!     stack.push(1)?;
+//!     stack.push(2)?;
+//!     stack.push(3)?;
+//!
+//!     // dequeue/pop and assert that the queue/stack are appropriately returning the items
+//!     assert_eq!(queue.dequeue(), Some(&1));
+//!     assert_eq!(stack.pop(), Some(&3));
+//!
+//!     // dequeue/pop and assert that the queue/stack are appropriately returning the items
+//!     assert_eq!(queue.dequeue(), Some(&2));
+//!     assert_eq!(stack.pop(), Some(&2));
+//!
+//!     // peek at both the stack and queue (view value, but do not remove it from the queue)
+//!     assert_eq!(queue.peek(), Some(&3));
+//!     assert_eq!(stack.peek(), Some(&1));
+//!
+//!     // dequque/pop the last item
+//!     assert_eq!(queue.dequeue(), Some(&3));
+//!     assert_eq!(stack.pop(), Some(&1));
+//!
+//!     // assert that the queue/stack are empty
+//!     assert_eq!(queue.dequeue(), None);
+//!     assert_eq!(stack.pop(), None);
+//!
+//!     Ok(())
+//! }
+//!```
+//!
+//! Derive Serializable trait
+//!
+//!```
+//! // import the util/log/err libraries
+//! use bmw_util::*;
+//! use bmw_log::*;
+//! use bmw_err::*;
+//! use bmw_derive::*;
+//!
+//! info!();
+//!
+//! #[derive(Serializable, Clone, Debug, PartialEq)]
+//! struct MyStruct {
+//!     id: u128,
+//!     name: String,
+//!     phone: Option<String>,
+//!     age: u8,
+//! }
+//!
+//! fn main() -> Result<(), Error> {
+//!     let s = MyStruct {
+//!         id: 1234,
+//!         name: "Hagrid".to_string(),
+//!         phone: None,
+//!         age: 54,
+//!     };
+//!
+//!     debug!("my struct = {:?}", s)?;
+//!
+//!     let mut hashtable = hashtable!()?;
+//!
+//!     hashtable.insert(&1, &s)?;
+//!
+//!     let v = hashtable.get(&1)?;
+//!     assert_eq!(v, Some(s));
+//!
+//!     info!("value of record #1 is {:?}", v)?;
+//!     
+//!     Ok(())
+//! }
+//!
+//!```
 
 mod array;
 mod builder;
