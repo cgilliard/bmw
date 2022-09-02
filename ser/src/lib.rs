@@ -309,7 +309,7 @@ pub trait Reader {
 }
 
 /// This is the trait used by all data structures to serialize and deserialize data.
-/// Anthing stored in them must implement this trait. Commonly needed implementations
+/// Anything stored in them must implement this trait. Commonly needed implementations
 /// are built in the ser module in this crate. These include Vec, String, integer types among
 /// other things.
 pub trait Serializable {
