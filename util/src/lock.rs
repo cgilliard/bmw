@@ -29,6 +29,7 @@ impl<'a, T> RwLockReadGuardWrapper<'a, T>
 where
 	T: Send + Sync,
 {
+	/// Return the RwLockReadGuard associated with this lock.
 	#[cfg(not(tarpaulin_include))]
 	pub fn guard(&self) -> &RwLockReadGuard<'a, T> {
 		&self.guard
@@ -50,6 +51,7 @@ impl<T> Drop for RwLockReadGuardWrapper<'_, T> {
 }
 
 impl<'a, T> RwLockWriteGuardWrapper<'a, T> {
+	/// Return the RwLockWriteGuard associated with this lock.
 	#[cfg(not(tarpaulin_include))]
 	pub fn guard(&mut self) -> &mut RwLockWriteGuard<'a, T> {
 		&mut self.guard

@@ -509,6 +509,7 @@ impl Builder {
 		Box::new(SlabAllocatorImpl::new())
 	}
 
+	/// Build a [`crate::Lock`].
 	pub fn build_lock<T>(t: T) -> Result<impl Lock<T>, Error>
 	where
 		T: Send + Sync,
@@ -516,6 +517,7 @@ impl Builder {
 		Ok(LockImpl::new(t))
 	}
 
+	/// Build a [`crate::LockBox`].
 	pub fn build_lock_box<T>(t: T) -> Result<Box<dyn LockBox<T>>, Error>
 	where
 		T: Send + Sync + Clone + 'static,

@@ -121,12 +121,6 @@ where
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
 }
 
-#[derive(Clone)]
-pub(crate) struct LockImpl<T> {
-	pub(crate) t: Arc<RwLock<T>>,
-	pub(crate) id: u128,
-}
-
 /// Wrapper around the [`std::sync::RwLockReadGuard`].
 pub struct RwLockReadGuardWrapper<'a, T> {
 	pub(crate) guard: RwLockReadGuard<'a, T>,
@@ -141,16 +135,25 @@ pub struct RwLockWriteGuardWrapper<'a, T> {
 	pub(crate) debug_err: bool,
 }
 
+/// The enum used to define patterns. See [`crate::pattern`] for more info.
 pub enum PatternParam<'a> {
+	/// The regular expression for this pattern.
 	Regex(&'a str),
+	/// Whether or not this is a termination pattern.
 	IsTerm(bool),
+	/// Whether or not this is a multi-line pattern. (allowing multi-line wildcard matches).
 	IsMulti(bool),
+	/// Whether or not this pattern is case sensitive.
 	IsCaseSensitive(bool),
+	/// The id of this pattern.
 	Id(usize),
 }
 
+/// The enum used to define a suffix_tree. See [`crate::suffix_tree`] for more info.
 pub enum SuffixParam {
+	/// The termination length of this suffix tree (length at which matching stops).
 	TerminationLength(usize),
+	/// The maximum length to look for wildcards.
 	MaxWildcardLength(usize),
 }
 
@@ -177,6 +180,7 @@ pub enum ConfigOption<'a> {
 	Slabs(&'a Rc<RefCell<dyn SlabAllocator>>),
 }
 
+/// Utility to write to slabs using the [`bmw_ser::Writer`] trait.
 #[derive(Clone)]
 pub struct SlabWriter {
 	pub(crate) slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
@@ -186,6 +190,7 @@ pub struct SlabWriter {
 	pub(crate) bytes_per_slab: usize,
 }
 
+/// Utility to read from slabs using the [`bmw_ser::Reader`] trait.
 #[derive(Clone)]
 pub struct SlabReader {
 	pub(crate) slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
@@ -221,31 +226,6 @@ pub struct ThreadPoolConfig {
 	/// The size of the sync_channel buffer. See [`std::sync::mpsc::sync_channel`] for more
 	/// information. The default value is 7.
 	pub sync_channel_size: usize,
-}
-
-#[derive(Debug, Clone, Serializable)]
-pub(crate) struct ThreadPoolState {
-	pub(crate) waiting: usize,
-	pub(crate) cur_size: usize,
-	pub(crate) config: ThreadPoolConfig,
-	pub(crate) stop: bool,
-}
-
-pub(crate) struct FutureWrapper<T> {
-	pub(crate) f: Pin<Box<dyn Future<Output = Result<T, Error>> + Send + Sync + 'static>>,
-	pub(crate) tx: SyncSender<PoolResult<T, Error>>,
-}
-
-pub(crate) struct ThreadPoolImpl<T: 'static + Send + Sync> {
-	pub(crate) config: ThreadPoolConfig,
-	pub(crate) rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
-	pub(crate) tx: Option<SyncSender<FutureWrapper<T>>>,
-	pub(crate) state: Box<dyn LockBox<ThreadPoolState>>,
-	pub(crate) test_config: Option<ThreadPoolTestConfig>,
-}
-
-pub(crate) struct ThreadPoolTestConfig {
-	pub(crate) debug_drop_error: bool,
 }
 
 /// The configuration struct for a [`Hashtable`]. This struct is passed
@@ -294,6 +274,11 @@ pub struct SlabAllocatorConfig {
 	pub slab_count: usize,
 }
 
+/// [`crate::ArrayList`] is an array based implementation of the [`crate::List`] and
+/// [`crate::SortableList`] trait. It uses the [`crate::Array`] as it's underlying
+/// storage mechanism. In most cases it is more performant than the LinkedList implementation,
+/// but it does do a heap allocation when created. See the module level documentation for
+/// an example.
 #[derive(Clone)]
 pub struct ArrayList<T> {
 	pub(crate) inner: Array<T>,
@@ -302,10 +287,25 @@ pub struct ArrayList<T> {
 	pub(crate) tail: usize,
 }
 
+/// The [`crate::Array`] is essentially a wrapper around [`std::vec::Vec`]. It is mainly used
+/// to prevent post initialization heap allocations. In many cases resizing/growing of the vec
+/// is not needed and adding this wrapper assures that they do not happen. There are use cases
+/// where growing is useful and in fact in the library we use Vec for the suffix tree, but in most
+/// cases where contiguous memory is used, the primary purpose is for indexing. That can be done
+/// with an array. So we add this wrapper.
+///
+/// # Examples
+///```
+/// fn main() -> Result<(), Error> {
+///      Ok(())
+/// }
+///```
 pub struct Array<T> {
 	pub(crate) data: Vec<T>,
 }
 
+/// Configuration for Lists currently there are no parameters, but it is still used
+/// to stay consistent with [`crate::Hashtable`] and [`crate::Hashset`].
 #[derive(Debug, Clone, Serializable)]
 pub struct ListConfig {}
 
@@ -747,29 +747,8 @@ pub trait SuffixTree {
 	fn tmatch(&mut self, text: &[u8], matches: &mut [Match]) -> Result<usize, Error>;
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct Node {
-	pub(crate) next: [u32; 257],
-	pub(crate) pattern_id: usize,
-	pub(crate) is_multi: bool,
-	pub(crate) is_term: bool,
-	pub(crate) is_start_only: bool,
-	pub(crate) is_multi_line: bool,
-}
-
-pub(crate) struct Dictionary {
-	pub(crate) nodes: Vec<Node>,
-	pub(crate) next: u32,
-}
-
-pub(crate) struct SuffixTreeImpl {
-	pub(crate) dictionary_case_insensitive: Dictionary,
-	pub(crate) dictionary_case_sensitive: Dictionary,
-	pub(crate) termination_length: usize,
-	pub(crate) max_wildcard_length: usize,
-	pub(crate) branch_stack: Box<dyn Stack<(usize, usize)>>,
-}
-
+/// The builder struct for the util library. All data structures are built through this
+/// interface. This is used by the macros as well.
 pub struct Builder {}
 
 pub struct HashtableIterator<'a, K, V>
@@ -803,8 +782,44 @@ where
 	pub(crate) slab_reader: Option<SlabReader>,
 }
 
+pub struct ArrayListIterator<'a, T> {
+	pub(crate) array_list_ref: &'a ArrayList<T>,
+	pub(crate) direction: Direction,
+	pub(crate) cur: usize,
+}
+
+pub struct ArrayIterator<'a, T> {
+	pub(crate) array_ref: &'a Array<T>,
+	pub(crate) cur: usize,
+}
+
+// crate local structs/enums
+
+#[derive(Clone, Debug)]
+pub(crate) struct Node {
+	pub(crate) next: [u32; 257],
+	pub(crate) pattern_id: usize,
+	pub(crate) is_multi: bool,
+	pub(crate) is_term: bool,
+	pub(crate) is_start_only: bool,
+	pub(crate) is_multi_line: bool,
+}
+
+pub(crate) struct Dictionary {
+	pub(crate) nodes: Vec<Node>,
+	pub(crate) next: u32,
+}
+
+pub(crate) struct SuffixTreeImpl {
+	pub(crate) dictionary_case_insensitive: Dictionary,
+	pub(crate) dictionary_case_sensitive: Dictionary,
+	pub(crate) termination_length: usize,
+	pub(crate) max_wildcard_length: usize,
+	pub(crate) branch_stack: Box<dyn Stack<(usize, usize)>>,
+}
+
 #[derive(Clone)]
-pub struct HashImplSync<K>
+pub(crate) struct HashImplSync<K>
 where
 	K: Serializable + Clone,
 {
@@ -835,6 +850,12 @@ where
 	pub(crate) debug_entry_array_len: bool,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Direction {
+	Forward,
+	Backward,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct SlabAllocatorImpl {
 	pub(crate) config: Option<SlabAllocatorConfig>,
@@ -845,21 +866,35 @@ pub(crate) struct SlabAllocatorImpl {
 	pub(crate) max_value: usize,
 }
 
-pub struct ArrayListIterator<'a, T> {
-	pub(crate) array_list_ref: &'a ArrayList<T>,
-	pub(crate) direction: Direction,
-	pub(crate) cur: usize,
+#[derive(Clone)]
+pub(crate) struct LockImpl<T> {
+	pub(crate) t: Arc<RwLock<T>>,
+	pub(crate) id: u128,
 }
 
-pub struct ArrayIterator<'a, T> {
-	pub(crate) array_ref: &'a Array<T>,
-	pub(crate) cur: usize,
+#[derive(Debug, Clone, Serializable)]
+pub(crate) struct ThreadPoolState {
+	pub(crate) waiting: usize,
+	pub(crate) cur_size: usize,
+	pub(crate) config: ThreadPoolConfig,
+	pub(crate) stop: bool,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum Direction {
-	Forward,
-	Backward,
+pub(crate) struct FutureWrapper<T> {
+	pub(crate) f: Pin<Box<dyn Future<Output = Result<T, Error>> + Send + Sync + 'static>>,
+	pub(crate) tx: SyncSender<PoolResult<T, Error>>,
+}
+
+pub(crate) struct ThreadPoolImpl<T: 'static + Send + Sync> {
+	pub(crate) config: ThreadPoolConfig,
+	pub(crate) rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
+	pub(crate) tx: Option<SyncSender<FutureWrapper<T>>>,
+	pub(crate) state: Box<dyn LockBox<ThreadPoolState>>,
+	pub(crate) test_config: Option<ThreadPoolTestConfig>,
+}
+
+pub(crate) struct ThreadPoolTestConfig {
+	pub(crate) debug_drop_error: bool,
 }
 
 #[cfg(test)]

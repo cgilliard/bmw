@@ -294,6 +294,8 @@ impl SlabWriter {
 		Ok(ret)
 	}
 
+	/// go to a particular slab_id/offset within the [`crate::SlabAllocator`] associated with
+	/// this [`crate::SlabWriter`].
 	pub fn seek(&mut self, slab_id: usize, offset: usize) {
 		self.slab_id = slab_id;
 		self.offset = offset;
@@ -563,6 +565,8 @@ impl<'a> SlabReader {
 		Ok(ret)
 	}
 
+	/// go to a particular slab_id/offset within the [`crate::SlabAllocator`] associated with
+	/// this [`crate::SlabReader`].
 	pub fn seek(&mut self, slab_id: usize, offset: usize) {
 		self.slab_id = slab_id;
 		self.offset = offset;
