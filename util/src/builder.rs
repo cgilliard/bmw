@@ -492,7 +492,7 @@ impl Builder {
 	/// Build a slab allocator on the heap in an [`std::cell::UnsafeCell`].
 	/// This function is used by the global thread local slab allocator to allocate
 	/// thread local slab allocators. Note that it calls unsafe functions. This
-	/// function should generally be called through the [`crate::init_slab_allocator`]
+	/// function should generally be called through the [`crate::global_slab_allocator`]
 	/// macro.
 	pub fn build_slabs_unsafe() -> UnsafeCell<Box<dyn SlabAllocator>> {
 		UnsafeCell::new(Box::new(SlabAllocatorImpl::new()))

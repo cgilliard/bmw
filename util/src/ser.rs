@@ -1063,7 +1063,7 @@ mod test {
 
 	#[test]
 	fn test_global_multi_slabs() -> Result<(), Error> {
-		init_slab_allocator!()?;
+		global_slab_allocator!()?;
 		let slab_id = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 			let slabs = unsafe { f.get().as_mut().unwrap() };
 			let slab = slabs.allocate()?;
@@ -1145,7 +1145,7 @@ mod test {
 
 	#[test]
 	fn slab_writer_out_of_slabs() -> Result<(), Error> {
-		init_slab_allocator!(SlabSize(100), SlabCount(1))?;
+		global_slab_allocator!(SlabSize(100), SlabCount(1))?;
 		let free_count1 = GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<usize, Error> {
 			Ok(unsafe { f.get().as_ref().unwrap().free_count()? })
 		})?;

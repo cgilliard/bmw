@@ -18,7 +18,9 @@
 //! a impl and Box form using the [`crate::Builder`] or through macros. The impls completely stack
 //! based and the box forms are Box<dyn ..>'s that can be stored in other structs and Enums. While
 //! the boxed versions do store data on the heap, it is only pointers and the vast majority of the
-//! data, in either form, is stored in pre-allocated slabs.
+//! data, in either form, is stored in pre-allocated slabs. The array based structures do use
+//! the heap, they use [`std::vec::Vec`] as the underlying storage mechanism, but they only allocate
+//! heap memory when they are created and none afterwords.
 //!
 //! # Motivation
 //!
@@ -126,19 +128,25 @@
 //!
 //! # Using bmw in your project
 //!
-//! To use the crates in bmw in your project, add the following to your Cargo.toml
+//! To use the crates in bmw in your project, add the following to your Cargo.toml:
+//!
+//!```text
+//! bmw_util   = { git = "https://github.com/37miners/bmw"  }
+//!```
+//!
+//! Optionally, you may wish to use the other associated crates:
+//!
 //!```text
 //! bmw_err    = { git = "https://github.com/37miners/bmw"  }
 //! bmw_log    = { git = "https://github.com/37miners/bmw"  }
-//! bmw_util   = { git = "https://github.com/37miners/bmw"  }
 //! bmw_derive = { git = "https://github.com/37miners/bmw"  }
 //!```
 //!
-//! The linux dependencies can be installed with the following commands:
+//! The linux dependencies can be installed with the following commands on ubuntu:
 //!
 //!```text
 //! $ sudo apt-get update -yqq
-//! $ sudo apt-get install -yqq --no-install-recommends libncursesw5-dev tor libssl-dev
+//! $ sudo apt-get install -yqq --no-install-recommends libncursesw5-dev libssl-dev
 //!```
 //!
 //! The macos dependencies can be installed with the following commands
@@ -222,8 +230,8 @@
 //!
 //! fn main() -> Result<(), Error> {
 //!     // for this example we will use the global slab allocator which is a
-//!     //thread local slab allocator which we can configure via macro
-//!     init_slab_allocator!(SlabSize(64), SlabCount(100_000))?;
+//!     // thread local slab allocator which we can configure via macro
+//!     global_slab_allocator!(SlabSize(64), SlabCount(100_000))?;
 //!
 //!     // create two lists (one linked and one array list).
 //!     // Note that all lists created via macro are interoperable.
@@ -289,7 +297,7 @@
 //!
 //!     // create a lock initializing it's value to 0
 //!     let x = lock!(0)?;
-//!     // clone the lock (one for the thread pool, one for the local thread
+//!     // clone the lock (one for the thread pool, one for the local thread)
 //!     let mut x_clone = x.clone();
 //!
 //!     // execute in the thread pool

@@ -300,7 +300,7 @@ fn do_vec() -> Result<(), Error> {
 }
 
 fn main() -> Result<(), Error> {
-	init_slab_allocator!()?;
+	global_slab_allocator!()?;
 	log_init!(LogConfig {
 		level: Level(false),
 		line_num: LineNum(false),

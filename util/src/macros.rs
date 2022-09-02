@@ -15,8 +15,56 @@ use bmw_log::*;
 
 info!();
 
+/// The `global_slab_allocator` macro initializes the global thread local slab allocator
+/// for the thread that it is executed in. It takes the following parameters:
+///
+/// * SlabSize(usize) (optional) - the size in bytes of the slabs for this slab allocator.
+///                                if not specified, the default value of 256 is used.
+///
+/// * SlabCount(usize) (optional) - the number of slabs to allocate to the global slab
+///                                 allocator. If not specified, the default value of
+///                                 40,960 is used.
+///
+/// # Return
+/// Return Ok(()) on success or [`bmw_err::Error`] on failure.
+///
+/// # Errors
+///
+/// * [`bmw_err::ErrorKind::Configuration`] - Is returned if a
+///                                           [`crate::ConfigOption`] other than
+///                                           [`crate::ConfigOption::SlabSize`] or
+///                                           [`crate::ConfigOption::SlabCount`] is
+///                                           specified.
+///
+/// * [`bmw_err::ErrorKind::IllegalState`] - Is returned if the global thread local
+///                                          slab allocator has already been initialized
+///                                          for the thread that executes the macro. This
+///                                          can happen if the macro is called more than once
+///                                          or if a data structure that uses the global
+///                                          slab allocator is initialized and in turn initializes
+///                                          the global slab allocator with default values.
+///
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - Is returned if the SlabSize is 0 or the SlabCount
+///                                             is 0.
+///
+/// # Examples
+///```
+/// use bmw_util::*;
+/// use bmw_err::Error;
+///
+/// fn main() -> Result<(), Error> {
+///     global_slab_allocator!(SlabSize(128), SlabCount(1_000))?;
+///
+///     // this will use the global slab allocator since we don't specify one
+///     let hashtable: Box<dyn Hashtable<u32, u32>> = hashtable_box!()?;
+///
+///     // ...
+///
+///     Ok(())
+/// }
+///```
 #[macro_export]
-macro_rules! init_slab_allocator {
+macro_rules! global_slab_allocator {
 ( $( $config:expr ),* ) => {{
             let mut config = bmw_util::SlabAllocatorConfig::default();
             let mut error: Option<String> = None;
@@ -75,6 +123,54 @@ macro_rules! init_slab_allocator {
     }
 }
 
+/// The `slab_allocator` macro initializes a slab allocator with the specified parameters.
+/// It takes the following parameters:
+///
+/// * SlabSize(usize) (optional) - the size in bytes of the slabs for this slab allocator.
+///                                if not specified, the default value of 256 is used.
+///
+/// * SlabCount(usize) (optional) - the number of slabs to allocate to this slab
+///                                 allocator. If not specified, the default value of
+///                                 40,960 is used.
+///
+/// # Return
+/// Return `Ok(Rc<RefCell<dyn SlabAllocator>>)` on success or [`bmw_err::Error`] on failure.
+///
+/// # Errors
+///
+/// * [`bmw_err::ErrorKind::Configuration`] - Is returned if a
+///                                           [`crate::ConfigOption`] other than
+///                                           [`crate::ConfigOption::SlabSize`] or
+///                                           [`crate::ConfigOption::SlabCount`] is
+///                                           specified.
+///
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - Is returned if the SlabSize is 0 or the SlabCount
+///                                             is 0.
+///
+/// # Examples
+///```
+/// use bmw_util::*;
+/// use bmw_err::Error;
+///
+/// fn main() -> Result<(), Error> {
+///     let slabs = slab_allocator!(SlabSize(128), SlabCount(5000))?;
+///
+///     // this will use the specified slab allocator
+///     let hashtable: Box<dyn Hashtable<u32, u32>> = hashtable_box!(Slabs(&slabs))?;
+///
+///     // this will also use the specified slab allocator
+///     // (they may be shared within the thread)
+///     let hashtable2: Box<dyn Hashtable<u32, u32>> = hashtable_box!(
+///             Slabs(&slabs),
+///             MaxEntries(1_000),
+///             MaxLoadFactor(0.9)
+///     )?;
+///
+///     // ...
+///
+///     Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! slab_allocator {
 ( $( $config:expr ),* ) => {{
@@ -133,6 +229,35 @@ macro_rules! slab_allocator {
      }};
 }
 
+/// The pattern macro builds a [`crate::Pattern`] which is used by the [`crate::SuffixTree`].
+/// The pattern macro takes the following parameters:
+///
+/// * Regex(String)         (required) - The regular expression to use for matching (note this is not a
+///                                      full regular expression. Only some parts of regular expressions
+///                                      are implemented like wildcards and carets). See [`crate::Pattern`]
+///                                      for full details.
+/// * Id(usize)             (required) - The id for this pattern. This id is returned in the
+///                                      [`crate::Match`] array if this match occurs when the
+///                                      [`crate::SuffixTree::tmatch`] function is called.
+/// * IsMulti(bool)         (optional) - If true is specified this pattern is a multi-line pattern meaning
+///                                      that wildcards can cross newlines. Otherwise newlines are not
+///                                      allowed in wildcard matches.
+/// * IsTerm(bool)          (optional) - If true, this is a termination pattern meaning that if it is
+///                                      found, when the [`crate::SuffixTree::tmatch`] function is called,
+///                                      matching will terminate and the matches found up to that point in
+///                                      the text will be returned.
+/// * IsCaseSensitive(bool) (optional) - If true only case sensitive matches are returned for this
+///                                      pattern. Otherwise, case-insensitive matches are also returned.
+///
+/// # Return
+/// Returns `Ok(Pattern)` on success and on error a [`bmw_err::Error`] is returned.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::Configuration`] - If a Regex or Id is not specified.
+///
+/// # Examples
+///
+/// See [`crate::suffix_tree!`] for examples.
 #[macro_export]
 macro_rules! pattern {
 	( $( $pattern_items:expr ),* ) => {{
@@ -154,13 +279,184 @@ macro_rules! pattern {
                 match id {
                         Some(id) => match regex {
                                 Some(regex) => Ok(bmw_util::Builder::build_pattern(regex, is_case_sensitive, is_term, is_multi, id)),
-                                None => Err(bmw_err::err!(bmw_err::ErrKind::IllegalArgument, "Regex must be specified")),
+                                None => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, "Regex must be specified")),
                         }
-                        None => Err(bmw_err::err!(bmw_err::ErrKind::IllegalArgument, "Id must be specified")),
+                        None => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, "Id must be specified")),
                 }
 	}};
 }
 
+/// The `suffix_tree` macro builds a [`crate::SuffixTree`] which can be used to match multiple
+/// patterns for a given text in a performant way.
+/// The suffix_tree macro takes the following parameters:
+///
+/// * `List<Pattern>`            (required) - The list of [`crate::Pattern`]s that this [`crate::SuffixTree`]
+///                                         will use to match.
+/// * TerimnationLength(usize) (optional) - The length in bytes at which matching will terminate.
+/// * MaxWildcardLength(usize) (optional) - The maximum length in bytes of a wild card match.
+///
+/// # Return
+/// Returns `Ok(SuffixTre)` on success and on error a [`bmw_err::Error`] is returned.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - If one of the regular expressions is invalid.
+///                                             or the length of the patterns list is 0.
+///
+/// # Examples
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///         // build a suffix tree with three patterns
+///         let mut suffix_tree = Builder::build_suffix_tree(
+///                 list![
+///                         pattern!(Regex("p1"), Id(0))?,
+///                         pattern!(Regex("p2"), Id(1))?,
+///                         pattern!(Regex("p3"), Id(2))?
+///                 ],
+///                 1_000,
+///                 100,
+///         )?;
+///
+///         // create a matches array for the suffix tree to return matches in
+///         let mut matches = [Builder::build_match_default(); 10];
+///
+///         // run the match for the input text b"p1p2".
+///         let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
+///
+///         // assert that two matches were returned "p1" and "p2"
+///         // and that their start/end/id is correct.
+///         info!("count={}", count)?;
+///         assert_eq!(count, 2);
+///         assert_eq!(matches[0].id(), 0);
+///         assert_eq!(matches[0].start(), 0);
+///         assert_eq!(matches[0].end(), 2);
+///         assert_eq!(matches[1].id(), 1);
+///         assert_eq!(matches[1].start(), 2);
+///         assert_eq!(matches[1].end(), 4);
+///
+///         Ok(())
+/// }
+///```
+///
+/// Wild card match
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///         // build a suffix tree with a wild card
+///         let mut suffix_tree = Builder::build_suffix_tree(
+///                 list![
+///                         pattern!(Regex("p1"), Id(0))?,
+///                         pattern!(Regex("p2.*test"), Id(1))?,
+///                         pattern!(Regex("p3"), Id(2))?
+///                 ],
+///                 1_000,
+///                 100,   
+///         )?;
+///
+///         // create a matches array for the suffix tree to return matches in
+///         let mut matches = [Builder::build_match_default(); 10];
+///
+///         // run the match for the input text b"p1p2". Only "p1" matches this time.
+///         let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
+///         assert_eq!(count, 1);
+///
+///         // run the match for the input text b"p1p2xxxxxxtest1". Now the wildcard
+///         // match succeeds to two matches are returned.
+///         let count = suffix_tree.tmatch(b"p1p2xxxxxxtest1", &mut matches)?;
+///         assert_eq!(count, 2);
+///
+///         Ok(())
+/// }
+///```
+///
+/// Single character wild card
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///         // build a suffix tree with a wild card
+///         let mut suffix_tree = Builder::build_suffix_tree(
+///                 list![
+///                         pattern!(Regex("p1"), Id(0))?,
+///                         pattern!(Regex("p2.test"), Id(1))?,
+///                         pattern!(Regex("p3"), Id(2))?
+///                 ],
+///                 1_000,
+///                 100,
+///         )?;
+///
+///         // create a matches array for the suffix tree to return matches in
+///         let mut matches = [Builder::build_match_default(); 10];
+///
+///         // run the match for the input text b"p1p2". Only "p1" matches this time.
+///         let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
+///         assert_eq!(count, 1);
+///
+///         // run the match for the input text b"p1p2xxxxxxtest1". Now the wildcard
+///         // match doesn't succeed because it's a single char match. One match is returned.
+///         let count = suffix_tree.tmatch(b"p1p2xxxxxxtest1", &mut matches)?;
+///         assert_eq!(count, 1);
+///
+///         // run it with a single char and see that it matches pattern two.
+///         let count = suffix_tree.tmatch(b"p1p2xtestx", &mut matches)?;
+///         assert_eq!(count, 2);
+///
+///         Ok(())
+/// }
+///```
+///
+/// Match at the begining of the text
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {      
+///         // build a suffix tree with a wild card
+///         let mut suffix_tree = Builder::build_suffix_tree(
+///                 list![
+///                         pattern!(Regex("p1"), Id(0))?,
+///                         pattern!(Regex("^p2"), Id(2))?
+///                 ],
+///                 1_000,
+///                 100,
+///         )?;
+///
+///         // create a matches array for the suffix tree to return matches in
+///         let mut matches = [Builder::build_match_default(); 10];
+///
+///         // run the match for the input text b"p1p2". Only "p1" matches this time
+///         // because p2 is not at the start
+///         let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
+///         assert_eq!(count, 1);
+///
+///         // since p2 is at the begining, both match
+///         let count = suffix_tree.tmatch(b"p2p1", &mut matches)?;
+///         assert_eq!(count, 2);
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! suffix_tree {
 	( $patterns:expr, $( $suffix_items:expr ),* ) => {{
@@ -187,6 +483,7 @@ macro_rules! suffix_tree {
         }};
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashtable_config {
 	( $config_list:expr ) => {{
@@ -247,6 +544,7 @@ macro_rules! hashtable_config {
 	}};
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashtable_sync_config {
 	( $config_list:expr ) => {{
@@ -329,6 +627,7 @@ macro_rules! hashtable_sync_config {
 	}};
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashset_config {
 	( $config_list:expr ) => {{
@@ -389,6 +688,7 @@ macro_rules! hashset_config {
 	}};
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashset_sync_config {
 	( $config_list:expr ) => {{
