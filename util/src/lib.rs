@@ -221,12 +221,12 @@
 //! use bmw_err::*;
 //!
 //! fn main() -> Result<(), Error> {
-//!     // for this example we will use the global slab allocator which is a thread local slab
-//!     // allocator which we can configure via macro
+//!     // for this example we will use the global slab allocator which is a
+//!     //thread local slab allocator which we can configure via macro
 //!     init_slab_allocator!(SlabSize(64), SlabCount(100_000))?;
 //!
-//!     // create two lists (one linked and one array list). Note that all lists created via macro
-//!     // are interoperable.
+//!     // create two lists (one linked and one array list).
+//!     // Note that all lists created via macro are interoperable.
 //!     let mut list1 = list![1u32, 2u32, 4u32, 5u32];
 //!     let mut list2 = array_list!(10, &0u32)?;
 //!     list2.push(5)?;
@@ -334,7 +334,11 @@
 //!     {
 //!     
 //!         // instantiate a hashtable with specified MaxEntries and MaxLoadFactor
-//!         let hashtable = hashtable_box!(MaxEntries(10_000), MaxLoadFactor(0.85), Slabs(&slabs))?;
+//!         let hashtable = hashtable_box!(
+//!             MaxEntries(10_000),
+//!             MaxLoadFactor(0.85),
+//!             Slabs(&slabs)
+//!         )?;
 //!
 //!         let mut s = MyStruct {
 //!             hashtable,
@@ -407,7 +411,8 @@
 //!         MaxWildcardLength(50)
 //!     )?;
 //!
-//!     // run the matches and return the number of matches assert that it's one for the abc match
+//!     // run the matches and return the number of matches assert that it's
+//!     // one for the abc match
 //!     let match_count = suffix_tree.tmatch(b"abc", &mut matches)?;
 //!     assert_eq!(match_count, 1);
 //!
@@ -424,8 +429,8 @@
 //! use bmw_err::*;
 //!
 //! fn main() -> Result<(), Error> {
-//!     // create a stack and a queue both with capacity of 1_000 items and &0 is the default value
-//!     // used to initialize the queue's array
+//!     // create a stack and a queue both with capacity of 1_000 items and &0
+//!     //is the default value used to initialize the queue's array
 //!     let mut queue = queue!(1_000, &0)?;
 //!     let mut stack = stack!(1_000, &0)?;
 //!
