@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! This crate is a proc_macro crate and it includes the Serializable macro.
-//! This macro will implement the [`bmw_ser::Serializable`] trait for any struct or enum.
+//! This macro implements the [`bmw_ser::Serializable`] trait for any struct or enum.
 //!
 //! # Examples
 //!
