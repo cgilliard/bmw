@@ -341,14 +341,13 @@ mod test {
 			v.push(res);
 		}
 		loop {
+			sleep(Duration::from_millis(100));
 			{
 				let y = y.rlock()?;
 				if (**y.guard()) == 2 {
 					break;
 				}
-				info!("waiting = {}", (**y.guard()))?;
 			}
-			sleep(Duration::from_millis(100));
 		}
 		assert_eq!(tp.size()?, 3);
 
