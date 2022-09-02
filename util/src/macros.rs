@@ -15,8 +15,116 @@ use bmw_log::*;
 
 info!();
 
+/// Macro to get a [`crate::Lock`]. Internally, the parameter passed in is wrapped in
+/// an Arc<Rwlock<T>> wrapper that can be used to obtain read/write locks around any
+/// data structure.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::*;
+/// use bmw_util::*;
+/// use std::time::Duration;
+/// use std::thread::{sleep, spawn};
+///
+/// #[derive(Debug, PartialEq)]
+/// struct MyStruct {
+///     id: u128,
+///     name: String,
+/// }
+///
+/// impl MyStruct {
+///     fn new(id: u128, name: String) -> Self {
+///         Self { id, name }
+///     }
+/// }
+///
+/// fn main() -> Result<(), Error> {
+///     let v = MyStruct::new(1234, "joe".to_string());
+///     let mut vlock = lock!(v)?;
+///     let vlock_clone = vlock.clone();
+///
+///     spawn(move || -> Result<(), Error> {
+///         let mut x = vlock.wlock()?;
+///         assert_eq!((**(x.guard())).id, 1234);
+///         sleep(Duration::from_millis(3000));
+///         (**(x.guard())).id = 4321;
+///         Ok(())
+///     });
+///
+///     sleep(Duration::from_millis(1000));
+///     let x = vlock_clone.rlock()?;
+///     assert_eq!((**(x.guard())).id, 4321);
+///
+///     Ok(())
+/// }
+///```
 #[macro_export]
-macro_rules! init_slab_allocator {
+macro_rules! lock {
+	($value:expr) => {{
+		bmw_util::Builder::build_lock($value)
+	}};
+}
+
+/// The same as lock except that the value returned is in a Box<dyn LockBox<T>> structure.
+/// See [`crate::LockBox`] for a working example.
+#[macro_export]
+macro_rules! lock_box {
+	($value:expr) => {{
+		bmw_util::Builder::build_lock_box($value)
+	}};
+}
+
+/// The `global_slab_allocator` macro initializes the global thread local slab allocator
+/// for the thread that it is executed in. It takes the following parameters:
+///
+/// * SlabSize(usize) (optional) - the size in bytes of the slabs for this slab allocator.
+///                                if not specified, the default value of 256 is used.
+///
+/// * SlabCount(usize) (optional) - the number of slabs to allocate to the global slab
+///                                 allocator. If not specified, the default value of
+///                                 40,960 is used.
+///
+/// # Return
+/// Return Ok(()) on success or [`bmw_err::Error`] on failure.
+///
+/// # Errors
+///
+/// * [`bmw_err::ErrorKind::Configuration`] - Is returned if a
+///                                           [`crate::ConfigOption`] other than
+///                                           [`crate::ConfigOption::SlabSize`] or
+///                                           [`crate::ConfigOption::SlabCount`] is
+///                                           specified.
+///
+/// * [`bmw_err::ErrorKind::IllegalState`] - Is returned if the global thread local
+///                                          slab allocator has already been initialized
+///                                          for the thread that executes the macro. This
+///                                          can happen if the macro is called more than once
+///                                          or if a data structure that uses the global
+///                                          slab allocator is initialized and in turn initializes
+///                                          the global slab allocator with default values.
+///
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - Is returned if the SlabSize is 0 or the SlabCount
+///                                             is 0.
+///
+/// # Examples
+///```
+/// use bmw_util::*;
+/// use bmw_err::Error;
+///
+/// fn main() -> Result<(), Error> {
+///     global_slab_allocator!(SlabSize(128), SlabCount(1_000))?;
+///
+///     // this will use the global slab allocator since we don't specify one
+///     let hashtable: Box<dyn Hashtable<u32, u32>> = hashtable_box!()?;
+///
+///     // ...
+///
+///     Ok(())
+/// }
+///```
+#[macro_export]
+macro_rules! global_slab_allocator {
 ( $( $config:expr ),* ) => {{
             let mut config = bmw_util::SlabAllocatorConfig::default();
             let mut error: Option<String> = None;
@@ -75,6 +183,54 @@ macro_rules! init_slab_allocator {
     }
 }
 
+/// The `slab_allocator` macro initializes a slab allocator with the specified parameters.
+/// It takes the following parameters:
+///
+/// * SlabSize(usize) (optional) - the size in bytes of the slabs for this slab allocator.
+///                                if not specified, the default value of 256 is used.
+///
+/// * SlabCount(usize) (optional) - the number of slabs to allocate to this slab
+///                                 allocator. If not specified, the default value of
+///                                 40,960 is used.
+///
+/// # Return
+/// Return `Ok(Rc<RefCell<dyn SlabAllocator>>)` on success or [`bmw_err::Error`] on failure.
+///
+/// # Errors
+///
+/// * [`bmw_err::ErrorKind::Configuration`] - Is returned if a
+///                                           [`crate::ConfigOption`] other than
+///                                           [`crate::ConfigOption::SlabSize`] or
+///                                           [`crate::ConfigOption::SlabCount`] is
+///                                           specified.
+///
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - Is returned if the SlabSize is 0 or the SlabCount
+///                                             is 0.
+///
+/// # Examples
+///```
+/// use bmw_util::*;
+/// use bmw_err::Error;
+///
+/// fn main() -> Result<(), Error> {
+///     let slabs = slab_allocator!(SlabSize(128), SlabCount(5000))?;
+///
+///     // this will use the specified slab allocator
+///     let hashtable: Box<dyn Hashtable<u32, u32>> = hashtable_box!(Slabs(&slabs))?;
+///
+///     // this will also use the specified slab allocator
+///     // (they may be shared within the thread)
+///     let hashtable2: Box<dyn Hashtable<u32, u32>> = hashtable_box!(
+///             Slabs(&slabs),
+///             MaxEntries(1_000),
+///             MaxLoadFactor(0.9)
+///     )?;
+///
+///     // ...
+///
+///     Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! slab_allocator {
 ( $( $config:expr ),* ) => {{
@@ -133,6 +289,35 @@ macro_rules! slab_allocator {
      }};
 }
 
+/// The pattern macro builds a [`crate::Pattern`] which is used by the [`crate::SuffixTree`].
+/// The pattern macro takes the following parameters:
+///
+/// * Regex(String)         (required) - The regular expression to use for matching (note this is not a
+///                                      full regular expression. Only some parts of regular expressions
+///                                      are implemented like wildcards and carets). See [`crate::Pattern`]
+///                                      for full details.
+/// * Id(usize)             (required) - The id for this pattern. This id is returned in the
+///                                      [`crate::Match`] array if this match occurs when the
+///                                      [`crate::SuffixTree::tmatch`] function is called.
+/// * IsMulti(bool)         (optional) - If true is specified this pattern is a multi-line pattern meaning
+///                                      that wildcards can cross newlines. Otherwise newlines are not
+///                                      allowed in wildcard matches.
+/// * IsTerm(bool)          (optional) - If true, this is a termination pattern meaning that if it is
+///                                      found, when the [`crate::SuffixTree::tmatch`] function is called,
+///                                      matching will terminate and the matches found up to that point in
+///                                      the text will be returned.
+/// * IsCaseSensitive(bool) (optional) - If true only case sensitive matches are returned for this
+///                                      pattern. Otherwise, case-insensitive matches are also returned.
+///
+/// # Return
+/// Returns `Ok(Pattern)` on success and on error a [`bmw_err::Error`] is returned.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::Configuration`] - If a Regex or Id is not specified.
+///
+/// # Examples
+///
+/// See [`crate::suffix_tree!`] for examples.
 #[macro_export]
 macro_rules! pattern {
 	( $( $pattern_items:expr ),* ) => {{
@@ -154,13 +339,184 @@ macro_rules! pattern {
                 match id {
                         Some(id) => match regex {
                                 Some(regex) => Ok(bmw_util::Builder::build_pattern(regex, is_case_sensitive, is_term, is_multi, id)),
-                                None => Err(bmw_err::err!(bmw_err::ErrKind::IllegalArgument, "Regex must be specified")),
+                                None => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, "Regex must be specified")),
                         }
-                        None => Err(bmw_err::err!(bmw_err::ErrKind::IllegalArgument, "Id must be specified")),
+                        None => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, "Id must be specified")),
                 }
 	}};
 }
 
+/// The `suffix_tree` macro builds a [`crate::SuffixTree`] which can be used to match multiple
+/// patterns for a given text in a performant way.
+/// The suffix_tree macro takes the following parameters:
+///
+/// * `List<Pattern>`            (required) - The list of [`crate::Pattern`]s that this [`crate::SuffixTree`]
+///                                         will use to match.
+/// * TerimnationLength(usize) (optional) - The length in bytes at which matching will terminate.
+/// * MaxWildcardLength(usize) (optional) - The maximum length in bytes of a wild card match.
+///
+/// # Return
+/// Returns `Ok(SuffixTre)` on success and on error a [`bmw_err::Error`] is returned.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - If one of the regular expressions is invalid.
+///                                             or the length of the patterns list is 0.
+///
+/// # Examples
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///         // build a suffix tree with three patterns
+///         let mut suffix_tree = Builder::build_suffix_tree(
+///                 list![
+///                         pattern!(Regex("p1"), Id(0))?,
+///                         pattern!(Regex("p2"), Id(1))?,
+///                         pattern!(Regex("p3"), Id(2))?
+///                 ],
+///                 1_000,
+///                 100,
+///         )?;
+///
+///         // create a matches array for the suffix tree to return matches in
+///         let mut matches = [Builder::build_match_default(); 10];
+///
+///         // run the match for the input text b"p1p2".
+///         let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
+///
+///         // assert that two matches were returned "p1" and "p2"
+///         // and that their start/end/id is correct.
+///         info!("count={}", count)?;
+///         assert_eq!(count, 2);
+///         assert_eq!(matches[0].id(), 0);
+///         assert_eq!(matches[0].start(), 0);
+///         assert_eq!(matches[0].end(), 2);
+///         assert_eq!(matches[1].id(), 1);
+///         assert_eq!(matches[1].start(), 2);
+///         assert_eq!(matches[1].end(), 4);
+///
+///         Ok(())
+/// }
+///```
+///
+/// Wild card match
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///         // build a suffix tree with a wild card
+///         let mut suffix_tree = Builder::build_suffix_tree(
+///                 list![
+///                         pattern!(Regex("p1"), Id(0))?,
+///                         pattern!(Regex("p2.*test"), Id(1))?,
+///                         pattern!(Regex("p3"), Id(2))?
+///                 ],
+///                 1_000,
+///                 100,   
+///         )?;
+///
+///         // create a matches array for the suffix tree to return matches in
+///         let mut matches = [Builder::build_match_default(); 10];
+///
+///         // run the match for the input text b"p1p2". Only "p1" matches this time.
+///         let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
+///         assert_eq!(count, 1);
+///
+///         // run the match for the input text b"p1p2xxxxxxtest1". Now the wildcard
+///         // match succeeds to two matches are returned.
+///         let count = suffix_tree.tmatch(b"p1p2xxxxxxtest1", &mut matches)?;
+///         assert_eq!(count, 2);
+///
+///         Ok(())
+/// }
+///```
+///
+/// Single character wild card
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///         // build a suffix tree with a wild card
+///         let mut suffix_tree = Builder::build_suffix_tree(
+///                 list![
+///                         pattern!(Regex("p1"), Id(0))?,
+///                         pattern!(Regex("p2.test"), Id(1))?,
+///                         pattern!(Regex("p3"), Id(2))?
+///                 ],
+///                 1_000,
+///                 100,
+///         )?;
+///
+///         // create a matches array for the suffix tree to return matches in
+///         let mut matches = [Builder::build_match_default(); 10];
+///
+///         // run the match for the input text b"p1p2". Only "p1" matches this time.
+///         let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
+///         assert_eq!(count, 1);
+///
+///         // run the match for the input text b"p1p2xxxxxxtest1". Now the wildcard
+///         // match doesn't succeed because it's a single char match. One match is returned.
+///         let count = suffix_tree.tmatch(b"p1p2xxxxxxtest1", &mut matches)?;
+///         assert_eq!(count, 1);
+///
+///         // run it with a single char and see that it matches pattern two.
+///         let count = suffix_tree.tmatch(b"p1p2xtestx", &mut matches)?;
+///         assert_eq!(count, 2);
+///
+///         Ok(())
+/// }
+///```
+///
+/// Match at the begining of the text
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {      
+///         // build a suffix tree with a wild card
+///         let mut suffix_tree = Builder::build_suffix_tree(
+///                 list![
+///                         pattern!(Regex("p1"), Id(0))?,
+///                         pattern!(Regex("^p2"), Id(2))?
+///                 ],
+///                 1_000,
+///                 100,
+///         )?;
+///
+///         // create a matches array for the suffix tree to return matches in
+///         let mut matches = [Builder::build_match_default(); 10];
+///
+///         // run the match for the input text b"p1p2". Only "p1" matches this time
+///         // because p2 is not at the start
+///         let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
+///         assert_eq!(count, 1);
+///
+///         // since p2 is at the begining, both match
+///         let count = suffix_tree.tmatch(b"p2p1", &mut matches)?;
+///         assert_eq!(count, 2);
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! suffix_tree {
 	( $patterns:expr, $( $suffix_items:expr ),* ) => {{
@@ -187,6 +543,7 @@ macro_rules! suffix_tree {
         }};
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashtable_config {
 	( $config_list:expr ) => {{
@@ -247,6 +604,7 @@ macro_rules! hashtable_config {
 	}};
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashtable_sync_config {
 	( $config_list:expr ) => {{
@@ -329,6 +687,7 @@ macro_rules! hashtable_sync_config {
 	}};
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashset_config {
 	( $config_list:expr ) => {{
@@ -389,6 +748,7 @@ macro_rules! hashset_config {
 	}};
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashset_sync_config {
 	( $config_list:expr ) => {{
@@ -471,6 +831,71 @@ macro_rules! hashset_sync_config {
 	}};
 }
 
+/// The [`crate::hashtable`] macro builds a [`crate::Hashtable`] with the specified configuration and
+/// optionally the specified [`crate::SlabAllocator`]. The macro accepts the following parameters:
+///
+/// * MaxEntries(usize) (optional) - The maximum number of entries that can be in this hashtable
+///                                  at any given time. If not specified, the default value of
+///                                  100_000 will be used.
+/// * MaxLoadFactor(usize) (optional) - The maximum load factor of the hashtable. The hashtable is
+///                                     array based hashtable and it has a fixed size. Once the
+///                                     load factor is reach, insertions will return an error. The
+///                                     hashtable uses linear probing to handle collisions. The
+///                                     max_load_factor makes sure no additional insertions occur
+///                                     at a given ratio of entries to capacity in the array. Note
+///                                     that MaxEntries can always be inserted, it's the capacity
+///                                     of the array that becomes larger as this ratio goes down.
+///                                     If not specified, the default value is 0.8.
+/// * Slabs(Option<&Rc<RefCell<dyn SlabAllocator>>>) (optional) - An optional reference to a slab
+///                                     allocator to use with this [`crate::Hashtable`]. If not
+///                                     specified, the global slab allocator is used.
+///
+/// # Returns
+///
+/// A Ok(`impl Hashtable<K, V>`) on success or a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+///
+/// * [`bmw_err::ErrorKind::Configuration`] if anything other than [`crate::ConfigOption::Slabs`],
+///                                     [`crate::ConfigOption::MaxEntries`] or
+///                                     [`crate::ConfigOption::MaxLoadFactor`] is specified,
+///                                     if the slab_allocator's slab_size is greater than 65,536,
+///                                     or slab_count is greater than 281_474_976_710_655,
+///                                     max_entries is 0 or max_load_factor is not greater than 0
+///                                     and less than or equal to 1.
+///
+/// # Examples
+///```
+/// use bmw_util::*;
+/// use bmw_log::*;
+/// use bmw_err::*;
+///
+/// fn main() -> Result<(), Error> {
+///         // create a default slab allocator
+///         let slabs = slab_allocator!()?;
+///
+///         // create a hashtable with the specified parameters
+///         let mut hashtable = hashtable!(MaxEntries(1_000), MaxLoadFactor(0.9), Slabs(&slabs))?;
+///
+///         // do an insert, rust will figure out what type is being inserted
+///         hashtable.insert(&1, &2)?;
+///
+///         // assert that the entry was inserted
+///         assert_eq!(hashtable.get(&1)?, Some(2));
+///
+///         // create another hashtable with defaults, this time the global slab allocator will be
+///         // used. Since we did not initialize it default values will be used.
+///         let mut hashtable = hashtable!()?;
+///
+///         // do an insert, rust will figure out what type is being inserted
+///         hashtable.insert(&1, &3)?;
+///
+///         // assert that the entry was inserted
+///         assert_eq!(hashtable.get(&1)?, Some(3));
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! hashtable {
 	( $( $config:expr ),* ) => {{
@@ -518,6 +943,11 @@ macro_rules! hashtable {
 	}};
 }
 
+/// The [`crate::hashtable_box`] macro builds a [`crate::Hashtable`] with the specified configuration and
+/// optionally the specified [`crate::SlabAllocator`]. The only difference between this macro and
+/// the [`crate::hashtable`] macro is that the returned hashtable is inserted into a Box.
+/// Specifically, the return type is a `Box<dyn Hashtable>`. See [`crate::hashtable`] for further
+/// details.
 #[macro_export]
 macro_rules! hashtable_box {
         ( $( $config:expr ),* ) => {{
@@ -565,6 +995,32 @@ macro_rules! hashtable_box {
         }};
 }
 
+/// The difference between this macro and the [`crate::hashtable`] macro is that the returned
+/// [`crate::Hashtable`] implements the Send and Sync traits and is thread safe. With this
+/// hashtable you cannot specify a [`crate::SlabAllocator`] because they use [`std::cell::RefCell`]
+/// which is not thread safe. That is also why this macro returns an error if
+/// [`crate::ConfigOption::Slabs`] is specified. The parameters for this macro are:
+///
+/// * MaxEntries(usize) (optional) - The maximum number of entries that can be in this hashtable
+///                                  at any given time. If not specified, the default value of
+///                                  100_000 will be used.
+/// * MaxLoadFactor(usize) (optional) - The maximum load factor of the hashtable. The hashtable is
+///                                     array based hashtable and it has a fixed size. Once the
+///                                     load factor is reach, insertions will return an error. The
+///                                     hashtable uses linear probing to handle collisions. The
+///                                     max_load_factor makes sure no additional insertions occur
+///                                     at a given ratio of entries to capacity in the array. Note
+///                                     that MaxEntries can always be inserted, it's the capacity
+///                                     of the array that becomes larger as this ratio goes down.
+///                                     If not specified, the default value is 0.8.
+/// * SlabSize(usize) (optional) - the size in bytes of the slabs for this slab allocator.
+///                                if not specified, the default value of 256 is used.
+///
+/// * SlabCount(usize) (optional) - the number of slabs to allocate to this slab
+///                                 allocator. If not specified, the default value of
+///                                 40,960 is used.
+///
+/// See the [`crate`] for examples.
 #[macro_export]
 macro_rules! hashtable_sync {
         ( $( $config:expr ),* ) => {{
@@ -610,6 +1066,9 @@ macro_rules! hashtable_sync {
         }};
 }
 
+/// This macro is the same as [`hashtable_sync`] except that the returned hashtable is in a Box.
+/// This macro can be used if the sync hashtable needs to be placed in a struct or an enum.
+/// See [`crate::hashtable`] and [`crate::hashtable_sync`] for further details.
 #[macro_export]
 macro_rules! hashtable_sync_box {
         ( $( $config:expr ),* ) => {{
@@ -655,6 +1114,71 @@ macro_rules! hashtable_sync_box {
         }};
 }
 
+/// The [`crate::hashset`] macro builds a [`crate::Hashset`] with the specified configuration and
+/// optionally the specified [`crate::SlabAllocator`]. The macro accepts the following parameters:
+///
+/// * MaxEntries(usize) (optional) - The maximum number of entries that can be in this hashset
+///                                  at any given time. If not specified, the default value of
+///                                  100_000 will be used.
+/// * MaxLoadFactor(usize) (optional) - The maximum load factor of the hashset. The hashset is
+///                                     array based hashset and it has a fixed size. Once the
+///                                     load factor is reach, insertions will return an error. The
+///                                     hashset uses linear probing to handle collisions. The
+///                                     max_load_factor makes sure no additional insertions occur
+///                                     at a given ratio of entries to capacity in the array. Note
+///                                     that MaxEntries can always be inserted, it's the capacity
+///                                     of the array that becomes larger as this ratio goes down.
+///                                     If not specified, the default value is 0.8.
+/// * Slabs(Option<&Rc<RefCell<dyn SlabAllocator>>>) (optional) - An optional reference to a slab
+///                                     allocator to use with this [`crate::Hashset`]. If not
+///                                     specified, the global slab allocator is used.
+///
+/// # Returns
+///
+/// A Ok(`impl Hashset<K>`) on success or a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+///
+/// * [`bmw_err::ErrorKind::Configuration`] if anything other than [`crate::ConfigOption::Slabs`],
+///                                     [`crate::ConfigOption::MaxEntries`] or
+///                                     [`crate::ConfigOption::MaxLoadFactor`] is specified,
+///                                     if the slab_allocator's slab_size is greater than 65,536,
+///                                     or slab_count is greater than 281_474_976_710_655,
+///                                     max_entries is 0 or max_load_factor is not greater than 0
+///                                     and less than or equal to 1.
+///
+/// # Examples
+///```
+/// use bmw_util::*;
+/// use bmw_log::*;
+/// use bmw_err::*;
+///
+/// fn main() -> Result<(), Error> {
+///         // create a default slab allocator
+///         let slabs = slab_allocator!()?;
+///
+///         // create a hashset with the specified parameters
+///         let mut hashset = hashset!(MaxEntries(1_000), MaxLoadFactor(0.9), Slabs(&slabs))?;
+///
+///         // do an insert, rust will figure out what type is being inserted
+///         hashset.insert(&1)?;
+///
+///         // assert that the entry was inserted
+///         assert_eq!(hashset.contains(&1)?, true);
+///
+///         // create another hashset with defaults, this time the global slab allocator will be
+///         // used. Since we did not initialize it default values will be used.
+///         let mut hashset = hashset!()?;
+///
+///         // do an insert, rust will figure out what type is being inserted
+///         hashset.insert(&1)?;
+///
+///         // assert that the entry was inserted
+///         assert_eq!(hashset.contains(&1)?, true);
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! hashset {
         ( $( $config:expr ),* ) => {{
@@ -702,6 +1226,8 @@ macro_rules! hashset {
         }};
 }
 
+/// The [`crate::hashset_box`] macro is the same as the [`crate::hashset`] macro except that the
+/// hashset is returned in a box. See [`crate::hashset`].
 #[macro_export]
 macro_rules! hashset_box {
         ( $( $config:expr ),* ) => {{
@@ -749,6 +1275,9 @@ macro_rules! hashset_box {
         }};
 }
 
+/// The hashset_sync macro is the same as [`crate::hashset`] except that the returned Hashset
+/// implements Send and Sync and can be safely passed through threads. See
+/// [`crate::hashtable_sync`] for further details.
 #[macro_export]
 macro_rules! hashset_sync {
         ( $( $config:expr ),* ) => {{
@@ -794,6 +1323,9 @@ macro_rules! hashset_sync {
         }};
 }
 
+/// The hashset_sync_box macro is the boxed version of the [`crate::hashset_sync`] macro. It is the
+/// same except that the returned [`crate::Hashset`] is in a Box so it can be added to structs and
+/// enums.
 #[macro_export]
 macro_rules! hashset_sync_box {
         ( $( $config:expr ),* ) => {{
@@ -839,6 +1371,30 @@ macro_rules! hashset_sync_box {
         }};
 }
 
+/// The list macro is used to create lists. This macro uses the global slab allocator. To use a
+/// specified slab allocator, see [`crate::Builder::build_list`]. It has the same syntax as the
+/// [`std::vec!`] macro. Note that this macro and the builder function both
+/// return an implementation of the [`crate::SortableList`] trait.
+///
+/// # Examples
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///     let list = list![1, 2, 3, 4];
+///
+///     info!("list={:?}", list)?;
+///
+///     assert!(list_eq!(list, list![1, 2, 3, 4]));
+///
+///     Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! list {
     ( $( $x:expr ),* ) => {
@@ -853,6 +1409,8 @@ macro_rules! list {
     };
 }
 
+/// This is the boxed version of list. The returned value is `Box<dyn SortableList>`. Otherwise,
+/// this macro is identical to [`crate::list`].
 #[macro_export]
 macro_rules! list_box {
     ( $( $x:expr ),* ) => {
@@ -866,6 +1424,10 @@ macro_rules! list_box {
     };
 }
 
+/// Like [`crate::hashtable_sync`] and [`crate::hashset_sync`] list has a 'sync' version. See those
+/// macros for more details and see the [`crate`] for an example of the sync version of a hashtable.
+/// Just as in that example the list can be put into a [`crate::lock!`] or [`crate::lock_box`]
+/// and passed between threads.
 #[macro_export]
 macro_rules! list_sync {
     ( $( $x:expr ),* ) => {
@@ -880,6 +1442,7 @@ macro_rules! list_sync {
     };
 }
 
+/// Box version of the [`crate::list_sync`] macro.
 #[macro_export]
 macro_rules! list_sync_box {
     ( $( $x:expr ),* ) => {
@@ -894,6 +1457,32 @@ macro_rules! list_sync_box {
     };
 }
 
+/// The [`crate::array!`] macro builds an [`crate::Array`]. The macro takes the following
+/// parameters:
+/// * size (required) - the size of the array
+/// * default (required) - a reference to the value to initialize the array with
+/// # Return
+/// Returns `Ok(impl Array<T>)` on success and a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - if the size is 0.
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::*;
+///
+/// fn main() -> Result<(), Error> {
+///         let arr = array!(10, &0)?;
+///
+///         for x in arr.iter() {
+///                 assert_eq!(x, &0);
+///         }
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! array {
 	( $size:expr, $default:expr ) => {{
@@ -901,6 +1490,35 @@ macro_rules! array {
 	}};
 }
 
+/// The [`crate::array_list`] macro builds an [`crate::ArrayList`] in the form of a impl
+/// SortableList. The macro takes the following parameters:
+/// * size (required) - the size of the array
+/// * default (required) - a reference to the value to initialize the array with
+/// # Return
+/// Returns `Ok(impl SortableList<T>)` on success and a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - if the size is 0.
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::*;
+///
+/// fn main() -> Result<(), Error> {
+///         let mut arr = array_list!(10, &0)?;
+///         for _ in 0..10 {
+///                 arr.push(0)?;
+///         }
+///
+///         for x in arr.iter() {
+///                 assert_eq!(x, 0);
+///         }
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! array_list {
 	( $size:expr, $default:expr ) => {{
@@ -908,6 +1526,9 @@ macro_rules! array_list {
 	}};
 }
 
+/// This macro is identical to [`crate::array_list`] except that the value is returned in a box.
+/// To be exact, the return value is `Box<dyn SortableList>`. The boxed version can then be used to
+/// store in structs and enums. See [`crate::array_list`] for more details and an example.
 #[macro_export]
 macro_rules! array_list_box {
 	( $size:expr, $default:expr ) => {{
@@ -915,6 +1536,38 @@ macro_rules! array_list_box {
 	}};
 }
 
+/// This macro creates a [`crate::Queue`]. The parameters are
+/// * size (required) - the size of the underlying array
+/// * default (required) - a reference to the value to initialize the array with
+/// for the queue, these values are never used, but a default is needed to initalize the
+/// underlying array.
+/// # Return
+/// Returns `Ok(impl Queue<T>)` on success and a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - if the size is 0.
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::*;
+///
+/// fn main() -> Result<(), Error> {
+///         let mut queue = queue!(10, &0)?;
+///
+///         for i in 0..10 {
+///                 queue.enqueue(i)?;
+///         }
+///
+///         for i in 0..10 {
+///                 let v = queue.dequeue().unwrap();
+///                 assert_eq!(v, &i);
+///         }
+///         
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! queue {
 	( $size:expr, $default:expr ) => {{
@@ -922,6 +1575,8 @@ macro_rules! queue {
 	}};
 }
 
+/// This is the box version of [`crate::queue`]. It is identical other than the returned value is
+/// in a box `(Box<dyn Queue>)`.
 #[macro_export]
 macro_rules! queue_box {
 	( $size:expr, $default:expr ) => {{
@@ -929,6 +1584,38 @@ macro_rules! queue_box {
 	}};
 }
 
+/// This macro creates a [`crate::Stack`]. The parameters are
+/// * size (required) - the size of the underlying array
+/// * default (required) - a reference to the value to initialize the array with
+/// for the stack, these values are never used, but a default is needed to initalize the
+/// underlying array.
+/// # Return
+/// Returns `Ok(impl Stack<T>)` on success and a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - if the size is 0.
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::*;
+///
+/// fn main() -> Result<(), Error> {
+///         let mut stack = stack!(10, &0)?;
+///
+///         for i in 0..10 {
+///                 stack.push(i)?;
+///         }
+///
+///         for i in (0..10).rev() {
+///                 let v = stack.pop().unwrap();
+///                 assert_eq!(v, &i);
+///         }
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! stack {
 	( $size:expr, $default:expr ) => {{
@@ -936,6 +1623,8 @@ macro_rules! stack {
 	}};
 }
 
+/// This is the box version of [`crate::stack`]. It is identical other than the returned value is
+/// in a box `(Box<dyn Stack>)`.
 #[macro_export]
 macro_rules! stack_box {
 	( $size:expr, $default:expr ) => {{
@@ -943,6 +1632,7 @@ macro_rules! stack_box {
 	}};
 }
 
+/// Append list2 to list1.
 #[macro_export]
 macro_rules! list_append {
 	($list1:expr, $list2:expr) => {{
@@ -952,6 +1642,7 @@ macro_rules! list_append {
 	}};
 }
 
+/// Compares equality of list1 and list2.
 #[macro_export]
 macro_rules! list_eq {
 	($list1:expr, $list2:expr) => {{
@@ -1081,8 +1772,8 @@ mod test {
 	use crate as bmw_util;
 	use crate::PatternParam::*;
 	use crate::{
-		thread_pool, Builder, Hashset, Hashtable, List, PoolResult, SortableList, SuffixTree,
-		ThreadPool,
+		lock, lock_box, thread_pool, Builder, Hashset, Hashtable, List, Lock, LockBox, PoolResult,
+		SortableList, SuffixTree, ThreadPool,
 	};
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;

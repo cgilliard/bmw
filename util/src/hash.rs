@@ -185,7 +185,7 @@ where
 impl Default for HashtableConfig {
 	fn default() -> Self {
 		Self {
-			max_entries: 1_000_000,
+			max_entries: 100_000,
 			max_load_factor: 0.8,
 		}
 	}
@@ -194,7 +194,7 @@ impl Default for HashtableConfig {
 impl Default for HashsetConfig {
 	fn default() -> Self {
 		Self {
-			max_entries: 1_000_000,
+			max_entries: 100_000,
 			max_load_factor: 0.8,
 		}
 	}
@@ -1266,10 +1266,10 @@ mod test {
 	use crate::types::{HashImpl, HashImplSync, Hashset, List};
 	use crate::ConfigOption::{SlabCount, SlabSize};
 	use crate::{
-		block_on, execute, hashset, hashtable, list, list_append, list_eq, slab_allocator,
+		block_on, execute, hashset, hashtable, list, list_append, list_eq, lock, slab_allocator,
 		thread_pool, Builder, HashsetConfig, HashsetIterator, Hashtable, HashtableConfig,
-		HashtableIterator, ListConfig, Reader, Serializable, SlabAllocatorConfig, SortableList,
-		ThreadPool, Writer, GLOBAL_SLAB_ALLOCATOR,
+		HashtableIterator, ListConfig, Lock, Reader, Serializable, SlabAllocatorConfig,
+		SortableList, ThreadPool, Writer, GLOBAL_SLAB_ALLOCATOR,
 	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;

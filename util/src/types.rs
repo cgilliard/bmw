@@ -11,8 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::ConfigOption::*;
-use crate::{Reader, Serializable, Writer};
+use crate::Serializable;
 use bmw_deps::dyn_clone::{clone_trait_object, DynClone};
 use bmw_derive::Serializable;
 use bmw_err::*;
@@ -25,20 +24,136 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 info!();
 
+/// Wrapper around the lock functionalities used by bmw in [`std::sync`] rust libraries.
+/// The main benefits are the simplified interface and the fact that if a thread attempts
+/// to obtain a lock twice, an error will be thrown instead of a thread panic. This is implemented
+/// through a thread local Hashset which keeps track of the guards used by the lock removes an
+/// entry for them when the guard is dropped.
+///
+/// # Examples
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use std::time::Duration;
+/// use std::thread::{sleep,spawn};
+///
+/// fn test() -> Result<(), Error> {
+///     let mut lock = lock!(1)?;
+///     let lock_clone = lock.clone();
+///
+///     spawn(move || -> Result<(), Error> {
+///         let mut x = lock.wlock()?;
+///         assert_eq!(**(x.guard()), 1);
+///         sleep(Duration::from_millis(3000));
+///         **(x.guard()) = 2;
+///         Ok(())
+///     });
+///
+///     sleep(Duration::from_millis(1000));
+///     let x = lock_clone.rlock()?;
+///     assert_eq!(**(x.guard()), 2);
+///     Ok(())
+/// }
+///```
+pub trait Lock<T>: Send + Sync + Debug
+where
+	T: Send + Sync,
+{
+	/// obtain a write lock and corresponding [`std::sync::RwLockWriteGuard`] for this
+	/// [`crate::Lock`].
+	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
+	/// obtain a read lock and corresponding [`std::sync::RwLockReadGuard`] for this
+	/// [`crate::Lock`].
+	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
+	/// Clone this [`crate::Lock`].
+	fn clone(&self) -> Self;
+}
+
+/// [`crate::LockBox`] is the same as [`crate::Lock`] except that it is possible to build
+/// The LockBox into a Box<dyn LockBox<T>> structure so that it is object safe. It can then
+/// be cloned using DynClone.
+///
+/// # Examples
+///
+///```
+///
+/// use bmw_err::*;
+/// use bmw_util::*;
+/// use bmw_deps::dyn_clone::clone_box;
+///
+/// struct TestLockBox<T> {
+///     lock_box: Box<dyn LockBox<T>>,
+/// }
+///
+/// fn test_lock_box() -> Result<(), Error> {
+///     let lock_box = lock_box!(1u32)?;
+///     let mut lock_box2 = clone_box(&*lock_box);
+///     let mut tlb = TestLockBox { lock_box };
+///
+///     {
+///         let mut tlb = tlb.lock_box.wlock()?;
+///         (**tlb.guard()) = 2u32;
+///     }
+///
+///     {
+///         let tlb = tlb.lock_box.rlock()?;
+///         assert_eq!((**tlb.guard()), 2u32);
+///     }
+///
+///     Ok(())
+/// }
+///
+///```
+pub trait LockBox<T>: Send + Sync + DynClone + Debug
+where
+	T: Send + Sync,
+{
+	/// obtain a write lock and corresponding [`std::sync::RwLockWriteGuard`] for this
+	/// [`crate::Lock`].
+	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
+	/// obtain a read lock and corresponding [`std::sync::RwLockReadGuard`] for this
+	/// [`crate::Lock`].
+	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
+}
+
+/// Wrapper around the [`std::sync::RwLockReadGuard`].
+pub struct RwLockReadGuardWrapper<'a, T> {
+	pub(crate) guard: RwLockReadGuard<'a, T>,
+	pub(crate) id: u128,
+	pub(crate) debug_err: bool,
+}
+
+/// Wrapper around the [`std::sync::RwLockWriteGuard`].
+pub struct RwLockWriteGuardWrapper<'a, T> {
+	pub(crate) guard: RwLockWriteGuard<'a, T>,
+	pub(crate) id: u128,
+	pub(crate) debug_err: bool,
+}
+
+/// The enum used to define patterns. See [`crate::pattern`] for more info.
 pub enum PatternParam<'a> {
+	/// The regular expression for this pattern.
 	Regex(&'a str),
+	/// Whether or not this is a termination pattern.
 	IsTerm(bool),
+	/// Whether or not this is a multi-line pattern. (allowing multi-line wildcard matches).
 	IsMulti(bool),
+	/// Whether or not this pattern is case sensitive.
 	IsCaseSensitive(bool),
+	/// The id of this pattern.
 	Id(usize),
 }
 
+/// The enum used to define a suffix_tree. See [`crate::suffix_tree`] for more info.
 pub enum SuffixParam {
+	/// The termination length of this suffix tree (length at which matching stops).
 	TerminationLength(usize),
+	/// The maximum length to look for wildcards.
 	MaxWildcardLength(usize),
 }
 
@@ -65,68 +180,7 @@ pub enum ConfigOption<'a> {
 	Slabs(&'a Rc<RefCell<dyn SlabAllocator>>),
 }
 
-impl Serializable for ConfigOption<'_> {
-	// fully covered, but the wildcard match not counted by tarpaulin
-	#[cfg(not(tarpaulin_include))]
-	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
-		match reader.read_u8()? {
-			0 => Ok(MaxEntries(reader.read_usize()?)),
-			1 => Ok(MaxLoadFactor(f64::read(reader)?)),
-			2 => Ok(SlabSize(reader.read_usize()?)),
-			3 => Ok(SlabCount(reader.read_usize()?)),
-			4 => Ok(MinSize(reader.read_usize()?)),
-			5 => Ok(MaxSize(reader.read_usize()?)),
-			6 => Ok(SyncChannelSize(reader.read_usize()?)),
-			_ => {
-				let fmt = "invalid type for config option!";
-				let e = err!(ErrKind::CorruptedData, fmt);
-				Err(e)
-			}
-		}
-	}
-
-	// fully covered but the Slabs(_) line not counted by tarpaulin
-	#[cfg(not(tarpaulin_include))]
-	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-		match self {
-			MaxEntries(size) => {
-				writer.write_u8(0)?;
-				writer.write_usize(*size)?;
-			}
-			MaxLoadFactor(lf) => {
-				writer.write_u8(1)?;
-				f64::write(lf, writer)?;
-			}
-			SlabSize(ss) => {
-				writer.write_u8(2)?;
-				writer.write_usize(*ss)?;
-			}
-			SlabCount(sc) => {
-				writer.write_u8(3)?;
-				writer.write_usize(*sc)?;
-			}
-			MinSize(mins) => {
-				writer.write_u8(4)?;
-				writer.write_usize(*mins)?;
-			}
-			MaxSize(maxs) => {
-				writer.write_u8(5)?;
-				writer.write_usize(*maxs)?;
-			}
-			SyncChannelSize(scs) => {
-				writer.write_u8(6)?;
-				writer.write_usize(*scs)?;
-			}
-			Slabs(_) => {
-				let fmt = "can't serialize slab allocator";
-				let e = err!(ErrKind::OperationNotSupported, fmt);
-				return Err(e);
-			}
-		}
-		Ok(())
-	}
-}
-
+/// Utility to write to slabs using the [`bmw_ser::Writer`] trait.
 #[derive(Clone)]
 pub struct SlabWriter {
 	pub(crate) slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
@@ -136,6 +190,7 @@ pub struct SlabWriter {
 	pub(crate) bytes_per_slab: usize,
 }
 
+/// Utility to read from slabs using the [`bmw_ser::Reader`] trait.
 #[derive(Clone)]
 pub struct SlabReader {
 	pub(crate) slabs: Option<Rc<RefCell<dyn SlabAllocator>>>,
@@ -173,38 +228,13 @@ pub struct ThreadPoolConfig {
 	pub sync_channel_size: usize,
 }
 
-#[derive(Debug, Clone, Serializable)]
-pub(crate) struct ThreadPoolState {
-	pub(crate) waiting: usize,
-	pub(crate) cur_size: usize,
-	pub(crate) config: ThreadPoolConfig,
-	pub(crate) stop: bool,
-}
-
-pub(crate) struct FutureWrapper<T> {
-	pub(crate) f: Pin<Box<dyn Future<Output = Result<T, Error>> + Send + Sync + 'static>>,
-	pub(crate) tx: SyncSender<PoolResult<T, Error>>,
-}
-
-pub(crate) struct ThreadPoolImpl<T: 'static + Send + Sync> {
-	pub(crate) config: ThreadPoolConfig,
-	pub(crate) rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
-	pub(crate) tx: Option<SyncSender<FutureWrapper<T>>>,
-	pub(crate) state: Box<dyn LockBox<ThreadPoolState>>,
-	pub(crate) test_config: Option<ThreadPoolTestConfig>,
-}
-
-pub(crate) struct ThreadPoolTestConfig {
-	pub(crate) debug_drop_error: bool,
-}
-
 /// The configuration struct for a [`Hashtable`]. This struct is passed
 /// into the [`crate::Builder::build_hashtable`] function. The [`std::default::Default`]
 /// trait is implemented for this trait.
 #[derive(Debug, Clone, Copy, PartialEq, Serializable)]
 pub struct HashtableConfig {
 	/// The maximum number of entries that can exist in this [`Hashtable`].
-	/// The default is 1_000_000. Note that the overhead for this value is 8 bytes
+	/// The default is 100_000. Note that the overhead for this value is 8 bytes
 	/// per entry. The [`crate::HashtableConfig::max_load_factor`] setting will
 	/// also affect how much memory is used by the entry array.
 	pub max_entries: usize,
@@ -221,7 +251,7 @@ pub struct HashtableConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Serializable)]
 pub struct HashsetConfig {
 	/// The maximum number of entries that can exist in this [`Hashset`].
-	/// The default is 1_000_000. Note that the overhead for this value is 8 bytes
+	/// The default is 100_000. Note that the overhead for this value is 8 bytes
 	/// per entry. So, by default 8 mb are allocated with this configuration.
 	pub max_entries: usize,
 	/// The maximum load factor for this [`crate::Hashset`]. This number
@@ -244,6 +274,11 @@ pub struct SlabAllocatorConfig {
 	pub slab_count: usize,
 }
 
+/// [`crate::ArrayList`] is an array based implementation of the [`crate::List`] and
+/// [`crate::SortableList`] trait. It uses the [`crate::Array`] as it's underlying
+/// storage mechanism. In most cases it is more performant than the LinkedList implementation,
+/// but it does do a heap allocation when created. See the module level documentation for
+/// an example.
 #[derive(Clone)]
 pub struct ArrayList<T> {
 	pub(crate) inner: Array<T>,
@@ -252,10 +287,25 @@ pub struct ArrayList<T> {
 	pub(crate) tail: usize,
 }
 
+/// The [`crate::Array`] is essentially a wrapper around [`std::vec::Vec`]. It is mainly used
+/// to prevent post initialization heap allocations. In many cases resizing/growing of the vec
+/// is not needed and adding this wrapper assures that they do not happen. There are use cases
+/// where growing is useful and in fact in the library we use Vec for the suffix tree, but in most
+/// cases where contiguous memory is used, the primary purpose is for indexing. That can be done
+/// with an array. So we add this wrapper.
+///
+/// # Examples
+///```
+/// fn main() -> Result<(), Error> {
+///      Ok(())
+/// }
+///```
 pub struct Array<T> {
 	pub(crate) data: Vec<T>,
 }
 
+/// Configuration for Lists currently there are no parameters, but it is still used
+/// to stay consistent with [`crate::Hashtable`] and [`crate::Hashset`].
 #[derive(Debug, Clone, Serializable)]
 pub struct ListConfig {}
 
@@ -342,14 +392,11 @@ pub enum PoolResult<T, E> {
 	Panic,
 }
 
-unsafe impl<T, E> Send for PoolResult<T, E> {}
-unsafe impl<T, E> Sync for PoolResult<T, E> {}
-
 /// This trait defines the public interface to the ThreadPool. A pool can be configured
 /// via the [`crate::ThreadPoolConfig`] struct. The thread pool should be accessed through the
 /// macros under normal circumstances. See [`crate::thread_pool`], [`crate::execute`] and
 /// [`crate::block_on`] for additional details. The thread pool can be passed through threads via a
-/// [`bmw_log::Lock`] or [`bmw_log::LockBox`] so a single thread pool can service multiple
+/// [`crate::Lock`] or [`crate::LockBox`] so a single thread pool can service multiple
 /// worker threads. See examples below.
 ///
 /// # Examples
@@ -365,7 +412,7 @@ unsafe impl<T, E> Sync for PoolResult<T, E> {}
 /// fn thread_pool() -> Result<(), Error> {
 ///     let tp = thread_pool!()?; // create a thread pool using default settings
 ///
-///     // create a shared variable protected by the [`bmw_log::lock`] macro.
+///     // create a shared variable protected by the [`crate::lock`] macro.
 ///     let mut shared = lock!(0)?; // we use an integer 0, but any struct can be used.
 ///     let shared_clone = shared.clone();
 ///
@@ -395,7 +442,7 @@ unsafe impl<T, E> Sync for PoolResult<T, E> {}
 ///     // for further details.
 ///     let tp = thread_pool!(MaxSize(10), MinSize(5))?;
 ///
-///     // put the thread pool in a [`bmw_log::Lock`].
+///     // put the thread pool in a [`crate::Lock`].
 ///     let tp = lock!(tp)?;
 ///
 ///     // spawn 6 worker threads
@@ -700,29 +747,8 @@ pub trait SuffixTree {
 	fn tmatch(&mut self, text: &[u8], matches: &mut [Match]) -> Result<usize, Error>;
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct Node {
-	pub(crate) next: [u32; 257],
-	pub(crate) pattern_id: usize,
-	pub(crate) is_multi: bool,
-	pub(crate) is_term: bool,
-	pub(crate) is_start_only: bool,
-	pub(crate) is_multi_line: bool,
-}
-
-pub(crate) struct Dictionary {
-	pub(crate) nodes: Vec<Node>,
-	pub(crate) next: u32,
-}
-
-pub(crate) struct SuffixTreeImpl {
-	pub(crate) dictionary_case_insensitive: Dictionary,
-	pub(crate) dictionary_case_sensitive: Dictionary,
-	pub(crate) termination_length: usize,
-	pub(crate) max_wildcard_length: usize,
-	pub(crate) branch_stack: Box<dyn Stack<(usize, usize)>>,
-}
-
+/// The builder struct for the util library. All data structures are built through this
+/// interface. This is used by the macros as well.
 pub struct Builder {}
 
 pub struct HashtableIterator<'a, K, V>
@@ -756,8 +782,44 @@ where
 	pub(crate) slab_reader: Option<SlabReader>,
 }
 
+pub struct ArrayListIterator<'a, T> {
+	pub(crate) array_list_ref: &'a ArrayList<T>,
+	pub(crate) direction: Direction,
+	pub(crate) cur: usize,
+}
+
+pub struct ArrayIterator<'a, T> {
+	pub(crate) array_ref: &'a Array<T>,
+	pub(crate) cur: usize,
+}
+
+// crate local structs/enums
+
+#[derive(Clone, Debug)]
+pub(crate) struct Node {
+	pub(crate) next: [u32; 257],
+	pub(crate) pattern_id: usize,
+	pub(crate) is_multi: bool,
+	pub(crate) is_term: bool,
+	pub(crate) is_start_only: bool,
+	pub(crate) is_multi_line: bool,
+}
+
+pub(crate) struct Dictionary {
+	pub(crate) nodes: Vec<Node>,
+	pub(crate) next: u32,
+}
+
+pub(crate) struct SuffixTreeImpl {
+	pub(crate) dictionary_case_insensitive: Dictionary,
+	pub(crate) dictionary_case_sensitive: Dictionary,
+	pub(crate) termination_length: usize,
+	pub(crate) max_wildcard_length: usize,
+	pub(crate) branch_stack: Box<dyn Stack<(usize, usize)>>,
+}
+
 #[derive(Clone)]
-pub struct HashImplSync<K>
+pub(crate) struct HashImplSync<K>
 where
 	K: Serializable + Clone,
 {
@@ -788,6 +850,12 @@ where
 	pub(crate) debug_entry_array_len: bool,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Direction {
+	Forward,
+	Backward,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct SlabAllocatorImpl {
 	pub(crate) config: Option<SlabAllocatorConfig>,
@@ -798,21 +866,35 @@ pub(crate) struct SlabAllocatorImpl {
 	pub(crate) max_value: usize,
 }
 
-pub struct ArrayListIterator<'a, T> {
-	pub(crate) array_list_ref: &'a ArrayList<T>,
-	pub(crate) direction: Direction,
-	pub(crate) cur: usize,
+#[derive(Clone)]
+pub(crate) struct LockImpl<T> {
+	pub(crate) t: Arc<RwLock<T>>,
+	pub(crate) id: u128,
 }
 
-pub struct ArrayIterator<'a, T> {
-	pub(crate) array_ref: &'a Array<T>,
-	pub(crate) cur: usize,
+#[derive(Debug, Clone, Serializable)]
+pub(crate) struct ThreadPoolState {
+	pub(crate) waiting: usize,
+	pub(crate) cur_size: usize,
+	pub(crate) config: ThreadPoolConfig,
+	pub(crate) stop: bool,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum Direction {
-	Forward,
-	Backward,
+pub(crate) struct FutureWrapper<T> {
+	pub(crate) f: Pin<Box<dyn Future<Output = Result<T, Error>> + Send + Sync + 'static>>,
+	pub(crate) tx: SyncSender<PoolResult<T, Error>>,
+}
+
+pub(crate) struct ThreadPoolImpl<T: 'static + Send + Sync> {
+	pub(crate) config: ThreadPoolConfig,
+	pub(crate) rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
+	pub(crate) tx: Option<SyncSender<FutureWrapper<T>>>,
+	pub(crate) state: Box<dyn LockBox<ThreadPoolState>>,
+	pub(crate) test_config: Option<ThreadPoolTestConfig>,
+}
+
+pub(crate) struct ThreadPoolTestConfig {
+	pub(crate) debug_drop_error: bool,
 }
 
 #[cfg(test)]

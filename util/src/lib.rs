@@ -18,7 +18,9 @@
 //! a impl and Box form using the [`crate::Builder`] or through macros. The impls completely stack
 //! based and the box forms are Box<dyn ..>'s that can be stored in other structs and Enums. While
 //! the boxed versions do store data on the heap, it is only pointers and the vast majority of the
-//! data, in either form, is stored in a pre-allocated slabs.
+//! data, in either form, is stored in pre-allocated slabs. The array based structures do use
+//! the heap, they use [`std::vec::Vec`] as the underlying storage mechanism, but they only allocate
+//! heap memory when they are created and none afterwords.
 //!
 //! # Motivation
 //!
@@ -126,19 +128,25 @@
 //!
 //! # Using bmw in your project
 //!
-//! To use the crates in bmw in your project, add the following to your Cargo.toml
+//! To use the crates in bmw in your project, add the following to your Cargo.toml:
+//!
+//!```text
+//! bmw_util   = { git = "https://github.com/37miners/bmw"  }
+//!```
+//!
+//! Optionally, you may wish to use the other associated crates:
+//!
 //!```text
 //! bmw_err    = { git = "https://github.com/37miners/bmw"  }
 //! bmw_log    = { git = "https://github.com/37miners/bmw"  }
-//! bmw_util   = { git = "https://github.com/37miners/bmw"  }
 //! bmw_derive = { git = "https://github.com/37miners/bmw"  }
 //!```
 //!
-//! The linux dependencies can be installed with the following commands:
+//! The linux dependencies can be installed with the following commands on ubuntu:
 //!
 //!```text
 //! $ sudo apt-get update -yqq
-//! $ sudo apt-get install -yqq --no-install-recommends libncursesw5-dev tor libssl-dev
+//! $ sudo apt-get install -yqq --no-install-recommends libncursesw5-dev libssl-dev
 //!```
 //!
 //! The macos dependencies can be installed with the following commands
@@ -221,12 +229,12 @@
 //! use bmw_err::*;
 //!
 //! fn main() -> Result<(), Error> {
-//!     // for this example we will use the global slab allocator which is a thread local slab
-//!     // allocator which we can configure via macro
-//!     init_slab_allocator!(SlabSize(64), SlabCount(100_000))?;
+//!     // for this example we will use the global slab allocator which is a
+//!     // thread local slab allocator which we can configure via macro
+//!     global_slab_allocator!(SlabSize(64), SlabCount(100_000))?;
 //!
-//!     // create two lists (one linked and one array list). Note that all lists created via macro
-//!     // are interoperable.
+//!     // create two lists (one linked and one array list).
+//!     // Note that all lists created via macro are interoperable.
 //!     let mut list1 = list![1u32, 2u32, 4u32, 5u32];
 //!     let mut list2 = array_list!(10, &0u32)?;
 //!     list2.push(5)?;
@@ -289,7 +297,7 @@
 //!
 //!     // create a lock initializing it's value to 0
 //!     let x = lock!(0)?;
-//!     // clone the lock (one for the thread pool, one for the local thread
+//!     // clone the lock (one for the thread pool, one for the local thread)
 //!     let mut x_clone = x.clone();
 //!
 //!     // execute in the thread pool
@@ -334,7 +342,11 @@
 //!     {
 //!     
 //!         // instantiate a hashtable with specified MaxEntries and MaxLoadFactor
-//!         let hashtable = hashtable_box!(MaxEntries(10_000), MaxLoadFactor(0.85), Slabs(&slabs))?;
+//!         let hashtable = hashtable_box!(
+//!             MaxEntries(10_000),
+//!             MaxLoadFactor(0.85),
+//!             Slabs(&slabs)
+//!         )?;
 //!
 //!         let mut s = MyStruct {
 //!             hashtable,
@@ -407,7 +419,8 @@
 //!         MaxWildcardLength(50)
 //!     )?;
 //!
-//!     // run the matches and return the number of matches assert that it's one for the abc match
+//!     // run the matches and return the number of matches assert that it's
+//!     // one for the abc match
 //!     let match_count = suffix_tree.tmatch(b"abc", &mut matches)?;
 //!     assert_eq!(match_count, 1);
 //!
@@ -424,8 +437,8 @@
 //! use bmw_err::*;
 //!
 //! fn main() -> Result<(), Error> {
-//!     // create a stack and a queue both with capacity of 1_000 items and &0 is the default value
-//!     // used to initialize the queue's array
+//!     // create a stack and a queue both with capacity of 1_000 items and &0
+//!     //is the default value used to initialize the queue's array
 //!     let mut queue = queue!(1_000, &0)?;
 //!     let mut stack = stack!(1_000, &0)?;
 //!
@@ -509,6 +522,7 @@
 mod array;
 mod builder;
 mod hash;
+mod lock;
 mod macros;
 mod misc;
 mod ser;
@@ -525,8 +539,10 @@ pub use crate::types::SuffixParam::*;
 pub use crate::types::{
 	Array, ArrayIterator, ArrayList, BinReader, BinWriter, Builder, ConfigOption, Hashset,
 	HashsetConfig, HashsetIterator, Hashtable, HashtableConfig, HashtableIterator, List,
-	ListConfig, ListIterator, Match, Pattern, PatternParam, PoolResult, Queue, Slab, SlabAllocator,
-	SlabAllocatorConfig, SlabMut, SlabReader, SlabWriter, SortableList, Stack, SuffixParam,
-	SuffixTree, ThreadPool, ThreadPoolConfig,
+	ListConfig, ListIterator, Lock, LockBox, Match, Pattern, PatternParam, PoolResult, Queue,
+	RwLockReadGuardWrapper, RwLockWriteGuardWrapper, Slab, SlabAllocator, SlabAllocatorConfig,
+	SlabMut, SlabReader, SlabWriter, SortableList, Stack, SuffixParam, SuffixTree, ThreadPool,
+	ThreadPoolConfig,
 };
+
 pub use bmw_ser::{Reader, Serializable, Writer};

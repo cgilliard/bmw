@@ -358,8 +358,8 @@ where
 mod test {
 	use crate as bmw_util;
 	use crate::{
-		block_on, execute, list, list_eq, thread_pool, Array, ArrayList, Builder, List, PoolResult,
-		Queue, Stack, ThreadPool,
+		block_on, execute, list, list_eq, lock, thread_pool, Array, ArrayList, Builder, List, Lock,
+		PoolResult, Queue, Stack, ThreadPool,
 	};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_deps::rand::random;
