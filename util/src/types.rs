@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{LockBox, Serializable};
+use crate::Serializable;
 use bmw_deps::dyn_clone::{clone_trait_object, DynClone};
 use bmw_derive::Serializable;
 use bmw_err::*;
@@ -24,9 +24,120 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLockReadGuard, RwLockWriteGuard};
 
 info!();
+
+/// Wrapper around the lock functionalities used by bmw in [`std::sync`] rust libraries.
+/// The main benefits are the simplified interface and the fact that if a thread attempts
+/// to obtain a lock twice, an error will be thrown instead of a thread panic. This is implemented
+/// through a thread local Hashset which keeps track of the guards used by the lock removes an
+/// entry for them when the guard is dropped.
+///
+/// # Examples
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use std::time::Duration;
+/// use std::thread::{sleep,spawn};
+///
+/// fn test() -> Result<(), Error> {
+///     let mut lock = lock!(1)?;
+///     let lock_clone = lock.clone();
+///
+///     spawn(move || -> Result<(), Error> {
+///         let mut x = lock.wlock()?;
+///         assert_eq!(**(x.guard()), 1);
+///         sleep(Duration::from_millis(3000));
+///         **(x.guard()) = 2;
+///         Ok(())
+///     });
+///
+///     sleep(Duration::from_millis(1000));
+///     let x = lock_clone.rlock()?;
+///     assert_eq!(**(x.guard()), 2);
+///     Ok(())
+/// }
+///```
+pub trait Lock<T>: Send + Sync + Debug
+where
+	T: Send + Sync,
+{
+	/// obtain a write lock and corresponding [`std::sync::RwLockWriteGuard`] for this
+	/// [`crate::Lock`].
+	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
+	/// obtain a read lock and corresponding [`std::sync::RwLockReadGuard`] for this
+	/// [`crate::Lock`].
+	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
+	/// Clone this [`crate::Lock`].
+	fn clone(&self) -> Self;
+}
+
+/// [`crate::LockBox`] is the same as [`crate::Lock`] except that it is possible to build
+/// The LockBox into a Box<dyn LockBox<T>> structure so that it is object safe. It can then
+/// be cloned using DynClone.
+///
+/// # Examples
+///
+///```
+///
+/// use bmw_err::*;
+/// use bmw_util::*;
+/// use bmw_deps::dyn_clone::clone_box;
+///
+/// struct TestLockBox<T> {
+///     lock_box: Box<dyn LockBox<T>>,
+/// }
+///
+/// fn test_lock_box() -> Result<(), Error> {
+///     let lock_box = lock_box!(1u32)?;
+///     let mut lock_box2 = clone_box(&*lock_box);
+///     let mut tlb = TestLockBox { lock_box };
+///
+///     {
+///         let mut tlb = tlb.lock_box.wlock()?;
+///         (**tlb.guard()) = 2u32;
+///     }
+///
+///     {
+///         let tlb = tlb.lock_box.rlock()?;
+///         assert_eq!((**tlb.guard()), 2u32);
+///     }
+///
+///     Ok(())
+/// }
+///
+///```
+pub trait LockBox<T>: Send + Sync + DynClone + Debug
+where
+	T: Send + Sync,
+{
+	/// obtain a write lock and corresponding [`std::sync::RwLockWriteGuard`] for this
+	/// [`crate::Lock`].
+	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
+	/// obtain a read lock and corresponding [`std::sync::RwLockReadGuard`] for this
+	/// [`crate::Lock`].
+	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
+}
+
+/// Wrapper around the [`std::sync::RwLockReadGuard`].
+pub struct RwLockReadGuardWrapper<'a, T> {
+	pub(crate) guard: RwLockReadGuard<'a, T>,
+	pub(crate) id: u128,
+	pub(crate) debug_err: bool,
+}
+
+/// Wrapper around the [`std::sync::RwLockWriteGuard`].
+pub struct RwLockWriteGuardWrapper<'a, T> {
+	pub(crate) guard: RwLockWriteGuard<'a, T>,
+	pub(crate) id: u128,
+	pub(crate) debug_err: bool,
+}
+
+/// Builder for [`crate::Lock`]. This is the only way that a [`crate::Lock`] can be built from
+/// outside this crate.
+pub struct LockBuilder {}
 
 pub enum PatternParam<'a> {
 	Regex(&'a str),

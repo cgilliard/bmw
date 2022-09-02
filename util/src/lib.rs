@@ -539,13 +539,10 @@ pub use crate::types::SuffixParam::*;
 pub use crate::types::{
 	Array, ArrayIterator, ArrayList, BinReader, BinWriter, Builder, ConfigOption, Hashset,
 	HashsetConfig, HashsetIterator, Hashtable, HashtableConfig, HashtableIterator, List,
-	ListConfig, ListIterator, Match, Pattern, PatternParam, PoolResult, Queue, Slab, SlabAllocator,
+	ListConfig, ListIterator, Lock, LockBox, LockBuilder, Match, Pattern, PatternParam, PoolResult,
+	Queue, RwLockReadGuardWrapper, RwLockWriteGuardWrapper, Slab, SlabAllocator,
 	SlabAllocatorConfig, SlabMut, SlabReader, SlabWriter, SortableList, Stack, SuffixParam,
 	SuffixTree, ThreadPool, ThreadPoolConfig,
-};
-
-pub use crate::lock::{
-	Lock, LockBox, LockBuilder, RwLockReadGuardWrapper, RwLockWriteGuardWrapper,
 };
 
 pub use bmw_ser::{Reader, Serializable, Writer};

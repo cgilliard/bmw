@@ -15,6 +15,66 @@ use bmw_log::*;
 
 info!();
 
+/// Macro to get a [`crate::Lock`]. Internally, the parameter passed in is wrapped in
+/// an Arc<Rwlock<T>> wrapper that can be used to obtain read/write locks around any
+/// data structure.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::*;
+/// use bmw_util::*;
+/// use std::time::Duration;
+/// use std::thread::{sleep, spawn};
+///
+/// #[derive(Debug, PartialEq)]
+/// struct MyStruct {
+///     id: u128,
+///     name: String,
+/// }
+///
+/// impl MyStruct {
+///     fn new(id: u128, name: String) -> Self {
+///         Self { id, name }
+///     }
+/// }
+///
+/// fn main() -> Result<(), Error> {
+///     let v = MyStruct::new(1234, "joe".to_string());
+///     let mut vlock = lock!(v)?;
+///     let vlock_clone = vlock.clone();
+///
+///     spawn(move || -> Result<(), Error> {
+///         let mut x = vlock.wlock()?;
+///         assert_eq!((**(x.guard())).id, 1234);
+///         sleep(Duration::from_millis(3000));
+///         (**(x.guard())).id = 4321;
+///         Ok(())
+///     });
+///
+///     sleep(Duration::from_millis(1000));
+///     let x = vlock_clone.rlock()?;
+///     assert_eq!((**(x.guard())).id, 4321);
+///
+///     Ok(())
+/// }
+///```
+#[macro_export]
+macro_rules! lock {
+	($value:expr) => {{
+		bmw_util::LockBuilder::build($value)
+	}};
+}
+
+/// The same as lock except that the value returned is in a Box<dyn LockBox<T>> structure.
+/// See [`crate::LockBox`] for a working example.
+#[macro_export]
+macro_rules! lock_box {
+	($value:expr) => {{
+		bmw_util::LockBuilder::build_box($value)
+	}};
+}
+
 /// The `global_slab_allocator` macro initializes the global thread local slab allocator
 /// for the thread that it is executed in. It takes the following parameters:
 ///
