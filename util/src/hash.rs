@@ -185,7 +185,7 @@ where
 impl Default for HashtableConfig {
 	fn default() -> Self {
 		Self {
-			max_entries: 1_000_000,
+			max_entries: 100_000,
 			max_load_factor: 0.8,
 		}
 	}
@@ -194,7 +194,7 @@ impl Default for HashtableConfig {
 impl Default for HashsetConfig {
 	fn default() -> Self {
 		Self {
-			max_entries: 1_000_000,
+			max_entries: 100_000,
 			max_load_factor: 0.8,
 		}
 	}

@@ -204,7 +204,7 @@ pub(crate) struct ThreadPoolTestConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Serializable)]
 pub struct HashtableConfig {
 	/// The maximum number of entries that can exist in this [`Hashtable`].
-	/// The default is 1_000_000. Note that the overhead for this value is 8 bytes
+	/// The default is 100_000. Note that the overhead for this value is 8 bytes
 	/// per entry. The [`crate::HashtableConfig::max_load_factor`] setting will
 	/// also affect how much memory is used by the entry array.
 	pub max_entries: usize,
@@ -221,7 +221,7 @@ pub struct HashtableConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Serializable)]
 pub struct HashsetConfig {
 	/// The maximum number of entries that can exist in this [`Hashset`].
-	/// The default is 1_000_000. Note that the overhead for this value is 8 bytes
+	/// The default is 100_000. Note that the overhead for this value is 8 bytes
 	/// per entry. So, by default 8 mb are allocated with this configuration.
 	pub max_entries: usize,
 	/// The maximum load factor for this [`crate::Hashset`]. This number

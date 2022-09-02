@@ -771,6 +771,71 @@ macro_rules! hashset_sync_config {
 	}};
 }
 
+/// The [`crate::hashtable`] macro builds a [`crate::Hashtable`] with the specified configuration and
+/// optionally the specified [`crate::SlabAllocator`]. The macro accepts the following parameters:
+///
+/// * MaxEntries(usize) (optional) - The maximum number of entries that can be in this hashtable
+///                                  at any given time. If not specified, the default value of
+///                                  100_000 will be used.
+/// * MaxLoadFactor(usize) (optional) - The maximum load factor of the hashtable. The hashtable is
+///                                     array based hashtable and it has a fixed size. Once the
+///                                     load factor is reach, insertions will return an error. The
+///                                     hashtable uses linear probing to handle collisions. The
+///                                     max_load_factor makes sure no additional insertions occur
+///                                     at a given ratio of entries to capacity in the array. Note
+///                                     that MaxEntries can always be inserted, it's the capacity
+///                                     of the array that becomes larger as this ratio goes down.
+///                                     If not specified, the default value is 0.8.
+/// * Slabs(Option<&Rc<RefCell<dyn SlabAllocator>>>) (optional) - An optional reference to a slab
+///                                     allocator to use with this [`crate::Hashtable`]. If not
+///                                     specified, the global slab allocator is used.
+///
+/// # Returns
+///
+/// A Ok(`impl Hashtable<K, V>`) on success or a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+///
+/// * [`bmw_err::ErrorKind::Configuration`] if anything other than [`crate::ConfigOption::Slabs`],
+///                                     [`crate::ConfigOption::MaxEntries`] or
+///                                     [`crate::ConfigOption::MaxLoadFactor`] is specified,
+///                                     if the slab_allocator's slab_size is greater than 65,536,
+///                                     or slab_count is greater than 281_474_976_710_655,
+///                                     max_entries is 0 or max_load_factor is not greater than 0
+///                                     and less than or equal to 1.
+///
+/// # Examples
+///```
+/// use bmw_util::*;
+/// use bmw_log::*;
+/// use bmw_err::*;
+///
+/// fn main() -> Result<(), Error> {
+///         // create a default slab allocator
+///         let slabs = slab_allocator!()?;
+///
+///         // create a hashtable with the specified parameters
+///         let mut hashtable = hashtable!(MaxEntries(1_000), MaxLoadFactor(0.9), Slabs(&slabs))?;
+///
+///         // do an insert, rust will figure out what type is being inserted
+///         hashtable.insert(&1, &2)?;
+///
+///         // assert that the entry was inserted
+///         assert_eq!(hashtable.get(&1)?, Some(2));
+///
+///         // create another hashtable with defaults, this time the global slab allocator will be
+///         // used. Since we did not initialize it default values will be used.
+///         let mut hashtable = hashtable!()?;
+///
+///         // do an insert, rust will figure out what type is being inserted
+///         hashtable.insert(&1, &3)?;
+///
+///         // assert that the entry was inserted
+///         assert_eq!(hashtable.get(&1)?, Some(3));
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! hashtable {
 	( $( $config:expr ),* ) => {{
@@ -818,6 +883,11 @@ macro_rules! hashtable {
 	}};
 }
 
+/// The [`crate::hashtable_box`] macro builds a [`crate::Hashtable`] with the specified configuration and
+/// optionally the specified [`crate::SlabAllocator`]. The only difference between this macro and
+/// the [`crate::hashtable`] macro is that the returned hashtable is inserted into a Box.
+/// Specifically, the return type is a `Box<dyn Hashtable>`. See [`crate::hashtable`] for further
+/// details.
 #[macro_export]
 macro_rules! hashtable_box {
         ( $( $config:expr ),* ) => {{
@@ -865,6 +935,32 @@ macro_rules! hashtable_box {
         }};
 }
 
+/// The difference between this macro and the [`crate::hashtable`] macro is that the returned
+/// [`crate::Hashtable`] implements the Send and Sync traits and is thread safe. With this
+/// hashtable you cannot specify a [`crate::SlabAllocator`] because they use [`std::cell::RefCell`]
+/// which is not thread safe. That is also why this macro returns an error if
+/// [`crate::ConfigOption::Slabs`] is specified. The parameters for this macro are:
+///
+/// * MaxEntries(usize) (optional) - The maximum number of entries that can be in this hashtable
+///                                  at any given time. If not specified, the default value of
+///                                  100_000 will be used.
+/// * MaxLoadFactor(usize) (optional) - The maximum load factor of the hashtable. The hashtable is
+///                                     array based hashtable and it has a fixed size. Once the
+///                                     load factor is reach, insertions will return an error. The
+///                                     hashtable uses linear probing to handle collisions. The
+///                                     max_load_factor makes sure no additional insertions occur
+///                                     at a given ratio of entries to capacity in the array. Note
+///                                     that MaxEntries can always be inserted, it's the capacity
+///                                     of the array that becomes larger as this ratio goes down.
+///                                     If not specified, the default value is 0.8.
+/// * SlabSize(usize) (optional) - the size in bytes of the slabs for this slab allocator.
+///                                if not specified, the default value of 256 is used.
+///
+/// * SlabCount(usize) (optional) - the number of slabs to allocate to this slab
+///                                 allocator. If not specified, the default value of
+///                                 40,960 is used.
+///
+/// See the [`crate`] for examples.
 #[macro_export]
 macro_rules! hashtable_sync {
         ( $( $config:expr ),* ) => {{
@@ -910,6 +1006,9 @@ macro_rules! hashtable_sync {
         }};
 }
 
+/// This macro is the same as [`hashtable_sync`] except that the returned hashtable is in a Box.
+/// This macro can be used if the sync hashtable needs to be placed in a struct or an enum.
+/// See [`crate::hashtable`] and [`crate::hashtable_sync`] for further details.
 #[macro_export]
 macro_rules! hashtable_sync_box {
         ( $( $config:expr ),* ) => {{
@@ -955,6 +1054,71 @@ macro_rules! hashtable_sync_box {
         }};
 }
 
+/// The [`crate::hashset`] macro builds a [`crate::Hashset`] with the specified configuration and
+/// optionally the specified [`crate::SlabAllocator`]. The macro accepts the following parameters:
+///
+/// * MaxEntries(usize) (optional) - The maximum number of entries that can be in this hashset
+///                                  at any given time. If not specified, the default value of
+///                                  100_000 will be used.
+/// * MaxLoadFactor(usize) (optional) - The maximum load factor of the hashset. The hashset is
+///                                     array based hashset and it has a fixed size. Once the
+///                                     load factor is reach, insertions will return an error. The
+///                                     hashset uses linear probing to handle collisions. The
+///                                     max_load_factor makes sure no additional insertions occur
+///                                     at a given ratio of entries to capacity in the array. Note
+///                                     that MaxEntries can always be inserted, it's the capacity
+///                                     of the array that becomes larger as this ratio goes down.
+///                                     If not specified, the default value is 0.8.
+/// * Slabs(Option<&Rc<RefCell<dyn SlabAllocator>>>) (optional) - An optional reference to a slab
+///                                     allocator to use with this [`crate::Hashset`]. If not
+///                                     specified, the global slab allocator is used.
+///
+/// # Returns
+///
+/// A Ok(`impl Hashset<K>`) on success or a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+///
+/// * [`bmw_err::ErrorKind::Configuration`] if anything other than [`crate::ConfigOption::Slabs`],
+///                                     [`crate::ConfigOption::MaxEntries`] or
+///                                     [`crate::ConfigOption::MaxLoadFactor`] is specified,
+///                                     if the slab_allocator's slab_size is greater than 65,536,
+///                                     or slab_count is greater than 281_474_976_710_655,
+///                                     max_entries is 0 or max_load_factor is not greater than 0
+///                                     and less than or equal to 1.
+///
+/// # Examples
+///```
+/// use bmw_util::*;
+/// use bmw_log::*;
+/// use bmw_err::*;
+///
+/// fn main() -> Result<(), Error> {
+///         // create a default slab allocator
+///         let slabs = slab_allocator!()?;
+///
+///         // create a hashset with the specified parameters
+///         let mut hashset = hashset!(MaxEntries(1_000), MaxLoadFactor(0.9), Slabs(&slabs))?;
+///
+///         // do an insert, rust will figure out what type is being inserted
+///         hashset.insert(&1)?;
+///
+///         // assert that the entry was inserted
+///         assert_eq!(hashset.contains(&1)?, true);
+///
+///         // create another hashset with defaults, this time the global slab allocator will be
+///         // used. Since we did not initialize it default values will be used.
+///         let mut hashset = hashset!()?;
+///
+///         // do an insert, rust will figure out what type is being inserted
+///         hashset.insert(&1)?;
+///
+///         // assert that the entry was inserted
+///         assert_eq!(hashset.contains(&1)?, true);
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! hashset {
         ( $( $config:expr ),* ) => {{
@@ -1002,6 +1166,8 @@ macro_rules! hashset {
         }};
 }
 
+/// The [`crate::hashset_box`] macro is the same as the [`crate::hashset`] macro except that the
+/// hashset is returned in a box. See [`crate::hashset`].
 #[macro_export]
 macro_rules! hashset_box {
         ( $( $config:expr ),* ) => {{
@@ -1049,6 +1215,9 @@ macro_rules! hashset_box {
         }};
 }
 
+/// The hashset_sync macro is the same as [`crate::hashset`] except that the returned Hashset
+/// implements Send and Sync and can be safely passed through threads. See
+/// [`crate::hashtable_sync`] for further details.
 #[macro_export]
 macro_rules! hashset_sync {
         ( $( $config:expr ),* ) => {{
@@ -1094,6 +1263,9 @@ macro_rules! hashset_sync {
         }};
 }
 
+/// The hashset_sync_box macro is the boxed version of the [`crate::hashset_sync`] macro. It is the
+/// same except that the returned [`crate::Hashset`] is in a Box so it can be added to structs and
+/// enums.
 #[macro_export]
 macro_rules! hashset_sync_box {
         ( $( $config:expr ),* ) => {{
@@ -1139,6 +1311,30 @@ macro_rules! hashset_sync_box {
         }};
 }
 
+/// The list macro is used to create lists. This macro uses the global slab allocator. To use a
+/// specified slab allocator, see [`crate::Builder::build_list`]. It has the same syntax as the
+/// [`std::vec!`] macro. Note that this macro and the builder function both
+/// return an implementation of the [`crate::SortableList`] trait.
+///
+/// # Examples
+///
+///```
+/// use bmw_util::*;
+/// use bmw_err::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///     let list = list![1, 2, 3, 4];
+///
+///     info!("list={:?}", list)?;
+///
+///     assert!(list_eq!(list, list![1, 2, 3, 4]));
+///
+///     Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! list {
     ( $( $x:expr ),* ) => {
@@ -1153,6 +1349,8 @@ macro_rules! list {
     };
 }
 
+/// This is the boxed version of list. The returned value is `Box<dyn SortableList>`. Otherwise,
+/// this macro is identical to [`crate::list`].
 #[macro_export]
 macro_rules! list_box {
     ( $( $x:expr ),* ) => {
@@ -1166,6 +1364,10 @@ macro_rules! list_box {
     };
 }
 
+/// Like [`crate::hashtable_sync`] and [`crate::hashset_sync`] list has a 'sync' version. See those
+/// macros for more details and see the [`crate`] for an example of the sync version of a hashtable.
+/// Just as in that example the list can be put into a [`bmw_log::lock`] or [`bmw_log::lock_box`]
+/// and passed between threads.
 #[macro_export]
 macro_rules! list_sync {
     ( $( $x:expr ),* ) => {
@@ -1180,6 +1382,7 @@ macro_rules! list_sync {
     };
 }
 
+/// Box version of the [`crate::list_sync`] macro.
 #[macro_export]
 macro_rules! list_sync_box {
     ( $( $x:expr ),* ) => {
@@ -1194,6 +1397,32 @@ macro_rules! list_sync_box {
     };
 }
 
+/// The [`crate::array`] macro builds an [`crate::Array`]. The macro takes the following
+/// parameters:
+/// * size (required) - the size of the array
+/// * default (required) - a reference to the value to initialize the array with
+/// # Return
+/// Returns `Ok(impl Array<T>)` on success and a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - if the size is 0.
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::*;
+///
+/// fn main() -> Result<(), Error> {
+///         let arr = array!(10, &0)?;
+///
+///         for x in arr.iter() {
+///                 assert_eq!(x, &0);
+///         }
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! array {
 	( $size:expr, $default:expr ) => {{
@@ -1201,6 +1430,35 @@ macro_rules! array {
 	}};
 }
 
+/// The [`crate::array_list`] macro builds an [`crate::ArrayList`] in the form of a impl
+/// SortableList. The macro takes the following parameters:
+/// * size (required) - the size of the array
+/// * default (required) - a reference to the value to initialize the array with
+/// # Return
+/// Returns `Ok(impl SortableList<T>)` on success and a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - if the size is 0.
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::*;
+///
+/// fn main() -> Result<(), Error> {
+///         let mut arr = array_list!(10, &0)?;
+///         for _ in 0..10 {
+///                 arr.push(0)?;
+///         }
+///
+///         for x in arr.iter() {
+///                 assert_eq!(x, 0);
+///         }
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! array_list {
 	( $size:expr, $default:expr ) => {{
@@ -1208,6 +1466,9 @@ macro_rules! array_list {
 	}};
 }
 
+/// This macro is identical to [`crate::array_list`] except that the value is returned in a box.
+/// To be exact, the return value is `Box<dyn SortableList>`. The boxed version can then be used to
+/// store in structs and enums. See [`crate::array_list`] for more details and an example.
 #[macro_export]
 macro_rules! array_list_box {
 	( $size:expr, $default:expr ) => {{
@@ -1215,6 +1476,38 @@ macro_rules! array_list_box {
 	}};
 }
 
+/// This macro creates a [`crate::Queue`]. The parameters are
+/// * size (required) - the size of the underlying array
+/// * default (required) - a reference to the value to initialize the array with
+/// for the queue, these values are never used, but a default is needed to initalize the
+/// underlying array.
+/// # Return
+/// Returns `Ok(impl Queue<T>)` on success and a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - if the size is 0.
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::*;
+///
+/// fn main() -> Result<(), Error> {
+///         let mut queue = queue!(10, &0)?;
+///
+///         for i in 0..10 {
+///                 queue.enqueue(i)?;
+///         }
+///
+///         for i in 0..10 {
+///                 let v = queue.dequeue().unwrap();
+///                 assert_eq!(v, &i);
+///         }
+///         
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! queue {
 	( $size:expr, $default:expr ) => {{
@@ -1222,6 +1515,8 @@ macro_rules! queue {
 	}};
 }
 
+/// This is the box version of [`crate::queue`]. It is identical other than the returned value is
+/// in a box `(Box<dyn Queue>)`.
 #[macro_export]
 macro_rules! queue_box {
 	( $size:expr, $default:expr ) => {{
@@ -1229,6 +1524,38 @@ macro_rules! queue_box {
 	}};
 }
 
+/// This macro creates a [`crate::Stack`]. The parameters are
+/// * size (required) - the size of the underlying array
+/// * default (required) - a reference to the value to initialize the array with
+/// for the stack, these values are never used, but a default is needed to initalize the
+/// underlying array.
+/// # Return
+/// Returns `Ok(impl Stack<T>)` on success and a [`bmw_err::Error`] on failure.
+///
+/// # Errors
+/// * [`bmw_err::ErrorKind::IllegalArgument`] - if the size is 0.
+///
+/// # Examples
+///```
+/// use bmw_err::*;
+/// use bmw_log::*;
+/// use bmw_util::*;
+///
+/// fn main() -> Result<(), Error> {
+///         let mut stack = stack!(10, &0)?;
+///
+///         for i in 0..10 {
+///                 stack.push(i)?;
+///         }
+///
+///         for i in (0..10).rev() {
+///                 let v = stack.pop().unwrap();
+///                 assert_eq!(v, &i);
+///         }
+///
+///         Ok(())
+/// }
+///```
 #[macro_export]
 macro_rules! stack {
 	( $size:expr, $default:expr ) => {{
@@ -1236,6 +1563,8 @@ macro_rules! stack {
 	}};
 }
 
+/// This is the box version of [`crate::stack`]. It is identical other than the returned value is
+/// in a box `(Box<dyn Stack>)`.
 #[macro_export]
 macro_rules! stack_box {
 	( $size:expr, $default:expr ) => {{
@@ -1243,6 +1572,7 @@ macro_rules! stack_box {
 	}};
 }
 
+/// Append list2 to list1.
 #[macro_export]
 macro_rules! list_append {
 	($list1:expr, $list2:expr) => {{
@@ -1252,6 +1582,7 @@ macro_rules! list_append {
 	}};
 }
 
+/// Compares equality of list1 and list2.
 #[macro_export]
 macro_rules! list_eq {
 	($list1:expr, $list2:expr) => {{
