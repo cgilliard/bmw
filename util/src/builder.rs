@@ -12,12 +12,12 @@
 // limitations under the License.
 
 use crate::types::{
-	Builder, HashImpl, HashImplSync, SlabAllocatorImpl, SuffixTreeImpl, ThreadPoolImpl,
+	Builder, HashImpl, HashImplSync, LockImpl, SlabAllocatorImpl, SuffixTreeImpl, ThreadPoolImpl,
 };
 use crate::{
-	Array, ArrayList, Hashset, HashsetConfig, Hashtable, HashtableConfig, ListConfig, Match,
-	Pattern, Queue, Serializable, SlabAllocator, SlabAllocatorConfig, SortableList, Stack,
-	SuffixTree, ThreadPool, ThreadPoolConfig,
+	Array, ArrayList, Hashset, HashsetConfig, Hashtable, HashtableConfig, ListConfig, Lock,
+	LockBox, Match, Pattern, Queue, Serializable, SlabAllocator, SlabAllocatorConfig, SortableList,
+	Stack, SuffixTree, ThreadPool, ThreadPoolConfig,
 };
 use bmw_err::Error;
 use std::cell::{RefCell, UnsafeCell};
@@ -507,6 +507,20 @@ impl Builder {
 	/// Build a slab allocator in a Box.
 	pub fn build_slabs() -> Box<dyn SlabAllocator> {
 		Box::new(SlabAllocatorImpl::new())
+	}
+
+	pub fn build_lock<T>(t: T) -> Result<impl Lock<T>, Error>
+	where
+		T: Send + Sync,
+	{
+		Ok(LockImpl::new(t))
+	}
+
+	pub fn build_lock_box<T>(t: T) -> Result<Box<dyn LockBox<T>>, Error>
+	where
+		T: Send + Sync + Clone + 'static,
+	{
+		Ok(Box::new(LockImpl::new(t)))
 	}
 }
 

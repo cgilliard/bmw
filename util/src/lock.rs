@@ -11,7 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Lock, LockBox, LockBuilder, RwLockReadGuardWrapper, RwLockWriteGuardWrapper};
+use crate::types::LockImpl;
+use crate::{Lock, LockBox, RwLockReadGuardWrapper, RwLockWriteGuardWrapper};
 use bmw_deps::rand::random;
 use bmw_err::{err, map_err, ErrKind, Error};
 use std::cell::RefCell;
@@ -70,12 +71,6 @@ impl<T> Drop for RwLockWriteGuardWrapper<'_, T> {
 	}
 }
 
-#[derive(Clone)]
-struct LockImpl<T> {
-	t: Arc<RwLock<T>>,
-	id: u128,
-}
-
 impl<T> Debug for LockImpl<T> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
 		write!(f, "LockImpl<{}>", self.id)
@@ -116,7 +111,7 @@ where
 }
 
 impl<T> LockImpl<T> {
-	fn new(t: T) -> Self {
+	pub(crate) fn new(t: T) -> Self {
 		Self {
 			t: Arc::new(RwLock::new(t)),
 			id: random(),
@@ -168,28 +163,12 @@ impl<T> LockImpl<T> {
 	}
 }
 
-impl LockBuilder {
-	pub fn build<T>(t: T) -> Result<impl Lock<T>, Error>
-	where
-		T: Send + Sync,
-	{
-		Ok(LockImpl::new(t))
-	}
-
-	pub fn build_box<T>(t: T) -> Result<Box<dyn LockBox<T>>, Error>
-	where
-		T: Send + Sync + Clone + 'static,
-	{
-		Ok(Box::new(LockImpl::new(t)))
-	}
-}
-
 #[cfg(test)]
 mod test {
 	use crate as bmw_util;
 	use crate::lock::Lock;
 	use crate::lock::LockBox;
-	use crate::lock::LockBuilder;
+	use crate::Builder;
 	use crate::{lock, lock_box, RwLockReadGuardWrapper, RwLockWriteGuardWrapper};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::Error;
@@ -199,7 +178,7 @@ mod test {
 
 	#[test]
 	fn test_locks() -> Result<(), Error> {
-		let mut lock = LockBuilder::build(1)?;
+		let mut lock = Builder::build_lock(1)?;
 		let mut lock2 = lock.clone();
 		{
 			let x = lock.rlock()?;
@@ -222,7 +201,7 @@ mod test {
 
 	#[test]
 	fn test_read_deadlock() -> Result<(), Error> {
-		let mut lock = LockBuilder::build(1)?;
+		let mut lock = Builder::build_lock(1)?;
 		let lock2 = lock.clone();
 		{
 			let x = lock.rlock()?;
@@ -244,7 +223,7 @@ mod test {
 
 	#[test]
 	fn test_lock_threads() -> Result<(), Error> {
-		let mut lock = LockBuilder::build(1)?;
+		let mut lock = Builder::build_lock(1)?;
 		let mut lock_clone = lock.clone();
 
 		spawn(move || -> Result<(), Error> {

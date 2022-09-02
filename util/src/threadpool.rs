@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use crate::types::{FutureWrapper, ThreadPoolImpl, ThreadPoolState, ThreadPoolTestConfig};
-use crate::{LockBox, LockBuilder, PoolResult, ThreadPool, ThreadPoolConfig};
+use crate::{Builder, LockBox, PoolResult, ThreadPool, ThreadPoolConfig};
 use bmw_deps::dyn_clone::clone_box;
 use bmw_deps::futures::executor::block_on;
 use bmw_err::{err, ErrKind, Error};
@@ -66,7 +66,7 @@ impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
 			config,
 			stop,
 		};
-		let state = LockBuilder::build_box(tps)?;
+		let state = Builder::build_lock_box(tps)?;
 
 		let config = config_clone;
 		let rx = None;

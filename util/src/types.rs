@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 info!();
 
@@ -121,6 +121,12 @@ where
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
 }
 
+#[derive(Clone)]
+pub(crate) struct LockImpl<T> {
+	pub(crate) t: Arc<RwLock<T>>,
+	pub(crate) id: u128,
+}
+
 /// Wrapper around the [`std::sync::RwLockReadGuard`].
 pub struct RwLockReadGuardWrapper<'a, T> {
 	pub(crate) guard: RwLockReadGuard<'a, T>,
@@ -134,10 +140,6 @@ pub struct RwLockWriteGuardWrapper<'a, T> {
 	pub(crate) id: u128,
 	pub(crate) debug_err: bool,
 }
-
-/// Builder for [`crate::Lock`]. This is the only way that a [`crate::Lock`] can be built from
-/// outside this crate.
-pub struct LockBuilder {}
 
 pub enum PatternParam<'a> {
 	Regex(&'a str),
@@ -394,7 +396,7 @@ pub enum PoolResult<T, E> {
 /// via the [`crate::ThreadPoolConfig`] struct. The thread pool should be accessed through the
 /// macros under normal circumstances. See [`crate::thread_pool`], [`crate::execute`] and
 /// [`crate::block_on`] for additional details. The thread pool can be passed through threads via a
-/// [`bmw_util::Lock`] or [`bmw_util::LockBox`] so a single thread pool can service multiple
+/// [`crate::Lock`] or [`crate::LockBox`] so a single thread pool can service multiple
 /// worker threads. See examples below.
 ///
 /// # Examples
@@ -410,7 +412,7 @@ pub enum PoolResult<T, E> {
 /// fn thread_pool() -> Result<(), Error> {
 ///     let tp = thread_pool!()?; // create a thread pool using default settings
 ///
-///     // create a shared variable protected by the [`bmw_util::lock`] macro.
+///     // create a shared variable protected by the [`crate::lock`] macro.
 ///     let mut shared = lock!(0)?; // we use an integer 0, but any struct can be used.
 ///     let shared_clone = shared.clone();
 ///
@@ -440,7 +442,7 @@ pub enum PoolResult<T, E> {
 ///     // for further details.
 ///     let tp = thread_pool!(MaxSize(10), MinSize(5))?;
 ///
-///     // put the thread pool in a [`bmw_util::Lock`].
+///     // put the thread pool in a [`crate::Lock`].
 ///     let tp = lock!(tp)?;
 ///
 ///     // spawn 6 worker threads

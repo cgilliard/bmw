@@ -62,7 +62,7 @@ info!();
 #[macro_export]
 macro_rules! lock {
 	($value:expr) => {{
-		bmw_util::LockBuilder::build($value)
+		bmw_util::Builder::build_lock($value)
 	}};
 }
 
@@ -71,7 +71,7 @@ macro_rules! lock {
 #[macro_export]
 macro_rules! lock_box {
 	($value:expr) => {{
-		bmw_util::LockBuilder::build_box($value)
+		bmw_util::Builder::build_lock_box($value)
 	}};
 }
 
@@ -1426,7 +1426,7 @@ macro_rules! list_box {
 
 /// Like [`crate::hashtable_sync`] and [`crate::hashset_sync`] list has a 'sync' version. See those
 /// macros for more details and see the [`crate`] for an example of the sync version of a hashtable.
-/// Just as in that example the list can be put into a [`bmw_util::lock`] or [`bmw_util::lock_box`]
+/// Just as in that example the list can be put into a [`crate::lock!`] or [`crate::lock_box`]
 /// and passed between threads.
 #[macro_export]
 macro_rules! list_sync {
