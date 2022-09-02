@@ -18,7 +18,7 @@
 //! a impl and Box form using the [`crate::Builder`] or through macros. The impls completely stack
 //! based and the box forms are Box<dyn ..>'s that can be stored in other structs and Enums. While
 //! the boxed versions do store data on the heap, it is only pointers and the vast majority of the
-//! data, in either form, is stored in a pre-allocated slabs.
+//! data, in either form, is stored in pre-allocated slabs.
 //!
 //! # Motivation
 //!
