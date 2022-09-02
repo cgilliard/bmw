@@ -11,8 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::ConfigOption::*;
-use crate::{Reader, Serializable, Writer};
+use crate::{LockBox, Serializable};
 use bmw_deps::dyn_clone::{clone_trait_object, DynClone};
 use bmw_derive::Serializable;
 use bmw_err::*;
@@ -63,68 +62,6 @@ pub enum ConfigOption<'a> {
 	SyncChannelSize(usize),
 	/// Slab allocator to be used by this data structure.
 	Slabs(&'a Rc<RefCell<dyn SlabAllocator>>),
-}
-
-impl Serializable for ConfigOption<'_> {
-	// fully covered, but the wildcard match not counted by tarpaulin
-	#[cfg(not(tarpaulin_include))]
-	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
-		match reader.read_u8()? {
-			0 => Ok(MaxEntries(reader.read_usize()?)),
-			1 => Ok(MaxLoadFactor(f64::read(reader)?)),
-			2 => Ok(SlabSize(reader.read_usize()?)),
-			3 => Ok(SlabCount(reader.read_usize()?)),
-			4 => Ok(MinSize(reader.read_usize()?)),
-			5 => Ok(MaxSize(reader.read_usize()?)),
-			6 => Ok(SyncChannelSize(reader.read_usize()?)),
-			_ => {
-				let fmt = "invalid type for config option!";
-				let e = err!(ErrKind::CorruptedData, fmt);
-				Err(e)
-			}
-		}
-	}
-
-	// fully covered but the Slabs(_) line not counted by tarpaulin
-	#[cfg(not(tarpaulin_include))]
-	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-		match self {
-			MaxEntries(size) => {
-				writer.write_u8(0)?;
-				writer.write_usize(*size)?;
-			}
-			MaxLoadFactor(lf) => {
-				writer.write_u8(1)?;
-				f64::write(lf, writer)?;
-			}
-			SlabSize(ss) => {
-				writer.write_u8(2)?;
-				writer.write_usize(*ss)?;
-			}
-			SlabCount(sc) => {
-				writer.write_u8(3)?;
-				writer.write_usize(*sc)?;
-			}
-			MinSize(mins) => {
-				writer.write_u8(4)?;
-				writer.write_usize(*mins)?;
-			}
-			MaxSize(maxs) => {
-				writer.write_u8(5)?;
-				writer.write_usize(*maxs)?;
-			}
-			SyncChannelSize(scs) => {
-				writer.write_u8(6)?;
-				writer.write_usize(*scs)?;
-			}
-			Slabs(_) => {
-				let fmt = "can't serialize slab allocator";
-				let e = err!(ErrKind::OperationNotSupported, fmt);
-				return Err(e);
-			}
-		}
-		Ok(())
-	}
 }
 
 #[derive(Clone)]
@@ -342,14 +279,11 @@ pub enum PoolResult<T, E> {
 	Panic,
 }
 
-unsafe impl<T, E> Send for PoolResult<T, E> {}
-unsafe impl<T, E> Sync for PoolResult<T, E> {}
-
 /// This trait defines the public interface to the ThreadPool. A pool can be configured
 /// via the [`crate::ThreadPoolConfig`] struct. The thread pool should be accessed through the
 /// macros under normal circumstances. See [`crate::thread_pool`], [`crate::execute`] and
 /// [`crate::block_on`] for additional details. The thread pool can be passed through threads via a
-/// [`bmw_log::Lock`] or [`bmw_log::LockBox`] so a single thread pool can service multiple
+/// [`bmw_util::Lock`] or [`bmw_util::LockBox`] so a single thread pool can service multiple
 /// worker threads. See examples below.
 ///
 /// # Examples
@@ -365,7 +299,7 @@ unsafe impl<T, E> Sync for PoolResult<T, E> {}
 /// fn thread_pool() -> Result<(), Error> {
 ///     let tp = thread_pool!()?; // create a thread pool using default settings
 ///
-///     // create a shared variable protected by the [`bmw_log::lock`] macro.
+///     // create a shared variable protected by the [`bmw_util::lock`] macro.
 ///     let mut shared = lock!(0)?; // we use an integer 0, but any struct can be used.
 ///     let shared_clone = shared.clone();
 ///
@@ -395,7 +329,7 @@ unsafe impl<T, E> Sync for PoolResult<T, E> {}
 ///     // for further details.
 ///     let tp = thread_pool!(MaxSize(10), MinSize(5))?;
 ///
-///     // put the thread pool in a [`bmw_log::Lock`].
+///     // put the thread pool in a [`bmw_util::Lock`].
 ///     let tp = lock!(tp)?;
 ///
 ///     // spawn 6 worker threads

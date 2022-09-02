@@ -1366,7 +1366,7 @@ macro_rules! list_box {
 
 /// Like [`crate::hashtable_sync`] and [`crate::hashset_sync`] list has a 'sync' version. See those
 /// macros for more details and see the [`crate`] for an example of the sync version of a hashtable.
-/// Just as in that example the list can be put into a [`bmw_log::lock`] or [`bmw_log::lock_box`]
+/// Just as in that example the list can be put into a [`bmw_util::lock`] or [`bmw_util::lock_box`]
 /// and passed between threads.
 #[macro_export]
 macro_rules! list_sync {
@@ -1712,8 +1712,8 @@ mod test {
 	use crate as bmw_util;
 	use crate::PatternParam::*;
 	use crate::{
-		thread_pool, Builder, Hashset, Hashtable, List, PoolResult, SortableList, SuffixTree,
-		ThreadPool,
+		lock, lock_box, thread_pool, Builder, Hashset, Hashtable, List, Lock, LockBox, PoolResult,
+		SortableList, SuffixTree, ThreadPool,
 	};
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;

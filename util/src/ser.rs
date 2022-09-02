@@ -13,10 +13,12 @@
 
 use crate::misc::set_max;
 use crate::misc::{slice_to_usize, usize_to_slice};
+use crate::ConfigOption::*;
 use crate::{
-	Array, ArrayList, BinReader, BinWriter, Builder, Hashset, HashsetConfig, Hashtable,
-	HashtableConfig, List, ListConfig, Reader, Serializable, SlabAllocator, SlabAllocatorConfig,
-	SlabMut, SlabReader, SlabWriter, SortableList, Writer, GLOBAL_SLAB_ALLOCATOR,
+	Array, ArrayList, BinReader, BinWriter, Builder, ConfigOption, Hashset, HashsetConfig,
+	Hashtable, HashtableConfig, List, ListConfig, Reader, Serializable, SlabAllocator,
+	SlabAllocatorConfig, SlabMut, SlabReader, SlabWriter, SortableList, Writer,
+	GLOBAL_SLAB_ALLOCATOR,
 };
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -28,6 +30,68 @@ use std::rc::Rc;
 use std::thread;
 
 info!();
+
+impl Serializable for ConfigOption<'_> {
+	// fully covered, but the wildcard match not counted by tarpaulin
+	#[cfg(not(tarpaulin_include))]
+	fn read<R: Reader>(reader: &mut R) -> Result<Self, Error> {
+		match reader.read_u8()? {
+			0 => Ok(MaxEntries(reader.read_usize()?)),
+			1 => Ok(MaxLoadFactor(f64::read(reader)?)),
+			2 => Ok(SlabSize(reader.read_usize()?)),
+			3 => Ok(SlabCount(reader.read_usize()?)),
+			4 => Ok(MinSize(reader.read_usize()?)),
+			5 => Ok(MaxSize(reader.read_usize()?)),
+			6 => Ok(SyncChannelSize(reader.read_usize()?)),
+			_ => {
+				let fmt = "invalid type for config option!";
+				let e = err!(ErrKind::CorruptedData, fmt);
+				Err(e)
+			}
+		}
+	}
+
+	// fully covered but the Slabs(_) line not counted by tarpaulin
+	#[cfg(not(tarpaulin_include))]
+	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
+		match self {
+			MaxEntries(size) => {
+				writer.write_u8(0)?;
+				writer.write_usize(*size)?;
+			}
+			MaxLoadFactor(lf) => {
+				writer.write_u8(1)?;
+				f64::write(lf, writer)?;
+			}
+			SlabSize(ss) => {
+				writer.write_u8(2)?;
+				writer.write_usize(*ss)?;
+			}
+			SlabCount(sc) => {
+				writer.write_u8(3)?;
+				writer.write_usize(*sc)?;
+			}
+			MinSize(mins) => {
+				writer.write_u8(4)?;
+				writer.write_usize(*mins)?;
+			}
+			MaxSize(maxs) => {
+				writer.write_u8(5)?;
+				writer.write_usize(*maxs)?;
+			}
+			SyncChannelSize(scs) => {
+				writer.write_u8(6)?;
+				writer.write_usize(*scs)?;
+			}
+			Slabs(_) => {
+				let fmt = "can't serialize slab allocator";
+				let e = err!(ErrKind::OperationNotSupported, fmt);
+				return Err(e);
+			}
+		}
+		Ok(())
+	}
+}
 
 impl<S: Serializable + Clone> Serializable for Array<S> {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {

@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use crate::types::{FutureWrapper, ThreadPoolImpl, ThreadPoolState, ThreadPoolTestConfig};
-use crate::{PoolResult, ThreadPool, ThreadPoolConfig};
+use crate::{LockBox, LockBuilder, PoolResult, ThreadPool, ThreadPoolConfig};
 use bmw_deps::dyn_clone::clone_box;
 use bmw_deps::futures::executor::block_on;
 use bmw_err::{err, ErrKind, Error};
@@ -23,6 +23,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
 info!();
+
+unsafe impl<T, E> Send for PoolResult<T, E> {}
+unsafe impl<T, E> Sync for PoolResult<T, E> {}
 
 impl Default for ThreadPoolConfig {
 	fn default() -> Self {
@@ -63,7 +66,7 @@ impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
 			config,
 			stop,
 		};
-		let state = lock_box!(tps)?;
+		let state = LockBuilder::build_box(tps)?;
 
 		let config = config_clone;
 		let rx = None;
@@ -211,9 +214,10 @@ impl<T: 'static + Send + Sync> ThreadPool<T> for ThreadPoolImpl<T> {
 
 #[cfg(test)]
 mod test {
+	use crate as bmw_util;
 	use crate::execute;
 	use crate::types::{ThreadPoolImpl, ThreadPoolTestConfig};
-	use crate::{Builder, PoolResult, ThreadPool, ThreadPoolConfig};
+	use crate::{lock, Builder, Lock, PoolResult, ThreadPool, ThreadPoolConfig};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;

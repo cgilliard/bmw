@@ -522,6 +522,7 @@
 mod array;
 mod builder;
 mod hash;
+mod lock;
 mod macros;
 mod misc;
 mod ser;
@@ -542,4 +543,9 @@ pub use crate::types::{
 	SlabAllocatorConfig, SlabMut, SlabReader, SlabWriter, SortableList, Stack, SuffixParam,
 	SuffixTree, ThreadPool, ThreadPoolConfig,
 };
+
+pub use crate::lock::{
+	Lock, LockBox, LockBuilder, RwLockReadGuardWrapper, RwLockWriteGuardWrapper,
+};
+
 pub use bmw_ser::{Reader, Serializable, Writer};

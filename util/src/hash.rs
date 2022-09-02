@@ -1266,10 +1266,10 @@ mod test {
 	use crate::types::{HashImpl, HashImplSync, Hashset, List};
 	use crate::ConfigOption::{SlabCount, SlabSize};
 	use crate::{
-		block_on, execute, hashset, hashtable, list, list_append, list_eq, slab_allocator,
+		block_on, execute, hashset, hashtable, list, list_append, list_eq, lock, slab_allocator,
 		thread_pool, Builder, HashsetConfig, HashsetIterator, Hashtable, HashtableConfig,
-		HashtableIterator, ListConfig, Reader, Serializable, SlabAllocatorConfig, SortableList,
-		ThreadPool, Writer, GLOBAL_SLAB_ALLOCATOR,
+		HashtableIterator, ListConfig, Lock, Reader, Serializable, SlabAllocatorConfig,
+		SortableList, ThreadPool, Writer, GLOBAL_SLAB_ALLOCATOR,
 	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
