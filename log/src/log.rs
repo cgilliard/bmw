@@ -383,7 +383,7 @@ impl LogImpl {
 			_ => {
 				return Err(err!(
 					ErrKind::IllegalArgument,
-					"line_num must be of the form LineNUm(bool)"
+					"line_num must be of the form LineNum(bool)"
 				));
 			}
 		};

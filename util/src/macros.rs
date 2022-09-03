@@ -352,7 +352,7 @@ macro_rules! pattern {
 ///
 /// * `List<Pattern>`            (required) - The list of [`crate::Pattern`]s that this [`crate::SuffixTree`]
 ///                                         will use to match.
-/// * TerimnationLength(usize) (optional) - The length in bytes at which matching will terminate.
+/// * TerminationLength(usize) (optional) - The length in bytes at which matching will terminate.
 /// * MaxWildcardLength(usize) (optional) - The maximum length in bytes of a wild card match.
 ///
 /// # Return
@@ -482,7 +482,7 @@ macro_rules! pattern {
 /// }
 ///```
 ///
-/// Match at the begining of the text
+/// Match at the beginning of the text
 ///
 ///```
 /// use bmw_util::*;
@@ -510,7 +510,7 @@ macro_rules! pattern {
 ///         let count = suffix_tree.tmatch(b"p1p2", &mut matches)?;
 ///         assert_eq!(count, 1);
 ///
-///         // since p2 is at the begining, both match
+///         // since p2 is at the beginning, both match
 ///         let count = suffix_tree.tmatch(b"p2p1", &mut matches)?;
 ///         assert_eq!(count, 2);
 ///
@@ -1539,7 +1539,7 @@ macro_rules! array_list_box {
 /// This macro creates a [`crate::Queue`]. The parameters are
 /// * size (required) - the size of the underlying array
 /// * default (required) - a reference to the value to initialize the array with
-/// for the queue, these values are never used, but a default is needed to initalize the
+/// for the queue, these values are never used, but a default is needed to initialize the
 /// underlying array.
 /// # Return
 /// Returns `Ok(impl Queue<T>)` on success and a [`bmw_err::Error`] on failure.
@@ -1587,7 +1587,7 @@ macro_rules! queue_box {
 /// This macro creates a [`crate::Stack`]. The parameters are
 /// * size (required) - the size of the underlying array
 /// * default (required) - a reference to the value to initialize the array with
-/// for the stack, these values are never used, but a default is needed to initalize the
+/// for the stack, these values are never used, but a default is needed to initialize the
 /// underlying array.
 /// # Return
 /// Returns `Ok(impl Stack<T>)` on success and a [`bmw_err::Error`] on failure.

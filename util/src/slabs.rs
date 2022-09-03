@@ -36,7 +36,7 @@ impl Default for SlabAllocatorConfig {
 }
 
 impl<'a> SlabMut<'a> {
-	/// get an immutable refernce to the data held in this slab.
+	/// get an immutable reference to the data held in this slab.
 	pub fn get(&self) -> &[u8] {
 		&self.data
 	}

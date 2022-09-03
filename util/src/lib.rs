@@ -464,7 +464,7 @@
 //!     assert_eq!(queue.peek(), Some(&3));
 //!     assert_eq!(stack.peek(), Some(&1));
 //!
-//!     // dequque/pop the last item
+//!     // dequeue/pop the last item
 //!     assert_eq!(queue.dequeue(), Some(&3));
 //!     assert_eq!(stack.pop(), Some(&1));
 //!
