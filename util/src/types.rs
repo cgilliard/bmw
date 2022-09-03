@@ -1087,7 +1087,7 @@ pub struct Match {
 	pub(crate) id: usize,
 }
 
-/// The suffix tree data structure. See [`crate::suffix_tree`].
+/// The suffix tree data structure. See [`crate::suffix_tree!`].
 pub trait SuffixTree {
 	/// return matches associated with the supplied `text` for this
 	/// [`crate::SuffixTree`]. Matches are returned in the `matches`
