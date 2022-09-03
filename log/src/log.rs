@@ -19,7 +19,7 @@ use crate::LogConfigOption::{
 	MaxAgeMillis, MaxSizeBytes, ShowBt, ShowMillis, Stdout, Timestamp,
 };
 use bmw_deps::backtrace;
-use bmw_deps::backtrace::Backtrace;
+use bmw_deps::backtrace::{Backtrace, Symbol};
 use bmw_deps::chrono::{DateTime, Local};
 use bmw_deps::colored::Colorize;
 use bmw_deps::rand::random;
@@ -330,6 +330,64 @@ impl LogImpl {
 		millis_format
 	}
 
+	fn process_resolve_frame(
+		symbol: &Symbol,
+		_config: &LogConfig,
+		found_logger: &mut bool,
+		logged_from_file: &mut String,
+	) -> Result<bool, Error> {
+		if _config.debug_process_resolve_frame_error {
+			let e = err!(ErrKind::Test, "test resolve_frame error");
+			return Err(e);
+		}
+		let mut found_frame = false;
+		#[cfg(debug_assertions)]
+		if let Some(filename) = symbol.filename() {
+			let filename = filename.display().to_string();
+
+			let lineno = symbol.lineno();
+
+			let lineno = if lineno.is_none() || _config.debug_lineno_none {
+				"".to_string()
+			} else {
+				lineno.unwrap().to_string()
+			};
+
+			if filename.find("/log/src/log.rs").is_some()
+				|| filename.find("\\log\\src\\log.rs").is_some()
+			{
+				*found_logger = true;
+			}
+			if (filename.find("/log/src/log.rs").is_none()
+				&& filename.find("\\log\\src\\log.rs").is_none())
+				&& *found_logger
+			{
+				*logged_from_file = format!("{}:{}", filename, lineno);
+				found_frame = true;
+			}
+		}
+		#[cfg(not(debug_assertions))]
+		if let Some(name) = symbol.name() {
+			let name = name.to_string();
+			if name.find("as bmw_log::types::Log").is_some() {
+				*found_logger = true;
+			}
+			if name.find("as bmw_log::types::Log").is_none() && *found_logger {
+				let pos = name.rfind(':');
+				let name = match pos {
+					Some(pos) => match pos > 1 {
+						true => &name[0..pos - 1],
+						false => &name[..],
+					},
+					None => &name[..],
+				};
+				*logged_from_file = format!("{}", name);
+				found_frame = true;
+			}
+		}
+		Ok(found_frame)
+	}
+
 	fn log_impl(
 		&mut self,
 		level: LogLevel,
@@ -479,50 +537,18 @@ impl LogImpl {
 			let mut logged_from_file = "unknown".to_string();
 			backtrace::trace(|frame| {
 				backtrace::resolve_frame(frame, |symbol| {
-					#[cfg(debug_assertions)]
-					if let Some(filename) = symbol.filename() {
-						let filename = filename.display().to_string();
-
-						let lineno = symbol.lineno();
-
-						let lineno = if lineno.is_none() || self.config.debug_lineno_none {
-							"".to_string()
-						} else {
-							lineno.unwrap().to_string()
-						};
-
-						if filename.find("/log/src/log.rs").is_some()
-							|| filename.find("\\log\\src\\log.rs").is_some()
-						{
-							found_logger = true;
+					found_frame = match Self::process_resolve_frame(
+						symbol,
+						&self.config,
+						&mut found_logger,
+						&mut logged_from_file,
+					) {
+						Ok(ff) => ff,
+						Err(e) => {
+							let _ = println!("error processing frame: {}", e);
+							true
 						}
-						if (filename.find("/log/src/log.rs").is_none()
-							&& filename.find("\\log\\src\\log.rs").is_none())
-							&& found_logger
-						{
-							logged_from_file = format!("{}:{}", filename, lineno);
-							found_frame = true;
-						}
-					}
-					#[cfg(not(debug_assertions))]
-					if let Some(name) = symbol.name() {
-						let name = name.to_string();
-						if name.find("as bmw_log::types::Log").is_some() {
-							found_logger = true;
-						}
-						if name.find("as bmw_log::types::Log").is_none() && found_logger {
-							let pos = name.rfind(':');
-							let name = match pos {
-								Some(pos) => match pos > 1 {
-									true => &name[0..pos - 1],
-									false => &name[0..pos],
-								},
-								None => &name[..],
-							};
-							logged_from_file = format!("{}", name);
-							found_frame = true;
-						}
-					}
+					};
 				});
 				!found_frame
 			});
@@ -866,7 +892,7 @@ mod test {
 		AutoRotate, Colors, DeleteRotation, FileHeader, FilePath, Level, LineNum,
 		LineNumDataMaxLen, MaxAgeMillis, MaxSizeBytes, ShowBt, ShowMillis, Stdout, Timestamp,
 	};
-	use crate::{LogBuilder, LogConfig, LogConfigOptionName, LogLevel};
+	use crate::{LogBuilder, LogConfig, LogConfigOption, LogConfigOptionName, LogLevel};
 	use bmw_err::Error;
 	use bmw_test::testdir::{setup_test_dir, tear_down_test_dir};
 	use std::fs::{read_dir, read_to_string};
@@ -1131,15 +1157,26 @@ mod test {
 			&Level(false)
 		);
 
-		assert_eq!(
-			log.get_config_option(LogConfigOptionName::LineNum)?,
-			&LineNum(true)
-		);
-		log.set_config_option(LineNum(false))?;
-		assert_eq!(
-			log.get_config_option(LogConfigOptionName::LineNum)?,
-			&LineNum(false)
-		);
+		#[cfg(windows)]
+		{
+			assert_eq!(
+				log.get_config_option(LogConfigOptionName::LineNum)?,
+				&LineNum(false)
+			);
+		}
+		#[cfg(not(windows))]
+		{
+			assert_eq!(
+				log.get_config_option(LogConfigOptionName::LineNum)?,
+				&LineNum(true)
+			);
+
+			log.set_config_option(LineNum(false))?;
+			assert_eq!(
+				log.get_config_option(LogConfigOptionName::LineNum)?,
+				&LineNum(false)
+			);
+		}
 
 		assert_eq!(
 			log.get_config_option(LogConfigOptionName::ShowMillis)?,
@@ -1242,6 +1279,7 @@ mod test {
 
 		let config = LogConfig {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 
@@ -1270,6 +1308,7 @@ mod test {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			file_header: FileHeader("this is a test".to_string()),
 			show_bt: ShowBt(false),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1294,6 +1333,7 @@ mod test {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			show_millis: ShowMillis(false),
 			show_bt: ShowBt(false),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1317,6 +1357,7 @@ mod test {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			level: Level(false),
 			show_bt: ShowBt(false),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1340,6 +1381,7 @@ mod test {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			timestamp: Timestamp(false),
 			show_bt: ShowBt(false),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1379,6 +1421,7 @@ mod test {
 		let config = LogConfig {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			line_num_data_max_len: LineNumDataMaxLen(20),
+			line_num: LogConfigOption::LineNum(true),
 			show_bt: ShowBt(false),
 			..Default::default()
 		};
@@ -1400,6 +1443,7 @@ mod test {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			line_num_data_max_len: LineNumDataMaxLen(20),
 			show_bt: ShowBt(false),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1427,6 +1471,7 @@ mod test {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			max_size_bytes: MaxSizeBytes(100),
 			show_bt: ShowBt(false),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1474,6 +1519,7 @@ mod test {
 			max_size_bytes: MaxSizeBytes(100),
 			auto_rotate: AutoRotate(false),
 			show_bt: ShowBt(false),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1535,6 +1581,7 @@ mod test {
 			max_age_millis: MaxAgeMillis(10_000),
 			auto_rotate: AutoRotate(false),
 			show_bt: ShowBt(false),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1553,6 +1600,7 @@ mod test {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			max_age_millis: MaxAgeMillis(10_000),
 			auto_rotate: AutoRotate(false),
+			line_num: LogConfigOption::LineNum(true),
 			show_bt: ShowBt(false),
 			..Default::default()
 		};
@@ -1580,6 +1628,7 @@ mod test {
 		let config = LogConfig {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			stdout: Stdout(false),
+			line_num: LogConfigOption::LineNum(true),
 			max_age_millis: MaxAgeMillis(1_000),
 			auto_rotate: AutoRotate(false),
 			show_bt: ShowBt(false),
@@ -1842,6 +1891,7 @@ mod test {
 		let config = LogConfig {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			show_bt: ShowBt(true),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1857,6 +1907,7 @@ mod test {
 		let config = LogConfig {
 			file_path: FilePath(Some(PathBuf::from(log_file.clone()))),
 			show_bt: ShowBt(true),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		};
 		let mut log = LogBuilder::build(config)?;
@@ -1905,6 +1956,20 @@ mod test {
 		assert_eq!(log.format_millis(77), "077".to_string());
 		assert_eq!(log.format_millis(7), "007".to_string());
 		assert_eq!(log.format_millis(0), "000".to_string());
+		Ok(())
+	}
+
+	#[test]
+	fn test_resolve_frame_error() -> Result<(), Error> {
+		let config = LogConfig {
+			debug_process_resolve_frame_error: true,
+			..Default::default()
+		};
+		let mut log = LogImpl::new(config)?;
+		log.init()?;
+
+		// this will return Ok(()) even though the error occurs.
+		assert_eq!(log.log(LogLevel::Info, "", None), Ok(()));
 		Ok(())
 	}
 }

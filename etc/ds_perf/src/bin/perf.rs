@@ -211,7 +211,7 @@ fn do_hashtable(slabs: Rc<RefCell<dyn SlabAllocator>>) -> Result<(), Error> {
 	{
 		reset_stats()?;
 		start = Instant::now();
-		let mut hashtable = hashtable!(MaxEntries(10_000), Slabs(slabs.clone()))?;
+		let mut hashtable = hashtable!(MaxEntries(10_000), Slabs(&slabs))?;
 
 		show_mem(start, "hashtable init")?;
 		reset_stats()?;
