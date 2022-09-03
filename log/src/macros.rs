@@ -1059,6 +1059,7 @@ mod test {
 			max_size_bytes: LogConfigOption::MaxSizeBytes(100),
 			auto_rotate: LogConfigOption::AutoRotate(false),
 			show_bt: LogConfigOption::ShowBt(false),
+			line_num: LogConfigOption::LineNum(true),
 			..Default::default()
 		})?;
 
