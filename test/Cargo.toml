@@ -1,6 +1,6 @@
 [package]
 name = "bmw_test"
-version = "0.0.2-beta1"
+version = "0.0.2"
 authors = ["BMW Develoeprs"]
 description = "test util library"
 license = "Apache-2.0"
