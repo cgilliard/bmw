@@ -1,6 +1,6 @@
 [package]
 name = "bmw_derive"
-version = "0.0.2"
+version = "0.0.3-beta.1"
 authors = ["37 Miners, LLC"]
 description = "proc-macros bmw"
 license = "Apache-2.0"
