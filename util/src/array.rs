@@ -364,7 +364,7 @@ mod test {
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_deps::rand::random;
 	use bmw_deps::random_string;
-	use bmw_err::{err, ErrKind, Error};
+	use bmw_err::*;
 	use bmw_log::*;
 
 	info!();
