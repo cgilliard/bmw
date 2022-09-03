@@ -149,7 +149,7 @@ pub enum PatternParam<'a> {
 	Id(usize),
 }
 
-/// The enum used to define a suffix_tree. See [`crate::suffix_tree`] for more info.
+/// The enum used to define a suffix_tree. See [`crate::suffix_tree!`] for more info.
 pub enum SuffixParam {
 	/// The termination length of this suffix tree (length at which matching stops).
 	TerminationLength(usize),
@@ -320,66 +320,395 @@ pub struct Array<T> {
 #[derive(Debug, Clone, Serializable)]
 pub struct ListConfig {}
 
+/// A slab allocated hashtable. Data is stored in a [`crate::SlabAllocator`] defined
+/// by the user or using a global thread local slab allocator. All keys and values
+/// must implement the [`bmw_ser::Serializable`] trait which can be implemented with
+/// the [`bmw_derive::Serializable`] proc_macro.
+///
+/// # Sizing
+///
+/// It is important to configure this hashtable correctly and to do so, the user must
+/// understand how the data are stored. Each hashtable is configured with an associated
+/// [`crate::SlabAllocator`] and that slab allocator has a specific size for each slab.
+/// The hashtable will only store a single entry in a slab. No slab contains data from
+/// multiple entries. So, if you have a large slab size and small entries, you will be
+/// wasting space. If your data is fixed in size, you can calculate an optimal slab size,
+/// but if it is variable, it is probably better to use smaller slabs so that less space
+/// is left empty. The slab layout looks like this:
+///
+/// [ ptr_size bytes for next iterator list]
+/// [ ptr_size bytes for prev iterator list]
+/// [ hashtable key ]
+/// [ hashtable value ]
+/// ... (empty space if the slab is not filled up)
+/// [ ptr_size bytes for key/value list ]
+///
+/// where ptr_size is determined by the size of the entry array. The minimum number of
+/// bytes will be used. So, if you have an entry array that is length less than 256
+/// ptr_size will be 1 byte. If you have an entry array that is length less than
+/// 65,536 but greater than or equal to 256, ptr_size will be 2 and so on. If the
+/// data for the entry only takes up one slab, the key/value list is not used, but
+/// if the data takes up more than one slab, the key/value list will point to the next
+/// slab in the list. So, if your key is always 8 bytes and your value is always 8 bytes
+/// and you have an entry array size of 100,000 (ptr_size = 3 bytes), you can will need
+/// a total of 9 bytes overhead for the three pointers and you will need 16 bytes for your
+/// data. So you can size your hashtable at 25 bytes.
+///
+/// Note: your entry array size is ceil(the max_entries / max_load_factor).
+///
+/// # Examples
+///
+///```
+/// use bmw_err::*;
+/// use bmw_util::*;
+/// use bmw_log::*;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///         let slabs = slab_allocator!(SlabSize(128), SlabCount(10_000))?;
+///         let mut hashtable = hashtable!(Slabs(&slabs))?;
+///
+///         hashtable.insert(&1, &2)?;
+///         let v = hashtable.get(&1)?.unwrap();
+///         info!("v={}", v)?;
+///         assert_eq!(v, 2);
+///
+///         Ok(())
+/// }
+///```
+///
+///```
+/// use bmw_err::*;
+/// use bmw_util::*;
+/// use bmw_log::*;
+/// use std::collections::HashMap;
+/// use bmw_deps::rand::random;
+///
+/// info!();
+///
+/// fn main() -> Result<(), Error> {
+///     let mut keys = vec![];
+///     let mut values = vec![];
+///     for _ in 0..1_000 {
+///         keys.push(random::<u32>());
+///         values.push(random::<u32>());
+///     }
+///     let mut hashtable = Builder::build_hashtable(HashtableConfig::default(), &None)?;
+///     let mut hashmap = HashMap::new();
+///     for i in 0..1_000 {
+///         hashtable.insert(&keys[i], &values[i])?;
+///         hashmap.insert(&keys[i], &values[i]);
+///     }
+///
+///     for _ in 0..100 {
+///         let index: usize = random::<usize>() % 1_000;
+///         hashtable.remove(&keys[index])?;
+///         hashmap.remove(&keys[index]);
+///     }
+///
+///     let mut i = 0;
+///     for (k, vm) in &hashmap {
+///         let vt = hashtable.get(&k)?;
+///         assert_eq!(&vt.unwrap(), *vm);
+///         i += 1;
+///     }
+///
+///     assert_eq!(i, hashtable.size());
+///     assert_eq!(i, hashmap.len());
+///
+///     Ok(())
+/// }
+///```
+///
+///```
+/// // import the util/log/err libraries
+/// use bmw_util::*;
+/// use bmw_log::*;
+/// use bmw_err::*;
+/// use bmw_derive::*;
+///
+/// info!();
+///
+/// #[derive(Serializable, Clone, Debug, PartialEq)]
+/// struct MyStruct {
+///     id: u128,
+///     name: String,
+///     phone: Option<String>,
+///     age: u8,
+/// }
+///
+/// fn main() -> Result<(), Error> {
+///     let s = MyStruct {
+///         id: 1234,
+///         name: "Hagrid".to_string(),
+///         phone: None,
+///         age: 54,
+///     };
+///
+///     debug!("my struct = {:?}", s)?;
+///
+///     let mut hashtable = hashtable!()?;
+///
+///     hashtable.insert(&1, &s)?;
+///
+///     let v = hashtable.get(&1)?;
+///     assert_eq!(v, Some(s));
+///
+///     info!("value of record #1 is {:?}", v)?;
+///
+///     Ok(())
+/// }
+///
+///```
 pub trait Hashtable<K, V>: Debug + DynClone
 where
 	K: Serializable + Clone,
 	V: Serializable,
 {
+	/// Returns the maximum load factor as configured for this [`crate::Hashtable`].
 	fn max_load_factor(&self) -> f64;
+	/// Returns the maximum entries as configured for this [`crate::Hashtable`].
 	fn max_entries(&self) -> usize;
+	/// Insert a key/value pair into the hashtable.
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
+	/// Get the value associated with the specified `key`.
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
+	/// Remove the specied `key` from the hashtable.
 	fn remove(&mut self, key: &K) -> Result<Option<V>, Error>;
+	/// Return the size of the hashtable.
 	fn size(&self) -> usize;
+	/// Clear all items, reinitialized the entry array, and free the slabs
+	/// associated with this hashtable.
 	fn clear(&mut self) -> Result<(), Error>;
+	/// Returns an [`std::iter::Iterator`] to iterate through this hashtable.
 	fn iter<'a>(&'a self) -> HashtableIterator<'a, K, V>;
 }
 
+/// A slab allocated Hashset. Most of the implementation is shared with [`crate::Hashtable`].
+/// See [`crate::Hashtable`] for a discussion of the slab layout. The difference is that as is
+/// the case with hashsets, there is no value.
+///
+/// # Examples
+///
+///```
+/// use bmw_err::*;
+/// use bmw_util::*;
+///
+/// fn main() -> Result<(), Error> {
+///      let slabs = slab_allocator!()?;
+///      let mut hashset = hashset!(MaxEntries(1_000), Slabs(&slabs))?;
+///
+///      hashset.insert(&1)?;
+///      assert_eq!(hashset.size(), 1);
+///      assert!(hashset.contains(&1)?);
+///      assert!(!hashset.contains(&2)?);
+///      assert_eq!(hashset.remove(&1)?, true);
+///      assert_eq!(hashset.remove(&1)?, false);
+///      assert_eq!(hashset.size(), 0);
+///
+///      hashset.insert(&1)?;
+///      hashset.clear()?;
+///      assert_eq!(hashset.size(), 0);
+///
+///      Ok(())
+/// }
+///```
 pub trait Hashset<K>: Debug + DynClone
 where
 	K: Serializable + Clone,
 {
+	/// Returns the maximum load factor as configured for this [`crate::Hashset`].
 	fn max_load_factor(&self) -> f64;
+	/// Returns the maximum entries as configured for this [`crate::Hashset`].
 	fn max_entries(&self) -> usize;
+	/// Insert a key into this hashset.
 	fn insert(&mut self, key: &K) -> Result<(), Error>;
+	/// If `key` is present this function returns true, otherwise false.
 	fn contains(&self, key: &K) -> Result<bool, Error>;
+	/// Remove the specified `key` from this hashset.
 	fn remove(&mut self, key: &K) -> Result<bool, Error>;
+	/// Returns the size of this hashset.
 	fn size(&self) -> usize;
+	/// Clear all items, reinitialized the entry array, and free the slabs
+	/// associated with this hashset.
 	fn clear(&mut self) -> Result<(), Error>;
+	/// Returns an [`std::iter::Iterator`] to iterate through this hashset.
 	fn iter<'a>(&'a self) -> HashsetIterator<'a, K>;
 }
 
+/// This trait defines a queue. The implementation is a bounded queue.
+/// The queue uses an [`crate::Array`] as the underlying storage mechanism.
+///
+/// Examples:
+///
+///```
+/// // import the util/log/err libraries
+/// use bmw_util::*;
+/// use bmw_log::*;
+/// use bmw_err::*;
+///
+/// fn main() -> Result<(), Error> {
+///     // create a queue with capacity of 1_000 items and &0
+///     //is the default value used to initialize the array
+///     let mut queue = queue!(1_000, &0)?;
+///
+///     // add three items to the queue
+///     queue.enqueue(1)?;
+///     queue.enqueue(2)?;
+///     queue.enqueue(3)?;
+///
+///     // dequeue the first item
+///     assert_eq!(queue.dequeue(), Some(&1));
+///
+///     // dequeue the second item
+///     assert_eq!(queue.dequeue(), Some(&2));
+///
+///     // peek at the last item
+///     assert_eq!(queue.peek(), Some(&3));
+///
+///     // dequeue the last item
+///     assert_eq!(queue.dequeue(), Some(&3));
+///
+///     // now that the queue is empty, dequeue returns None
+///     assert_eq!(queue.dequeue(), None);
+///
+///     Ok(())
+/// }
+///```
 pub trait Queue<V>: DynClone {
+	/// Enqueue a value
 	fn enqueue(&mut self, value: V) -> Result<(), Error>;
+	/// Dequeue a value. If the queue is Empty return None
 	fn dequeue(&mut self) -> Option<&V>;
+	/// peek at the next value in the queue. If the queue is Empty return None
 	fn peek(&self) -> Option<&V>;
+	/// return the number of items currently in the queue
 	fn length(&self) -> usize;
 }
 
+/// This trait defines a stack. The implementation is a bounded stack.
+/// The stack uses an [`crate::Array`] as the underlying storage mechanism.
+///
+/// Examples:
+///
+///```
+/// // import the util/log/err libraries
+/// use bmw_util::*;
+/// use bmw_log::*;
+/// use bmw_err::*;
+///
+/// fn main() -> Result<(), Error> {
+///     // create a stack with capacity of 1_000 items and &0
+///     //is the default value used to initialize the array
+///     let mut stack = stack!(1_000, &0)?;
+///
+///     // add three items to the stack
+///     stack.push(1)?;
+///     stack.push(2)?;
+///     stack.push(3)?;
+///
+///     // pop the first item
+///     assert_eq!(stack.pop(), Some(&3));
+///
+///     // pop the second item
+///     assert_eq!(stack.pop(), Some(&2));
+///
+///     // peek at the last item
+///     assert_eq!(stack.peek(), Some(&1));
+///
+///     // pop the last item
+///     assert_eq!(stack.pop(), Some(&1));
+///
+///     // now that the stack is empty, pop returns None
+///     assert_eq!(stack.pop(), None);
+///
+///     Ok(())
+/// }
+///```
 pub trait Stack<V>: DynClone {
+	/// push a `value` onto the stack
 	fn push(&mut self, value: V) -> Result<(), Error>;
+	/// pop a value off the top of the stack
 	fn pop(&mut self) -> Option<&V>;
+	/// peek at the top of the stack
 	fn peek(&self) -> Option<&V>;
+	/// return the number of items currently in the stack
 	fn length(&self) -> usize;
 }
 
+/// A trait that defines a list. Both an array list and a linked list
+/// are implemented the default [`crate::list`] macro returns the linked list.
+/// The [`crate::array_list`] macro returns the array list. Both implement
+/// this trait.
+///
+/// # Examples
+///
+///```
+/// // import the util/log/err libraries
+/// use bmw_util::*;
+/// use bmw_log::*;
+/// use bmw_err::*;
+///
+/// fn main() -> Result<(), Error> {
+///     // for this example we will use the global slab allocator which is a
+///     // thread local slab allocator which we can configure via macro
+///     global_slab_allocator!(SlabSize(64), SlabCount(100_000))?;
+///
+///     // create two lists (one linked and one array list).
+///     // Note that all lists created via macro are interoperable.
+///     let mut list1 = list![1u32, 2u32, 4u32, 5u32];
+///     let mut list2 = array_list!(10, &0u32)?;
+///     list2.push(5)?;
+///     list2.push(2)?;
+///     list2.push(4)?;
+///     list2.push(1)?;
+///
+///     // sort the array list and assert it's equal to the other list
+///     list2.sort()?;
+///     assert!(list_eq!(list1, list2));
+///
+///     // append list2 to list1 and assert the value
+///     list_append!(list1, list2);
+///     assert!(list_eq!(list1, list![1, 2, 4, 5, 1, 2, 4, 5]));
+///
+///     Ok(())
+/// }
+///```
 pub trait List<V>: DynClone + Debug {
+	/// push a value onto the end of the list
 	fn push(&mut self, value: V) -> Result<(), Error>;
+	/// iterate through the list
 	fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>
 	where
 		V: Serializable + Clone;
+	/// iterate through the list in reverse order
 	fn iter_rev<'a>(&'a self) -> Box<dyn Iterator<Item = V> + 'a>
 	where
 		V: Serializable + Clone;
+	/// delete the head of the list
 	fn delete_head(&mut self) -> Result<(), Error>;
+	/// return the size of the list
 	fn size(&self) -> usize;
+	/// clear all items from the list
 	fn clear(&mut self) -> Result<(), Error>;
 }
 
+/// A trait that defines a sortable list. Both implementations
+/// implement this trait, although the linked list merely copies
+/// the data into an array list to sort. The array_list can natively sort
+/// with rust's sort implementations using the functions associated
+/// with slice.
 pub trait SortableList<V>: List<V> + DynClone {
+	/// sort with a stable sorting algorithm
 	fn sort(&mut self) -> Result<(), Error>
 	where
 		V: Ord;
+
+	/// sort with an unstable sorting algorithm.
+	/// unstable sort is significantly faster and should be
+	/// used when stable sorting (ording of equal values consistent)
+	/// is not required.
 	fn sort_unstable(&mut self) -> Result<(), Error>
 	where
 		V: Ord;
@@ -738,6 +1067,7 @@ pub trait SlabAllocator: DynClone + Debug {
 
 clone_trait_object!(SlabAllocator);
 
+/// A pattern which is used with the suffix tree. See [`crate::suffix_tree!`].
 #[derive(Debug, PartialEq, Clone)]
 pub struct Pattern {
 	pub(crate) regex: String,
@@ -747,6 +1077,7 @@ pub struct Pattern {
 	pub(crate) id: usize,
 }
 
+/// A match which is returned by the suffix tree. See [`crate::suffix_tree!`].
 #[derive(Clone, Copy, Debug)]
 pub struct Match {
 	pub(crate) start: usize,
@@ -754,7 +1085,12 @@ pub struct Match {
 	pub(crate) id: usize,
 }
 
+/// The suffix tree data structure. See [`crate::suffix_tree`].
 pub trait SuffixTree {
+	/// return matches associated with the supplied `text` for this
+	/// [`crate::SuffixTree`]. Matches are returned in the `matches`
+	/// array supplied by the caller. The result is the number of
+	/// matches found or a [`bmw_err::Error`] if an error occurs.
 	fn tmatch(&mut self, text: &[u8], matches: &mut [Match]) -> Result<usize, Error>;
 }
 
@@ -762,6 +1098,7 @@ pub trait SuffixTree {
 /// interface. This is used by the macros as well.
 pub struct Builder {}
 
+/// An iterator for the [`crate::Hashtable`].
 pub struct HashtableIterator<'a, K, V>
 where
 	K: Serializable + Clone,
@@ -771,6 +1108,7 @@ where
 	pub(crate) _phantom_data: PhantomData<(K, V)>,
 }
 
+/// An iterator for the [`crate::Hashset`].
 pub struct HashsetIterator<'a, K>
 where
 	K: Serializable + Clone,
@@ -781,6 +1119,7 @@ where
 	pub(crate) slab_reader: SlabReader,
 }
 
+/// An iterator for the [`crate::List`].
 pub struct ListIterator<'a, V>
 where
 	V: Serializable + Clone,
@@ -793,12 +1132,14 @@ where
 	pub(crate) slab_reader: Option<SlabReader>,
 }
 
+/// An iterator for the [`crate::ArrayList`].
 pub struct ArrayListIterator<'a, T> {
 	pub(crate) array_list_ref: &'a ArrayList<T>,
 	pub(crate) direction: Direction,
 	pub(crate) cur: usize,
 }
 
+/// An iterator for the [`crate::Array`].
 pub struct ArrayIterator<'a, T> {
 	pub(crate) array_ref: &'a Array<T>,
 	pub(crate) cur: usize,
