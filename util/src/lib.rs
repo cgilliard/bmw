@@ -36,7 +36,7 @@
 //!
 //! The hashtable/set are not as fast as the native Rust data structures because they
 //! require serialization and deserialization of the entries on each operation. However, the
-//! peformance is at least in the ballpark of the standard data structures. The array, arraylist,
+//! performance is at least in the ballpark of the standard data structures. The array, arraylist,
 //! queue, and stack are faster for insert, slower for initialization and about the same for
 //! iteration and drop. A performance tool is included in the project in the etc directory
 //! [ds_perf](https://github.com/37miners/bmw/tree/main/etc/ds_perf).
