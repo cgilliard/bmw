@@ -2,16 +2,16 @@ steps:
   - script: |
       refreshenv && cargo test --all
     displayName: Windows Cargo Test
-    condition: and(eq( variables['Agent.OS'], 'Windows_NT' ), eq( variables['CI_JOB'], 'test-all' ))
+    condition: eq( variables['Agent.OS'], 'Windows_NT' )
   - script: 'cargo test --all'
     displayName: macOS Cargo Test
-    condition: and(eq( variables['Agent.OS'], 'Darwin' ), eq( variables['CI_JOB'], 'test-all' ))
+    condition: eq( variables['Agent.OS'], 'Darwin' )
   - script: 'cargo test --all'
     displayName: Linux Cargo Test
-    condition: and(eq( variables['Agent.OS'], 'Linux' ), eq( variables['CI_JOB'], 'test-all' ))
+    condition: eq( variables['Agent.OS'], 'Linux' )
   - script: 'cargo build --release'
     displayName: Build Release
-    condition:  and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/tags/'), eq(variables['CI_JOB'], 'release' ))
+    condition:  and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/tags/'), eq(variables['CI_JOB'], 'all' ))
   - script: |
       last_tarpaulin_summary=$( tail -n 1 docs/tarpaulin_summary.txt)
       last_tarpaulin_summary_split=( $last_tarpaulin_summary )
