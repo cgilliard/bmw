@@ -247,9 +247,9 @@ impl SlabWriter {
 			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(usize, usize), Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
-				let slab_size = match slabs.slab_size() {
-					Ok(slab_size) => slab_size,
-					Err(_e) => {
+				let slab_size = match slabs.is_init() {
+					true => slabs.slab_size()?,
+					false => {
 						let th = thread::current();
 						let n = th.name().unwrap_or("unknown");
 						warn!(
@@ -517,9 +517,9 @@ impl<'a> SlabReader {
 			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(usize, usize), Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
-				let slab_size = match slabs.slab_size() {
-					Ok(slab_size) => slab_size,
-					Err(_e) => {
+				let slab_size = match slabs.is_init() {
+					true => slabs.slab_size()?,
+					false => {
 						let th = thread::current();
 						let n = th.name().unwrap_or("unknown");
 						let m = "Initializing with default values.";

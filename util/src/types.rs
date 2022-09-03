@@ -892,6 +892,8 @@ pub struct Slab<'a> {
 /// }
 ///```
 pub trait SlabAllocator: DynClone + Debug {
+	/// If the slab allocator has been initialized, return true, otherwise, false.
+	fn is_init(&self) -> bool;
 	/// Allocate a slab and return a [`crate::SlabMut`] on success.
 	/// On failure, return an [`bmw_err::Error`].
 	///
