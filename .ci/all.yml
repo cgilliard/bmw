@@ -56,3 +56,45 @@ steps:
 
     displayName: Tarpaulin
     condition: and(succeeded(), eq( variables['Agent.OS'], 'Linux' ))
+  - script: |
+    changes_error=`git diff HEAD^^ HEAD --name-only | grep "^error" | wc -l`
+    changes_crypt=`git diff HEAD^^ HEAD --name-only | grep "^crypt" | wc -l`
+    changes_log=`git diff HEAD^^ HEAD --name-only | grep "^log" | wc -l`
+    changes_util=`git diff HEAD^^ HEAD --name-only | grep "^util" | wc -l`
+    changes_derive=`git diff HEAD^^ HEAD --name-only | grep "^derive" | wc -l`
+    changes_ser=`git diff HEAD^^ HEAD --name-only | grep "^ser" | wc -l`
+
+    if [[ $changes_error -eq 0 ]] && [[ $changes_crypt -eq 0 ]] && [[ $changes_log -eq 0 ]] && [[ $changes_util -eq 0 ]] && [[ $changes_derive -eq 0 ]] && [[ $changes_ser -eq 0 ]]
+    then
+      echo "no changes to relevant directories, not pushing"
+    else
+      changes=`git diff HEAD^^ HEAD --name-only`
+      echo "updating with changes = $changes"
+      git clone https://anything:$(github_pat)@github.com/37miners/bmw.git bmw_new
+      cd bmw_new
+      git config user.name "Pipelines-Bot"
+      git checkout main
+      cargo doc
+
+      mkdir -p docs/doc/bmw_err
+      mkdir -p docs/doc/bmw_crypt
+      mkdir -p docs/doc/bmw_log
+      mkdir -p docs/doc/bmw_util
+      mkdir -p docs/doc/bmw_derive
+      mkdir -p docs/doc/bmw_ser
+
+      cp -pr target/doc/bmw_err/* docs/doc/bmw_err
+      cp -pr target/doc/bmw_crypt/* docs/doc/bmw_crypt
+      cp -pr target/doc/bmw_log/* docs/doc/bmw_log
+      cp -pr target/doc/bmw_util/* docs/doc/bmw_util
+      cp -pr target/doc/bmw_derive/* docs/doc/bmw_derive
+      cp -pr target/doc/bmw_ser/* docs/doc/bmw_ser
+
+      git pull
+      git add --all
+      git commit -m "Pipelines-Bot: Updated site (via pushdocs.yml) Source Version is $(Build.SourceVersion)";
+      git push https://$(github_pat)@github.com/37miners/bmw.git
+    fi
+
+  displayName: 'Create and Push Docs'
+  condition: and(succeeded(), eq( variables['Agent.OS'], 'Linux' ))
