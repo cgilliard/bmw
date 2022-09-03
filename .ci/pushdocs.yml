@@ -11,6 +11,8 @@ steps:
    then
       echo "no changes to relevant directories, not pushing"
    else
+      changes=`git diff HEAD^^ HEAD --name-only`
+      echo "updating with changes = $changes"
       git clone https://anything:$(github_pat)@github.com/37miners/bmw.git bmw_new
       cd bmw_new
       git config user.name "Pipelines-Bot"
