@@ -5,6 +5,7 @@ steps:
    # only update at most once per hour
    limit_l=`expr ${last_tarpaulin_summary_split[0]} + 3600`
    echo "limit=$limit_l,timestamp=$timestamp"
+   timestamp=$(date +%s)
    if [ $limit_l -le $timestamp ]
    then
         echo "updating"
@@ -22,7 +23,6 @@ steps:
         IFS='%';
         read -rasplitIFS<<< "$str"
         cur=${splitIFS[0]}
-        timestamp=$(date +%s)
         IFS=' ';
 
         echo "$timestamp ${splitIFS[0]}" >> docs/tarpaulin_summary.txt
