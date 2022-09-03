@@ -336,6 +336,10 @@ impl LogImpl {
 		found_logger: &mut bool,
 		logged_from_file: &mut String,
 	) -> Result<bool, Error> {
+		if _config.debug_process_resolve_frame_error {
+			let e = err!(ErrKind::Test, "test resolve_frame error");
+			return Err(e);
+		}
 		let mut found_frame = false;
 		#[cfg(debug_assertions)]
 		if let Some(filename) = symbol.filename() {
@@ -542,7 +546,7 @@ impl LogImpl {
 						Ok(ff) => ff,
 						Err(e) => {
 							let _ = println!("error processing frame: {}", e);
-							false
+							true
 						}
 					};
 				});
@@ -1952,6 +1956,20 @@ mod test {
 		assert_eq!(log.format_millis(77), "077".to_string());
 		assert_eq!(log.format_millis(7), "007".to_string());
 		assert_eq!(log.format_millis(0), "000".to_string());
+		Ok(())
+	}
+
+	#[test]
+	fn test_resolve_frame_error() -> Result<(), Error> {
+		let config = LogConfig {
+			debug_process_resolve_frame_error: true,
+			..Default::default()
+		};
+		let mut log = LogImpl::new(config)?;
+		log.init()?;
+
+		// this will return Ok(()) even though the error occurs.
+		assert_eq!(log.log(LogLevel::Info, "", None), Ok(()));
 		Ok(())
 	}
 }

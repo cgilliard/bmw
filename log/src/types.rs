@@ -154,6 +154,7 @@ pub enum LogConfigOption {
 ///     debug_invalid_metadata: false,
 ///     debug_invalid_os_str: false,
 ///     debug_lineno_none: false,
+///     debug_process_resolve_frame_error: false,
 /// };
 ///```
 ///
@@ -212,6 +213,8 @@ pub struct LogConfig {
 	pub debug_invalid_os_str: bool,
 	/// Parameter used in testing. Must always be set false in normal use.
 	pub debug_lineno_none: bool,
+	/// Parameter used in testing. Must always be set false in normal use.
+	pub debug_process_resolve_frame_error: bool,
 }
 
 impl Default for LogConfig {
@@ -237,6 +240,7 @@ impl Default for LogConfig {
 			debug_invalid_metadata: false,
 			debug_invalid_os_str: false,
 			debug_lineno_none: false,
+			debug_process_resolve_frame_error: false,
 		}
 	}
 }
