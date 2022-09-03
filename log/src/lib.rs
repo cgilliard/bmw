@@ -32,7 +32,7 @@
 //! use bmw_err::*;
 //! use bmw_log::*;
 //!
-//! // set log level for this file. Anthing below this scope will only be
+//! // set log level for this file. Anything below this scope will only be
 //! // logged if it is equal to or less than log level 'INFO'.
 //! info!();
 //!

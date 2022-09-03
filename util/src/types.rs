@@ -221,7 +221,7 @@ pub struct BinReader<'a, R: Read> {
 pub struct ThreadPoolConfig {
 	/// The minimum number of threads that this thread_pool will use. The default value is 3.
 	pub min_size: usize,
-	/// The maximm number of threads that this thread_pool will use. The default value is 7.
+	/// The maximum number of threads that this thread_pool will use. The default value is 7.
 	pub max_size: usize,
 	/// The size of the sync_channel buffer. See [`std::sync::mpsc::sync_channel`] for more
 	/// information. The default value is 7.
@@ -239,7 +239,7 @@ pub struct HashtableConfig {
 	/// also affect how much memory is used by the entry array.
 	pub max_entries: usize,
 	/// The maximum load factor for this [`crate::Hashtable`]. This number
-	/// incidicates how full the hashtable can be. This is an array based hashtable
+	/// indicates how full the hashtable can be. This is an array based hashtable
 	/// and it is not possible to resize it after it is instantiated. The default value
 	/// is 0.75.
 	pub max_load_factor: f64,
@@ -255,7 +255,7 @@ pub struct HashsetConfig {
 	/// per entry. So, by default 8 mb are allocated with this configuration.
 	pub max_entries: usize,
 	/// The maximum load factor for this [`crate::Hashset`]. This number
-	/// incidicates how full the hashset can be. This is an array based hashset
+	/// indicates how full the hashset can be. This is an array based hashset
 	/// and it is not possible to resize it after it is instantiated. The default value
 	/// is 0.75.
 	pub max_load_factor: f64,
@@ -474,7 +474,7 @@ where
 	fn insert(&mut self, key: &K, value: &V) -> Result<(), Error>;
 	/// Get the value associated with the specified `key`.
 	fn get(&self, key: &K) -> Result<Option<V>, Error>;
-	/// Remove the specied `key` from the hashtable.
+	/// Remove the specified `key` from the hashtable.
 	fn remove(&mut self, key: &K) -> Result<Option<V>, Error>;
 	/// Return the size of the hashtable.
 	fn size(&self) -> usize;
@@ -834,14 +834,14 @@ pub trait ThreadPool<T> {
 	fn size(&self) -> Result<usize, Error>;
 }
 
-/// Struct that is used as a mutable refernce to data in a slab. See [`crate::SlabAllocator`] for
+/// Struct that is used as a mutable reference to data in a slab. See [`crate::SlabAllocator`] for
 /// further details.
 pub struct SlabMut<'a> {
 	pub(crate) data: &'a mut [u8],
 	pub(crate) id: usize,
 }
 
-/// Struct that is used as a immutable refernce to data in a slab. See [`crate::SlabAllocator`] for
+/// Struct that is used as a immutable reference to data in a slab. See [`crate::SlabAllocator`] for
 /// further details.
 pub struct Slab<'a> {
 	pub(crate) data: &'a [u8],
@@ -924,7 +924,7 @@ pub trait SlabAllocator: DynClone + Debug {
 	///     // instantiate a slab allocator with a slab count of 1,000.
 	///     let mut slabs = slab_allocator!(SlabSize(1_000), SlabCount(1_000))?;
 	///
-	///     // borrow a mutable refernce
+	///     // borrow a mutable reference
 	///     let mut slabs = slabs.borrow_mut();
 	///
 	///     // assert that there are 1,000 free slabs.
@@ -943,7 +943,7 @@ pub trait SlabAllocator: DynClone + Debug {
 	///     // free the slab that was allocated
 	///     slabs.free(slab_id)?;
 	///
-	///     // assert that the free count has returnred to the initial value of 1,000.
+	///     // assert that the free count has returned to the initial value of 1,000.
 	///     assert_eq!(slabs.free_count()?, 1_000);
 	///
 	///     Ok(())
@@ -975,7 +975,7 @@ pub trait SlabAllocator: DynClone + Debug {
 	///     // instantiate a slab allocator with a slab count of 1,000.
 	///     let mut slabs = slab_allocator!(SlabCount(1_000), SlabSize(1_000))?;
 	///     
-	///     // borrow a mutable refernce
+	///     // borrow a mutable reference
 	///     let mut slabs = slabs.borrow_mut();
 	///
 	///     // assert that there are 1,000 free slabs.
@@ -1025,7 +1025,7 @@ pub trait SlabAllocator: DynClone + Debug {
 	///     // instantiate a slab allocator with a slab count of 1,000.
 	///     let mut slabs = slab_allocator!(SlabSize(1_000), SlabCount(1_000))?;
 	///
-	///     // borrow a mutable refernce
+	///     // borrow a mutable reference
 	///     let mut slabs = slabs.borrow_mut();
 	///
 	///     // assert that there are 1,000 free slabs.

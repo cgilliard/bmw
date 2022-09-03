@@ -286,18 +286,18 @@ pub trait Log: DynClone {
 	/// the line is always logged for display purposes. If you wish to use log levels to
 	/// filter, use the macros: [`crate::fatal`], [`crate::error`], [`crate::warn`], [`crate::info`],
 	/// [`crate::debug`], [`crate::trace`]. Optionally an Instant may be specified to avoid
-	/// having the logger create it's own instant. This function returns () or a
+	/// having the logger create its own instant. This function returns () or a
 	/// [`bmw_err::Error`].
 	fn log(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error>;
 
 	/// The same as [`Log::log`], but this function will always log to standard output even if
 	/// standard output logging is currently disabled by the underlying logger. Optionally an
-	/// Instant may be specified to avoid having the logger create it's own instant.
+	/// Instant may be specified to avoid having the logger create its own instant.
 	/// This function returns () or a [`bmw_err::Error`].
 	fn log_all(&mut self, level: LogLevel, line: &str, now: Option<Instant>) -> Result<(), Error>;
 	/// Log without any of the header details. As seen in the example, only 'test3' was logged.
 	/// no timestamp, log level, or line num info is logged. Optionally an Instant may be specified to avoid
-	/// having the logger create it's own instant. This function returns () or a
+	/// having the logger create its own instant. This function returns () or a
 	/// [`bmw_err::Error`].
 	fn log_plain(&mut self, level: LogLevel, line: &str, now: Option<Instant>)
 		-> Result<(), Error>;
@@ -324,7 +324,7 @@ pub trait Log: DynClone {
 
 	/// This function checks if a log rotation is needed. It returns true if it is needed and
 	/// false otherwise. Optionally an Instant may be specified to avoid
-	/// having the logger create it's own instant. This function returns () or a
+	/// having the logger create its own instant. This function returns () or a
 	/// [`bmw_err::Error`].
 	fn need_rotate(&self, now: Option<Instant>) -> Result<bool, Error>;
 
@@ -342,7 +342,7 @@ pub trait Log: DynClone {
 	/// [`bmw_err::Error`].
 	fn set_config_option(&mut self, value: LogConfigOption) -> Result<(), Error>;
 
-	/// Get the specified [`crate::LogConfigOptionName`]. These names correpsond to the
+	/// Get the specified [`crate::LogConfigOptionName`]. These names correspond to the
 	/// [`crate::LogConfigOption`]. The function returns either a reference to a
 	/// [`crate::LogConfigOption`] or a [`bmw_err::Error`].
 	fn get_config_option(&self, option: LogConfigOptionName) -> Result<&LogConfigOption, Error>;

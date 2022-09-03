@@ -36,7 +36,7 @@ thread_local! {
 /// Set [`crate::LogLevel`] to [`crate::LogLevel::Fatal`] or log at the [`crate::LogLevel::Fatal`] log level.
 /// If no parameters are specified the log level will be set. If a single parameter is specified,
 /// that string will be logged. If two or more parameters are specified, the first parameter is a format
-/// string, the additonal parameters will be formatted based on the format string. Logging
+/// string, the additional parameters will be formatted based on the format string. Logging
 /// is done by the global logger which can be configured using the [`crate::log_init`]
 /// macro. If [`crate::log_init`] is not called, the default values are used.
 ///
@@ -114,7 +114,7 @@ macro_rules! fatal_all {
 /// Set [`crate::LogLevel`] to [`crate::LogLevel::Error`] or log at the [`crate::LogLevel::Error`] log level.
 /// If no parameters are specified the log level will be set. If a single parameter is specified,
 /// that string will be logged. If two or more parameters are specified, the first parameter is a format
-/// string, the additonal parameters will be formatted based on the format string. Logging
+/// string, the additional parameters will be formatted based on the format string. Logging
 /// is done by the global logger which can be configured using the [`crate::log_init`]
 /// macro. If [`crate::log_init`] is not called, the default values are used.
 ///
@@ -216,7 +216,7 @@ macro_rules! error_all {
 /// Set [`crate::LogLevel`] to [`crate::LogLevel::Warn`] or log at the [`crate::LogLevel::Warn`] log level.
 /// If no parameters are specified the log level will be set. If a single parameter is specified,
 /// that string will be logged. If two or more parameters are specified, the first parameter is a format
-/// string, the additonal parameters will be formatted based on the format string. Logging
+/// string, the additional parameters will be formatted based on the format string. Logging
 /// is done by the global logger which can be configured using the [`crate::log_init`]
 /// macro. If [`crate::log_init`] is not called, the default values are used.
 ///
@@ -318,7 +318,7 @@ macro_rules! warn_all {
 /// Set [`crate::LogLevel`] to [`crate::LogLevel::Info`] or log at the [`crate::LogLevel::Info`] log level.
 /// If no parameters are specified the log level will be set. If a single parameter is specified,
 /// that string will be logged. If two or more parameters are specified, the first parameter is a format
-/// string, the additonal parameters will be formatted based on the format string. Logging
+/// string, the additional parameters will be formatted based on the format string. Logging
 /// is done by the global logger which can be configured using the [`crate::log_init`]
 /// macro. If [`crate::log_init`] is not called, the default values are used.
 ///
@@ -421,7 +421,7 @@ macro_rules! info_all {
 /// Set [`crate::LogLevel`] to [`crate::LogLevel::Debug`] or log at the [`crate::LogLevel::Debug`] log level.
 /// If no parameters are specified the log level will be set. If a single parameter is specified,
 /// that string will be logged. If two or more parameters are specified, the first parameter is a format
-/// string, the additonal parameters will be formatted based on the format string. Logging
+/// string, the additional parameters will be formatted based on the format string. Logging
 /// is done by the global logger which can be configured using the [`crate::log_init`]
 /// macro. If [`crate::log_init`] is not called, the default values are used.
 ///
@@ -523,7 +523,7 @@ macro_rules! debug_all {
 /// Set [`crate::LogLevel`] to [`crate::LogLevel::Trace`] or log at the [`crate::LogLevel::Trace`] log level.
 /// If no parameters are specified the log level will be set. If a single parameter is specified,
 /// that string will be logged. If two or more parameters are specified, the first parameter is a format
-/// string, the additonal parameters will be formatted based on the format string. Logging
+/// string, the additional parameters will be formatted based on the format string. Logging
 /// is done by the global logger which can be configured using the [`crate::log_init`]
 /// macro. If [`crate::log_init`] is not called, the default values are used.
 ///
@@ -848,7 +848,7 @@ macro_rules! set_log_option {
 /// is not called before logging occurs, the default configuration is used. After
 /// either this macro is called or the default is set via another logging macro,
 /// calling this macro again will result in an error. It usually makes sense to
-/// initilize this macro very early in the startup of an application so that no
+/// initialize this macro very early in the startup of an application so that no
 /// unanticipated logging occurs before this macro is called by mistake.
 ///
 /// # Examples
