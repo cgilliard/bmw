@@ -1,6 +1,6 @@
 [package]
 name = "ds_perf"
-version = "0.0.2"
+version = "0.0.3-beta.1"
 edition = "2018"
 description = "Utility to test performance of data structurs"
 license = "Apache-2.0"
