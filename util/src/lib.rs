@@ -126,7 +126,7 @@
 //! impact the performance of the application unless it's an already very optimized application
 //! that needs to be very scalable.
 //!
-//! # Using bmw in your project
+//! # Using bmw_util (and other crates) in your project
 //!
 //! To use the crates in bmw in your project, add the following to your Cargo.toml:
 //!
