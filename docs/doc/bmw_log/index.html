@@ -23,7 +23,7 @@ the question mark operator or using the <a href="../bmw_err/macro.map_err.html" 
 <div class="example-wrap"><pre class="rust rust-example-rendered"><code> <span class="kw">use</span> <span class="ident">bmw_err</span>::<span class="kw-2">*</span>;
  <span class="kw">use</span> <span class="ident">bmw_log</span>::<span class="kw-2">*</span>;
 
- <span class="comment">// set log level for this file. Anthing below this scope will only be</span>
+ <span class="comment">// set log level for this file. Anything below this scope will only be</span>
  <span class="comment">// logged if it is equal to or less than log level &#39;INFO&#39;.</span>
  <span class="macro">info!</span>();
 
@@ -47,7 +47,7 @@ the question mark operator or using the <a href="../bmw_err/macro.map_err.html" 
 <div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.debug.html" title="bmw_log::debug macro">debug</a></div><div class="item-right docblock-short"><p>Set <a href="enum.LogLevel.html" title="crate::LogLevel"><code>crate::LogLevel</code></a> to <a href="enum.LogLevel.html#variant.Debug" title="crate::LogLevel::Debug"><code>crate::LogLevel::Debug</code></a> or log at the <a href="enum.LogLevel.html#variant.Debug" title="crate::LogLevel::Debug"><code>crate::LogLevel::Debug</code></a> log level.
 If no parameters are specified the log level will be set. If a single parameter is specified,
 that string will be logged. If two or more parameters are specified, the first parameter is a format
-string, the additonal parameters will be formatted based on the format string. Logging
+string, the additional parameters will be formatted based on the format string. Logging
 is done by the global logger which can be configured using the <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a>
 macro. If <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a> is not called, the default values are used.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.debug_all.html" title="bmw_log::debug_all macro">debug_all</a></div><div class="item-right docblock-short"><p>Same as <a href="macro.debug.html" title="debug"><code>debug</code></a> except that the <a href="trait.Log.html#tymethod.log_all" title="crate::Log::log_all"><code>crate::Log::log_all</code></a> function of the underlying logger
@@ -61,7 +61,7 @@ macros to process logging. Generally those macros should be used in favor of cal
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.error.html" title="bmw_log::error macro">error</a></div><div class="item-right docblock-short"><p>Set <a href="enum.LogLevel.html" title="crate::LogLevel"><code>crate::LogLevel</code></a> to <a href="enum.LogLevel.html#variant.Error" title="crate::LogLevel::Error"><code>crate::LogLevel::Error</code></a> or log at the <a href="enum.LogLevel.html#variant.Error" title="crate::LogLevel::Error"><code>crate::LogLevel::Error</code></a> log level.
 If no parameters are specified the log level will be set. If a single parameter is specified,
 that string will be logged. If two or more parameters are specified, the first parameter is a format
-string, the additonal parameters will be formatted based on the format string. Logging
+string, the additional parameters will be formatted based on the format string. Logging
 is done by the global logger which can be configured using the <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a>
 macro. If <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a> is not called, the default values are used.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.error_all.html" title="bmw_log::error_all macro">error_all</a></div><div class="item-right docblock-short"><p>Same as <a href="macro.error.html" title="error"><code>error</code></a> except that the <a href="trait.Log.html#tymethod.log_all" title="crate::Log::log_all"><code>crate::Log::log_all</code></a> function of the underlying logger
@@ -73,7 +73,7 @@ details on each.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.fatal.html" title="bmw_log::fatal macro">fatal</a></div><div class="item-right docblock-short"><p>Set <a href="enum.LogLevel.html" title="crate::LogLevel"><code>crate::LogLevel</code></a> to <a href="enum.LogLevel.html#variant.Fatal" title="crate::LogLevel::Fatal"><code>crate::LogLevel::Fatal</code></a> or log at the <a href="enum.LogLevel.html#variant.Fatal" title="crate::LogLevel::Fatal"><code>crate::LogLevel::Fatal</code></a> log level.
 If no parameters are specified the log level will be set. If a single parameter is specified,
 that string will be logged. If two or more parameters are specified, the first parameter is a format
-string, the additonal parameters will be formatted based on the format string. Logging
+string, the additional parameters will be formatted based on the format string. Logging
 is done by the global logger which can be configured using the <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a>
 macro. If <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a> is not called, the default values are used.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.fatal_all.html" title="bmw_log::fatal_all macro">fatal_all</a></div><div class="item-right docblock-short"><p>Same as <a href="macro.fatal.html" title="fatal"><code>fatal</code></a> except that the <a href="trait.Log.html#tymethod.log_all" title="crate::Log::log_all"><code>crate::Log::log_all</code></a> function of the underlying logger
@@ -89,7 +89,7 @@ is the underlying function call for full details.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.info.html" title="bmw_log::info macro">info</a></div><div class="item-right docblock-short"><p>Set <a href="enum.LogLevel.html" title="crate::LogLevel"><code>crate::LogLevel</code></a> to <a href="enum.LogLevel.html#variant.Info" title="crate::LogLevel::Info"><code>crate::LogLevel::Info</code></a> or log at the <a href="enum.LogLevel.html#variant.Info" title="crate::LogLevel::Info"><code>crate::LogLevel::Info</code></a> log level.
 If no parameters are specified the log level will be set. If a single parameter is specified,
 that string will be logged. If two or more parameters are specified, the first parameter is a format
-string, the additonal parameters will be formatted based on the format string. Logging
+string, the additional parameters will be formatted based on the format string. Logging
 is done by the global logger which can be configured using the <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a>
 macro. If <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a> is not called, the default values are used.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.info_all.html" title="bmw_log::info_all macro">info_all</a></div><div class="item-right docblock-short"><p>Same as <a href="macro.info.html" title="info"><code>info</code></a> except that the <a href="trait.Log.html#tymethod.log_all" title="crate::Log::log_all"><code>crate::Log::log_all</code></a> function of the underlying logger
@@ -107,7 +107,7 @@ specified, the default <a href="struct.LogConfig.html" title="crate::LogConfig">
 is not called before logging occurs, the default configuration is used. After
 either this macro is called or the default is set via another logging macro,
 calling this macro again will result in an error. It usually makes sense to
-initilize this macro very early in the startup of an application so that no
+initialize this macro very early in the startup of an application so that no
 unanticipated logging occurs before this macro is called by mistake.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.log_plain.html" title="bmw_log::log_plain macro">log_plain</a></div><div class="item-right docblock-short"><p>This macro is called by the <a href="macro.fatal_plain.html" title="fatal_plain"><code>fatal_plain</code></a>, <a href="macro.error_plain.html" title="error_plain"><code>error_plain</code></a>, <a href="macro.warn_plain.html" title="warn_plain"><code>warn_plain</code></a>, <a href="macro.info_plain.html" title="info_plain"><code>info_plain</code></a>, <a href="macro.debug_plain.html" title="debug_plain"><code>debug_plain</code></a> and <a href="macro.trace_plain.html" title="trace_plain"><code>trace_plain</code></a>
 macros to process logging. Generally those macros should be used in favor of calling this one directly.</p>
@@ -122,7 +122,7 @@ full details.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.trace.html" title="bmw_log::trace macro">trace</a></div><div class="item-right docblock-short"><p>Set <a href="enum.LogLevel.html" title="crate::LogLevel"><code>crate::LogLevel</code></a> to <a href="enum.LogLevel.html#variant.Trace" title="crate::LogLevel::Trace"><code>crate::LogLevel::Trace</code></a> or log at the <a href="enum.LogLevel.html#variant.Trace" title="crate::LogLevel::Trace"><code>crate::LogLevel::Trace</code></a> log level.
 If no parameters are specified the log level will be set. If a single parameter is specified,
 that string will be logged. If two or more parameters are specified, the first parameter is a format
-string, the additonal parameters will be formatted based on the format string. Logging
+string, the additional parameters will be formatted based on the format string. Logging
 is done by the global logger which can be configured using the <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a>
 macro. If <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a> is not called, the default values are used.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.trace_all.html" title="bmw_log::trace_all macro">trace_all</a></div><div class="item-right docblock-short"><p>Same as <a href="macro.trace.html" title="trace"><code>trace</code></a> except that the <a href="trait.Log.html#tymethod.log_all" title="crate::Log::log_all"><code>crate::Log::log_all</code></a> function of the underlying logger
@@ -136,7 +136,7 @@ details on each.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.warn.html" title="bmw_log::warn macro">warn</a></div><div class="item-right docblock-short"><p>Set <a href="enum.LogLevel.html" title="crate::LogLevel"><code>crate::LogLevel</code></a> to <a href="enum.LogLevel.html#variant.Warn" title="crate::LogLevel::Warn"><code>crate::LogLevel::Warn</code></a> or log at the <a href="enum.LogLevel.html#variant.Warn" title="crate::LogLevel::Warn"><code>crate::LogLevel::Warn</code></a> log level.
 If no parameters are specified the log level will be set. If a single parameter is specified,
 that string will be logged. If two or more parameters are specified, the first parameter is a format
-string, the additonal parameters will be formatted based on the format string. Logging
+string, the additional parameters will be formatted based on the format string. Logging
 is done by the global logger which can be configured using the <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a>
 macro. If <a href="macro.log_init.html" title="crate::log_init"><code>crate::log_init</code></a> is not called, the default values are used.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="macro" href="macro.warn_all.html" title="bmw_log::warn_all macro">warn_all</a></div><div class="item-right docblock-short"><p>Same as <a href="macro.warn.html" title="warn"><code>warn</code></a> except that the <a href="trait.Log.html#tymethod.log_all" title="crate::Log::log_all"><code>crate::Log::log_all</code></a> function of the underlying logger

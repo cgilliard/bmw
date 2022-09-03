@@ -88,7 +88,7 @@ function has not been called or this slab was not allocated.</p>
      <span class="comment">// instantiate a slab allocator with a slab count of 1,000.</span>
      <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">slabs</span> <span class="op">=</span> <span class="macro">slab_allocator!</span>(<span class="ident">SlabSize</span>(<span class="number">1_000</span>), <span class="ident">SlabCount</span>(<span class="number">1_000</span>))<span class="question-mark">?</span>;
 
-     <span class="comment">// borrow a mutable refernce</span>
+     <span class="comment">// borrow a mutable reference</span>
      <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">slabs</span> <span class="op">=</span> <span class="ident">slabs</span>.<span class="ident">borrow_mut</span>();
 
      <span class="comment">// assert that there are 1,000 free slabs.</span>
@@ -107,7 +107,7 @@ function has not been called or this slab was not allocated.</p>
      <span class="comment">// free the slab that was allocated</span>
      <span class="ident">slabs</span>.<span class="ident">free</span>(<span class="ident">slab_id</span>)<span class="question-mark">?</span>;
 
-     <span class="comment">// assert that the free count has returnred to the initial value of 1,000.</span>
+     <span class="comment">// assert that the free count has returned to the initial value of 1,000.</span>
      <span class="macro">assert_eq!</span>(<span class="ident">slabs</span>.<span class="ident">free_count</span>()<span class="question-mark">?</span>, <span class="number">1_000</span>);
 
      <span class="prelude-val">Ok</span>(())
@@ -137,7 +137,7 @@ function has not been called or this slab was not allocated.</p>
      <span class="comment">// instantiate a slab allocator with a slab count of 1,000.</span>
      <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">slabs</span> <span class="op">=</span> <span class="macro">slab_allocator!</span>(<span class="ident">SlabCount</span>(<span class="number">1_000</span>), <span class="ident">SlabSize</span>(<span class="number">1_000</span>))<span class="question-mark">?</span>;
      
-     <span class="comment">// borrow a mutable refernce</span>
+     <span class="comment">// borrow a mutable reference</span>
      <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">slabs</span> <span class="op">=</span> <span class="ident">slabs</span>.<span class="ident">borrow_mut</span>();
 
      <span class="comment">// assert that there are 1,000 free slabs.</span>
@@ -185,7 +185,7 @@ function has not been called or this slab was not allocated.</p>
      <span class="comment">// instantiate a slab allocator with a slab count of 1,000.</span>
      <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">slabs</span> <span class="op">=</span> <span class="macro">slab_allocator!</span>(<span class="ident">SlabSize</span>(<span class="number">1_000</span>), <span class="ident">SlabCount</span>(<span class="number">1_000</span>))<span class="question-mark">?</span>;
 
-     <span class="comment">// borrow a mutable refernce</span>
+     <span class="comment">// borrow a mutable reference</span>
      <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">slabs</span> <span class="op">=</span> <span class="ident">slabs</span>.<span class="ident">borrow_mut</span>();
 
      <span class="comment">// assert that there are 1,000 free slabs.</span>

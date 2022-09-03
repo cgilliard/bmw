@@ -26,7 +26,7 @@ slabs used by the data structure are freed when the data structure goes out of s
 <h2 id="performance"><a href="#performance">Performance</a></h2>
 <p>The hashtable/set are not as fast as the native Rust data structures because they
 require serialization and deserialization of the entries on each operation. However, the
-peformance is at least in the ballpark of the standard data structures. The array, arraylist,
+performance is at least in the ballpark of the standard data structures. The array, arraylist,
 queue, and stack are faster for insert, slower for initialization and about the same for
 iteration and drop. A performance tool is included in the project in the etc directory
 <a href="https://github.com/37miners/bmw/tree/main/etc/ds_perf">ds_perf</a>.</p>
@@ -405,7 +405,7 @@ sent over the network.</p>
      <span class="macro">assert_eq!</span>(<span class="ident">queue</span>.<span class="ident">peek</span>(), <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="number">3</span>));
      <span class="macro">assert_eq!</span>(<span class="ident">stack</span>.<span class="ident">peek</span>(), <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="number">1</span>));
 
-     <span class="comment">// dequque/pop the last item</span>
+     <span class="comment">// dequeue/pop the last item</span>
      <span class="macro">assert_eq!</span>(<span class="ident">queue</span>.<span class="ident">dequeue</span>(), <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="number">3</span>));
      <span class="macro">assert_eq!</span>(<span class="ident">stack</span>.<span class="ident">pop</span>(), <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="number">1</span>));
 
@@ -559,14 +559,14 @@ to stay consistent with <a href="trait.Hashtable.html" title="crate::Hashtable">
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Pattern.html" title="bmw_util::Pattern struct">Pattern</a></div><div class="item-right docblock-short"><p>A pattern which is used with the suffix tree. See <a href="macro.suffix_tree.html" title="crate::suffix_tree!"><code>crate::suffix_tree!</code></a>.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.RwLockReadGuardWrapper.html" title="bmw_util::RwLockReadGuardWrapper struct">RwLockReadGuardWrapper</a></div><div class="item-right docblock-short"><p>Wrapper around the <a href="https://doc.rust-lang.org/1.63.0/std/sync/rwlock/struct.RwLockReadGuard.html" title="std::sync::RwLockReadGuard"><code>std::sync::RwLockReadGuard</code></a>.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.RwLockWriteGuardWrapper.html" title="bmw_util::RwLockWriteGuardWrapper struct">RwLockWriteGuardWrapper</a></div><div class="item-right docblock-short"><p>Wrapper around the <a href="https://doc.rust-lang.org/1.63.0/std/sync/rwlock/struct.RwLockWriteGuard.html" title="std::sync::RwLockWriteGuard"><code>std::sync::RwLockWriteGuard</code></a>.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Slab.html" title="bmw_util::Slab struct">Slab</a></div><div class="item-right docblock-short"><p>Struct that is used as a immutable refernce to data in a slab. See <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> for
+</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Slab.html" title="bmw_util::Slab struct">Slab</a></div><div class="item-right docblock-short"><p>Struct that is used as a immutable reference to data in a slab. See <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> for
 further details.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabAllocatorConfig.html" title="bmw_util::SlabAllocatorConfig struct">SlabAllocatorConfig</a></div><div class="item-right docblock-short"><p>Slab Allocator configuration struct. This struct is the input to the
 <a href="trait.SlabAllocator.html#tymethod.init" title="crate::SlabAllocator::init"><code>crate::SlabAllocator::init</code></a> function. The two parameters are <code>slab_size</code>
 which is the size of the slabs in bytes allocated by this
 <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> and <code>slab_count</code> which is the number of slabs
 that can be allocated by this <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a>.</p>
-</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabMut.html" title="bmw_util::SlabMut struct">SlabMut</a></div><div class="item-right docblock-short"><p>Struct that is used as a mutable refernce to data in a slab. See <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> for
+</div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabMut.html" title="bmw_util::SlabMut struct">SlabMut</a></div><div class="item-right docblock-short"><p>Struct that is used as a mutable reference to data in a slab. See <a href="trait.SlabAllocator.html" title="crate::SlabAllocator"><code>crate::SlabAllocator</code></a> for
 further details.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabReader.html" title="bmw_util::SlabReader struct">SlabReader</a></div><div class="item-right docblock-short"><p>Utility to read from slabs using the <a href="trait.Reader.html" title="bmw_ser::Reader"><code>bmw_ser::Reader</code></a> trait.</p>
 </div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.SlabWriter.html" title="bmw_util::SlabWriter struct">SlabWriter</a></div><div class="item-right docblock-short"><p>Utility to write to slabs using the <a href="trait.Writer.html" title="bmw_ser::Writer"><code>bmw_ser::Writer</code></a> trait.</p>
