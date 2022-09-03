@@ -19,7 +19,7 @@ use crate::LogConfigOption::{
 	MaxAgeMillis, MaxSizeBytes, ShowBt, ShowMillis, Stdout, Timestamp,
 };
 use bmw_deps::backtrace;
-use bmw_deps::backtrace::Backtrace;
+use bmw_deps::backtrace::{Backtrace, Symbol};
 use bmw_deps::chrono::{DateTime, Local};
 use bmw_deps::colored::Colorize;
 use bmw_deps::rand::random;
@@ -330,6 +330,60 @@ impl LogImpl {
 		millis_format
 	}
 
+	fn process_resolve_frame(
+		symbol: &Symbol,
+		_config: &LogConfig,
+		found_logger: &mut bool,
+		logged_from_file: &mut String,
+	) -> Result<bool, Error> {
+		let mut found_frame = false;
+		#[cfg(debug_assertions)]
+		if let Some(filename) = symbol.filename() {
+			let filename = filename.display().to_string();
+
+			let lineno = symbol.lineno();
+
+			let lineno = if lineno.is_none() || _config.debug_lineno_none {
+				"".to_string()
+			} else {
+				lineno.unwrap().to_string()
+			};
+
+			if filename.find("/log/src/log.rs").is_some()
+				|| filename.find("\\log\\src\\log.rs").is_some()
+			{
+				*found_logger = true;
+			}
+			if (filename.find("/log/src/log.rs").is_none()
+				&& filename.find("\\log\\src\\log.rs").is_none())
+				&& *found_logger
+			{
+				*logged_from_file = format!("{}:{}", filename, lineno);
+				found_frame = true;
+			}
+		}
+		#[cfg(not(debug_assertions))]
+		if let Some(name) = symbol.name() {
+			let name = name.to_string();
+			if name.find("as bmw_log::types::Log").is_some() {
+				*found_logger = true;
+			}
+			if name.find("as bmw_log::types::Log").is_none() && *found_logger {
+				let pos = name.rfind(':');
+				let name = match pos {
+					Some(pos) => match pos > 1 {
+						true => &name[0..pos - 1],
+						false => &name[..],
+					},
+					None => &name[..],
+				};
+				*logged_from_file = format!("{}", name);
+				found_frame = true;
+			}
+		}
+		Ok(found_frame)
+	}
+
 	fn log_impl(
 		&mut self,
 		level: LogLevel,
@@ -479,50 +533,18 @@ impl LogImpl {
 			let mut logged_from_file = "unknown".to_string();
 			backtrace::trace(|frame| {
 				backtrace::resolve_frame(frame, |symbol| {
-					#[cfg(debug_assertions)]
-					if let Some(filename) = symbol.filename() {
-						let filename = filename.display().to_string();
-
-						let lineno = symbol.lineno();
-
-						let lineno = if lineno.is_none() || self.config.debug_lineno_none {
-							"".to_string()
-						} else {
-							lineno.unwrap().to_string()
-						};
-
-						if filename.find("/log/src/log.rs").is_some()
-							|| filename.find("\\log\\src\\log.rs").is_some()
-						{
-							found_logger = true;
+					found_frame = match Self::process_resolve_frame(
+						symbol,
+						&self.config,
+						&mut found_logger,
+						&mut logged_from_file,
+					) {
+						Ok(ff) => ff,
+						Err(e) => {
+							let _ = println!("error processing frame: {}", e);
+							false
 						}
-						if (filename.find("/log/src/log.rs").is_none()
-							&& filename.find("\\log\\src\\log.rs").is_none())
-							&& found_logger
-						{
-							logged_from_file = format!("{}:{}", filename, lineno);
-							found_frame = true;
-						}
-					}
-					#[cfg(not(debug_assertions))]
-					if let Some(name) = symbol.name() {
-						let name = name.to_string();
-						if name.find("as bmw_log::types::Log").is_some() {
-							found_logger = true;
-						}
-						if name.find("as bmw_log::types::Log").is_none() && found_logger {
-							let pos = name.rfind(':');
-							let name = match pos {
-								Some(pos) => match pos > 1 {
-									true => &name[0..pos - 1],
-									false => &name[0..pos],
-								},
-								None => &name[..],
-							};
-							logged_from_file = format!("{}", name);
-							found_frame = true;
-						}
-					}
+					};
 				});
 				!found_frame
 			});
