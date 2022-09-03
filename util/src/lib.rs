@@ -248,7 +248,7 @@
 //!
 //!     // append list2 to list1 and assert the value
 //!     list_append!(list1, list2);
-//!     assert!(list_eq!(list1, list![1,2,4,5,1,2,4,5]));
+//!     assert!(list_eq!(list1, list![1, 2, 4, 5, 1, 2, 4, 5]));
 //!
 //!     Ok(())
 //! }
@@ -438,7 +438,7 @@
 //!
 //! fn main() -> Result<(), Error> {
 //!     // create a stack and a queue both with capacity of 1_000 items and &0
-//!     //is the default value used to initialize the queue's array
+//!     // is the default value used to initialize the array
 //!     let mut queue = queue!(1_000, &0)?;
 //!     let mut stack = stack!(1_000, &0)?;
 //!
