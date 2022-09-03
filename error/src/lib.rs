@@ -45,9 +45,13 @@
 //!     let mut x = map_err!(File::open("/invalid/log/path.log"), ErrKind::Log)?;
 //!     x.write(b"test")?;
 //!
-//!     // optionally an additional message can be included as below. The original error's message
-//!     // will still be displayed.
-//!     let file = map_err!(File::open("/path/to/something"), ErrKind::IO, "file open failed")?;
+//!     // optionally an additional message can be included as below. The original
+//!     // error's message will still be displayed.
+//!     let file = map_err!(
+//!         File::open("/path/to/something"),
+//!         ErrKind::IO,
+//!         "file open failed"
+//!     )?;
 //!     println!("file_type={:?}", file.metadata()?.file_type());
 //!
 //!
