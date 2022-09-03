@@ -67,6 +67,9 @@ impl<'a> Slab<'a> {
 }
 
 impl SlabAllocator for SlabAllocatorImpl {
+	fn is_init(&self) -> bool {
+		self.config.is_some()
+	}
 	fn allocate<'a>(&'a mut self) -> Result<SlabMut<'a>, Error> {
 		if self.config.is_none() {
 			return Err(err!(ErrKind::IllegalState, "not initialized"));

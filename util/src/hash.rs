@@ -521,14 +521,14 @@ where
 			}
 			None => GLOBAL_SLAB_ALLOCATOR.with(|f| -> Result<(usize, usize), Error> {
 				let slabs = unsafe { f.get().as_mut().unwrap() };
-				let slab_size = match slabs.slab_size() {
-					Ok(slab_size) => slab_size,
-					Err(_e) => {
+				let slab_size = match slabs.is_init() {
+					true => slabs.slab_size()?,
+					false => {
 						let th = thread::current();
 						let n = th.name().unwrap_or("unknown");
 						let m1 = "Slab allocator was not initialized for thread";
 						let m2 = "Initializing with default values.";
-						let _ = warn!("WARN: {} '{}'. {}", m1, n, m2);
+						warn!("WARN: {} '{}'. {}", m1, n, m2)?;
 						slabs.init(SlabAllocatorConfig::default())?;
 						slabs.slab_size()?
 					}
