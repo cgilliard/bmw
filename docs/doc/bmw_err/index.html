@@ -2,10 +2,10 @@
         </a><h2 class="location"></h2>
     </nav>
     <nav class="sidebar"><a class="sidebar-logo" href="../bmw_err/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
-        </a><h2 class="location"><a href="#">Crate bmw_err</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 0.0.2-beta1</li><li><a id="all-types" href="all.html">All Items</a></li></ul></div><section><div class="block"><ul><li><a href="#macros">Macros</a></li><li><a href="#structs">Structs</a></li><li><a href="#enums">Enums</a></li></ul></div></section></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../bmw_err/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><div id="settings-menu" tabindex="-1">
+        </a><h2 class="location"><a href="#">Crate bmw_err</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 0.0.2</li><li><a id="all-types" href="all.html">All Items</a></li></ul></div><section><div class="block"><ul><li><a href="#macros">Macros</a></li><li><a href="#structs">Structs</a></li><li><a href="#enums">Enums</a></li></ul></div></section></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../bmw_err/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><div id="settings-menu" tabindex="-1">
                                 <a href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../wheel.svg"></a></div>
                         </div></form></nav></div><section id="main-content" class="content"><div class="main-heading">
-    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">bmw_err</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/bmw_err/lib.rs.html#15-64">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>This crate includes the main error structs, enums and macros used
+    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">bmw_err</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/bmw_err/lib.rs.html#15-68">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>This crate includes the main error structs, enums and macros used
 in bmw for building and mapping errors. This crate offers
 wrappers around the rust failure crate. The <a href="macro.map_err.html" title="crate::map_err"><code>crate::map_err</code></a>
 macro can be used to conveniently map errors from 3rd party crates
@@ -36,9 +36,13 @@ using one of these two macros.</p>
      <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">x</span> <span class="op">=</span> <span class="macro">map_err!</span>(<span class="ident">File::open</span>(<span class="string">&quot;/invalid/log/path.log&quot;</span>), <span class="ident">ErrKind::Log</span>)<span class="question-mark">?</span>;
      <span class="ident">x</span>.<span class="ident">write</span>(<span class="string">b&quot;test&quot;</span>)<span class="question-mark">?</span>;
 
-     <span class="comment">// optionally an additional message can be included as below. The original error&#39;s message</span>
-     <span class="comment">// will still be displayed.</span>
-     <span class="kw">let</span> <span class="ident">file</span> <span class="op">=</span> <span class="macro">map_err!</span>(<span class="ident">File::open</span>(<span class="string">&quot;/path/to/something&quot;</span>), <span class="ident">ErrKind::IO</span>, <span class="string">&quot;file open failed&quot;</span>)<span class="question-mark">?</span>;
+     <span class="comment">// optionally an additional message can be included as below. The original</span>
+     <span class="comment">// error&#39;s message will still be displayed.</span>
+     <span class="kw">let</span> <span class="ident">file</span> <span class="op">=</span> <span class="macro">map_err!</span>(
+         <span class="ident">File::open</span>(<span class="string">&quot;/path/to/something&quot;</span>),
+         <span class="ident">ErrKind::IO</span>,
+         <span class="string">&quot;file open failed&quot;</span>
+     )<span class="question-mark">?</span>;
      <span class="macro">println!</span>(<span class="string">&quot;file_type={:?}&quot;</span>, <span class="ident">file</span>.<span class="ident">metadata</span>()<span class="question-mark">?</span>.<span class="ident">file_type</span>());
 
 
