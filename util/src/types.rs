@@ -296,7 +296,18 @@ pub struct ArrayList<T> {
 ///
 /// # Examples
 ///```
+/// use bmw_err::Error;
+/// use bmw_util::array;
+///
 /// fn main() -> Result<(), Error> {
+///      let mut arr = array!(10, &0)?;
+///      for i in 0..10 {
+///          arr[i] = i;
+///      }
+///
+///      for i in 0..10 {
+///          assert_eq!(arr[i], i);
+///      }
 ///      Ok(())
 /// }
 ///```
