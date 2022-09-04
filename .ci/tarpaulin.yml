@@ -9,12 +9,12 @@ steps:
    if [ $limit_l -le $timestamp ]
    then
         echo "updating"
+        git clone https://anything:$(github_pat)@github.com/37miners/bmw.git bmw_new
         sudo apt-get update -yqq
         sudo apt-get install -yqq --no-install-recommends libncursesw5-dev tor libssl-dev
         cargo install cargo-tarpaulin
-        cargo tarpaulin --all > /tmp/tarpaulin.out
-        git clone https://anything:$(github_pat)@github.com/37miners/bmw.git bmw_new
         cd bmw_new
+        cargo tarpaulin --all > /tmp/tarpaulin.out
         git config user.name "Pipelines-Bot"
         git checkout main
         last=$( tail -n 1 /tmp/tarpaulin.out )
@@ -33,10 +33,10 @@ steps:
 
         git config --global user.email "pipelinesbot.noreply@37miners.com"
         git config --global user.name "Pipelines-Bot"
-        git pull
         git add --all
         git commit -m"Pipelines-Bot: Updated site (via tarpaulin.yml) Source Version is $(Build.SourceVersion)";
-        git push https://$(github_pat)@github.com/37miners/bmw.git
+        x=`git push https://$(github_pat)@github.com/37miners/bmw.git`;
+        echo "git push resulted in $x"
    else
         echo "not updating too recent"
    fi
