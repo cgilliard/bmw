@@ -226,9 +226,6 @@ impl Default for LogConfig {
 			max_age_millis: LogConfigOption::MaxAgeMillis(1000 * 60 * 60),
 			timestamp: LogConfigOption::Timestamp(true),
 			level: LogConfigOption::Level(true),
-			#[cfg(windows)]
-			line_num: LogConfigOption::LineNum(false),
-			#[cfg(not(windows))]
 			line_num: LogConfigOption::LineNum(true),
 			show_millis: LogConfigOption::ShowMillis(true),
 			auto_rotate: LogConfigOption::AutoRotate(true),

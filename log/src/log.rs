@@ -1157,26 +1157,16 @@ mod test {
 			&Level(false)
 		);
 
-		#[cfg(windows)]
-		{
-			assert_eq!(
-				log.get_config_option(LogConfigOptionName::LineNum)?,
-				&LineNum(false)
-			);
-		}
-		#[cfg(not(windows))]
-		{
-			assert_eq!(
-				log.get_config_option(LogConfigOptionName::LineNum)?,
-				&LineNum(true)
-			);
+		assert_eq!(
+			log.get_config_option(LogConfigOptionName::LineNum)?,
+			&LineNum(true)
+		);
 
-			log.set_config_option(LineNum(false))?;
-			assert_eq!(
-				log.get_config_option(LogConfigOptionName::LineNum)?,
-				&LineNum(false)
-			);
-		}
+		log.set_config_option(LineNum(false))?;
+		assert_eq!(
+			log.get_config_option(LogConfigOptionName::LineNum)?,
+			&LineNum(false)
+		);
 
 		assert_eq!(
 			log.get_config_option(LogConfigOptionName::ShowMillis)?,
