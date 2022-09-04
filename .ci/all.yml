@@ -11,24 +11,24 @@ steps:
     condition: eq( variables['Agent.OS'], 'Linux' )
   - script: 'cargo build --release'
     displayName: Build Release
-    condition:  and(succeeded(), ne( variables['Agent.OS'], 'Windows_NT' ), contains(variables['Build.SourceBranch'], 'refs/tags/'))
+    condition:  and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/tags/'))
   - script: |
       MY_TAG="$(Build.SourceBranch)"
       MY_TAG=${MY_TAG#refs/tags/}
       echo $MY_TAG
       echo "##vso[task.setvariable variable=build.my_tag]$MY_TAG"
       echo "##vso[task.setvariable variable=build.platform]$PLATFORM"
-    displayName: "Create my tag variable"
+    displayName: "Create my tag variable (*nix)"
     condition:  and(succeeded(), ne( variables['Agent.OS'], 'Windows_NT' ), contains(variables['Build.SourceBranch'], 'refs/tags/'))
   - task: CopyFiles@2
-    displayName: Copy assets
+    displayName: Copy assets (*nix)
     condition:  and(succeeded(), ne( variables['Agent.OS'], 'Windows_NT' ), contains(variables['Build.SourceBranch'], 'refs/tags/'))
     inputs:
       sourceFolder: '$(Build.SourcesDirectory)/target/release'
       contents: 'bmw'
       targetFolder: '$(Build.BinariesDirectory)/bmw'
   - task: ArchiveFiles@2
-    displayName: Gather assets
+    displayName: Gather assets (*nix)
     condition:  and(succeeded(), ne( variables['Agent.OS'], 'Windows_NT' ), contains(variables['Build.SourceBranch'], 'refs/tags/'))
     inputs:
       rootFolderOrFile: '$(Build.BinariesDirectory)/bmw'
@@ -37,10 +37,10 @@ steps:
       archiveFile: '$(Build.ArtifactStagingDirectory)/bmw-$(build.my_tag)-$(build.platform).tar.gz'
   - script: |
       cd $(Build.ArtifactStagingDirectory) && openssl sha256 bmw-$(build.my_tag)-$(build.platform).tar.gz > bmw-$(build.my_tag)-$(build.platform)-sha256sum.txt
-    displayName: Create Checksum
+    displayName: Create Checksum (*nix)
     condition:  and(succeeded(), ne( variables['Agent.OS'], 'Windows_NT' ), contains(variables['Build.SourceBranch'], 'refs/tags/'))
   - task: GithubRelease@0
-    displayName: Github release
+    displayName: Github release (*nix)
     condition: and(succeeded(), ne( variables['Agent.OS'], 'Windows_NT' ), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
     inputs:
       gitHubConnection: 'hagridthegreat37'
@@ -65,14 +65,14 @@ steps:
     displayName: "Create my tag variable (win)"
     condition:  and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/tags/'), eq( variables['Agent.OS'], 'Windows_NT' ))
   - task: CopyFiles@2
-    displayName: Copy assets
+    displayName: Copy assets (win)
     condition:  and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/tags/'), eq( variables['Agent.OS'], 'Windows_NT' ))
     inputs:
       sourceFolder: '$(Build.SourcesDirectory)\target\release'
       contents: 'bmw.exe'
       targetFolder: '$(Build.BinariesDirectory)\bmw'
   - task: ArchiveFiles@2
-    displayName: Gather assets
+    displayName: Gather assets (win)
     condition:  and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/tags/'), eq( variables['Agent.OS'], 'Windows_NT' ))
     inputs:
       rootFolderOrFile: '$(Build.BinariesDirectory)\bmw'
@@ -80,10 +80,10 @@ steps:
       archiveFile: '$(Build.ArtifactStagingDirectory)\bmw-$(build.my_tag)-$(build.platform).zip'
   - script: |
       powershell -Command "cd $(Build.ArtifactStagingDirectory); get-filehash -algorithm sha256 bmw-$(build.my_tag)-$(build.platform).zip | Format-List |  Out-String | ForEach-Object { $_.Trim() } > bmw-$(build.my_tag)-$(build.platform)-sha256sum.txt"
-    displayName: Create Checksum
+    displayName: Create Checksum (win)
     condition:  and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/tags/'), eq( variables['Agent.OS'], 'Windows_NT' ))
   - task: GithubRelease@0
-    displayName: Github release
+    displayName: Github release (win)
     condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'), eq( variables['Agent.OS'], 'Windows_NT' ))
     inputs:
       gitHubConnection: 'hagridthegreat37'
