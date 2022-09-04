@@ -17,7 +17,7 @@ use crate::types::{
 use crate::{
 	Array, ArrayList, Hashset, HashsetConfig, Hashtable, HashtableConfig, ListConfig, Lock,
 	LockBox, Match, Pattern, Queue, Serializable, SlabAllocator, SlabAllocatorConfig, SortableList,
-	Stack, SuffixTree, ThreadPool, ThreadPoolConfig,
+	Stack, SuffixTree, ThreadPoolConfig, ThreadPool,
 };
 use bmw_err::Error;
 use std::cell::{RefCell, UnsafeCell};
