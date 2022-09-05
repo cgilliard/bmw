@@ -344,7 +344,6 @@ impl LogImpl {
 		#[cfg(debug_assertions)]
 		if let Some(filename) = symbol.filename() {
 			let filename = filename.display().to_string();
-
 			let lineno = symbol.lineno();
 
 			let lineno = if lineno.is_none() || _config.debug_lineno_none {
@@ -534,7 +533,7 @@ impl LogImpl {
 		if show_line_num {
 			let mut found_logger = false;
 			let mut found_frame = false;
-			let mut logged_from_file = "unknown".to_string();
+			let mut logged_from_file = "*********unknown**********".to_string();
 			backtrace::trace(|frame| {
 				backtrace::resolve_frame(frame, |symbol| {
 					found_frame = match Self::process_resolve_frame(
