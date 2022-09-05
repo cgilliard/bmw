@@ -121,6 +121,8 @@ where
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
 }
 
+clone_trait_object!(<T>LockBox<T>);
+
 /// Wrapper around the [`std::sync::RwLockReadGuard`].
 pub struct RwLockReadGuardWrapper<'a, T> {
 	pub(crate) guard: RwLockReadGuard<'a, T>,

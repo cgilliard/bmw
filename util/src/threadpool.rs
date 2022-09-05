@@ -20,7 +20,8 @@ use bmw_log::*;
 use std::future::Future;
 use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::{Arc, Mutex};
-use std::thread::spawn;
+use std::thread::{sleep, spawn};
+use std::time::Duration;
 
 info!();
 
@@ -108,8 +109,11 @@ impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
 								}
 								guard.waiting += 1;
 							}
-							let rx = rx.lock()?;
-							let ret = rx.recv()?;
+							let ret = {
+								let rx = rx.lock()?;
+								let ret = rx.recv()?;
+								ret
+							};
 							{
 								let mut state = state_clone.wlock()?;
 								let guard = &mut **state.guard();
@@ -193,6 +197,18 @@ impl<T: 'static + Send + Sync> ThreadPool<T> for ThreadPoolImpl<T> {
 		for _ in 0..self.config.min_size {
 			Self::run_thread(rx.clone(), clone_box(&*self.state))?;
 		}
+
+		loop {
+			{
+				let state = self.state.rlock()?;
+				let guard = &**state.guard();
+				if guard.waiting == self.config.min_size {
+					break;
+				}
+			}
+			sleep(Duration::from_millis(1));
+		}
+
 		Ok(())
 	}
 

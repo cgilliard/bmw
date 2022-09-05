@@ -1028,9 +1028,9 @@ where
 		debug!("free chain {}", slab_id)?;
 		let bytes_per_slab = self.bytes_per_slab;
 		let slab_size = self.slab_size;
-		let mut next_bytes = slab_id.clone();
+		let mut next_bytes = slab_id;
 		loop {
-			let id = next_bytes.clone();
+			let id = next_bytes;
 			let n = match &self.slabs {
 				Some(slabs) => {
 					let slabs: Ref<_> = slabs.borrow();
@@ -1043,7 +1043,7 @@ where
 					slice_to_usize(&slab.get()[bytes_per_slab..slab_size])
 				}),
 			}?;
-			next_bytes = n.clone();
+			next_bytes = n;
 			debug!("free id = {}, next_bytes={}", id, next_bytes)?;
 			self.free(id)?;
 

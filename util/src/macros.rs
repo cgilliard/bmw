@@ -917,7 +917,7 @@ macro_rules! hashtable {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &slabs.clone()
+                        &slabs
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -969,7 +969,7 @@ macro_rules! hashtable_box {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &slabs.clone()
+                        &slabs
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -1200,7 +1200,7 @@ macro_rules! hashset {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &slabs.clone()
+                        &slabs
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
