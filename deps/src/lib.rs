@@ -15,6 +15,9 @@
 //! This is the dependency crate. All bmw dependencies are included in this crate as re-exports and
 //! used by the other crates within the repo.
 
+#[cfg(windows)]
+pub use ws2_32;
+
 pub use backtrace;
 pub use chrono;
 pub use colored;

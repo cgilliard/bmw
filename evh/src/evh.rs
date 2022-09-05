@@ -18,12 +18,15 @@ use crate::{
 };
 use bmw_deps::errno::{errno, set_errno, Errno};
 use bmw_deps::interprocess::unnamed_pipe::pipe;
-use bmw_deps::libc::{c_void, fcntl, read, write, F_SETFL, O_NONBLOCK};
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
 use std::sync::Arc;
 
+#[cfg(unix)]
+use bmw_deps::libc::{c_void, fcntl, read, write, F_SETFL, O_NONBLOCK};
+#[cfg(windows)]
+use bmw_deps::ws2_32::{recv, send};
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 #[cfg(windows)]
@@ -169,7 +172,10 @@ impl Wakeup {
 	fn new() -> Result<Self, Error> {
 		let (writer_unp, reader_unp) = pipe()?;
 		#[cfg(windows)]
-		let (reader, writer) = (reader_unp.as_raw_handle(), writer_unp.as_raw_handle());
+		let (reader, writer) = (
+			reader_unp.as_raw_handle() as u64,
+			writer_unp.as_raw_handle() as u64,
+		);
 		#[cfg(unix)]
 		let (reader, writer) = {
 			let reader = reader_unp.as_raw_fd();
@@ -233,7 +239,7 @@ fn read_bytes(handle: Handle, buf: &mut [u8]) -> Result<isize, Error> {
 	#[cfg(target_os = "windows")]
 	{
 		let cbuf: *mut i8 = buf as *mut _ as *mut i8;
-		let mut len = unsafe { ws2_32::recv(handle.try_into()?, cbuf, buf.len().try_into()?, 0) };
+		let mut len = unsafe { recv(handle, cbuf, buf.len().try_into()?, 0) };
 		if errno().0 == 10035 {
 			// would block
 			len = -2;
@@ -254,12 +260,13 @@ fn write_bytes(handle: Handle, buf: &[u8]) -> Result<isize, Error> {
 	{
 		let cbuf: *mut i8 = buf as *const _ as *mut i8;
 		Ok(unsafe {
-			ws2_32::send(
+			send(
 				handle.try_into().unwrap_or(0),
 				cbuf,
 				(buf.len()).try_into().unwrap_or(0),
 				0,
 			)
+			.try_into()?
 		})
 	}
 }
