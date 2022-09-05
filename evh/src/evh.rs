@@ -21,10 +21,12 @@ use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
 
-#[cfg(unix)]
-use crate::linux::{get_reader_writer, read_bytes_impl, write_bytes_impl};
+#[cfg(linux)]
+use crate::linux::*;
+#[cfg(target_os = "macos")]
+use crate::mac::*;
 #[cfg(windows)]
-use crate::win::{get_reader_writer, read_bytes_impl, write_bytes_impl};
+use crate::win::*;
 
 info!();
 

@@ -13,10 +13,13 @@
 
 mod builder;
 mod evh;
+#[cfg(linux)]
 mod linux;
+#[cfg(target_os = "macos")]
 mod mac;
 mod macros;
 mod types;
+#[cfg(windows)]
 mod win;
 
 pub use crate::types::{

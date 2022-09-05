@@ -11,31 +11,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(windows)]
 use crate::types::Handle;
-#[cfg(windows)]
 use bmw_deps::errno::{errno, set_errno, Errno};
-#[cfg(windows)]
 use bmw_deps::winapi;
-#[cfg(windows)]
 use bmw_deps::ws2_32::{ioctlsocket, recv, send, setsockopt};
 use bmw_err::*;
 use bmw_log::*;
-#[cfg(windows)]
 use std::net::{TcpListener, TcpStream};
-#[cfg(windows)]
 use std::os::raw::c_int;
-#[cfg(windows)]
 use std::os::windows::io::AsRawSocket;
-#[cfg(windows)]
 use std::sync::Arc;
 
-#[cfg(windows)]
 const WINSOCK_BUF_SIZE: winapi::c_int = 100_000_000;
 
 info!();
 
-#[cfg(target_os = "windows")]
 pub(crate) fn socket_pipe(fds: *mut i32) -> Result<(TcpStream, TcpStream), Error> {
 	let port = bmw_deps::portpicker::pick_unused_port().unwrap_or(9999);
 	let listener = TcpListener::bind(format!("127.0.0.1:{}", port))?;
@@ -51,7 +41,6 @@ pub(crate) fn socket_pipe(fds: *mut i32) -> Result<(TcpStream, TcpStream), Error
 	Ok((listener.0, stream))
 }
 
-#[cfg(windows)]
 pub(crate) fn set_windows_socket_options(handle: Handle) -> Result<(), Error> {
 	let fionbio = 0x8004667eu32;
 	let ioctl_res = unsafe { ioctlsocket(handle, fionbio as c_int, &mut 1) };
@@ -82,7 +71,6 @@ pub(crate) fn set_windows_socket_options(handle: Handle) -> Result<(), Error> {
 	Ok(())
 }
 
-#[cfg(windows)]
 pub(crate) fn read_bytes_impl(handle: Handle, buf: &mut [u8]) -> isize {
 	let cbuf: *mut i8 = buf as *mut _ as *mut i8;
 	match buf.len().try_into() {
@@ -103,7 +91,6 @@ pub(crate) fn read_bytes_impl(handle: Handle, buf: &mut [u8]) -> isize {
 	.unwrap_or(-1)
 }
 
-#[cfg(windows)]
 pub(crate) fn write_bytes_impl(handle: Handle, buf: &[u8]) -> isize {
 	let cbuf: *mut i8 = buf as *const _ as *mut i8;
 	match buf.len().try_into() {
@@ -112,7 +99,6 @@ pub(crate) fn write_bytes_impl(handle: Handle, buf: &[u8]) -> isize {
 	}
 }
 
-#[cfg(windows)]
 pub(crate) fn get_reader_writer() -> Result<
 	(
 		Handle,
