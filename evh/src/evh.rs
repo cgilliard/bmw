@@ -17,30 +17,14 @@ use crate::{
 	ThreadContext,
 };
 use bmw_deps::errno::{errno, set_errno, Errno};
-use bmw_deps::interprocess::unnamed_pipe::pipe;
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
-use std::sync::Arc;
-
-#[cfg(windows)]
-use bmw_deps::winapi;
-#[cfg(windows)]
-use bmw_deps::ws2_32::{ioctlsocket, recv, send, setsockopt};
-#[cfg(windows)]
-use std::net::{TcpListener, TcpStream};
-#[cfg(windows)]
-use std::os::raw::c_int;
-#[cfg(windows)]
-use std::os::windows::io::AsRawSocket;
 
 #[cfg(unix)]
-use bmw_deps::libc::{c_void, fcntl, read, write, F_SETFL, O_NONBLOCK};
-#[cfg(unix)]
-use std::os::unix::io::AsRawFd;
-
+use crate::linux::{get_reader_writer, read_bytes_impl, write_bytes_impl};
 #[cfg(windows)]
-const WINSOCK_BUF_SIZE: winapi::c_int = 100_000_000;
+use crate::windows::{get_reader_writer, read_bytes_impl, write_bytes_impl};
 
 info!();
 
@@ -180,9 +164,9 @@ where
 
 impl Wakeup {
 	fn new() -> Result<Self, Error> {
-		let (writer_unp, reader_unp) = pipe()?;
-		let mut _tcp_stream = None;
-		let mut _tcp_listener = None;
+		set_errno(Errno(0));
+		let (reader, writer, _tcp_stream, _tcp_listener) = get_reader_writer()?;
+		/*
 		#[cfg(windows)]
 		let (reader, writer) = {
 			let mut rethandles = [0u64; 2];
@@ -195,20 +179,9 @@ impl Wakeup {
 			(listener_socket, stream_socket)
 		};
 		#[cfg(unix)]
-		let (reader, writer) = {
-			let reader = reader_unp.as_raw_fd();
-			let writer = writer_unp.as_raw_fd();
-			unsafe {
-				fcntl(reader, F_SETFL, O_NONBLOCK);
-				fcntl(writer, F_SETFL, O_NONBLOCK);
-			}
-			(reader, writer)
-		};
-		let _writer_unp = Arc::new(writer_unp);
-		let _reader_unp = Arc::new(reader_unp);
+		let (reader, writer, _tcp_stream, _tcp_listener) = get_reader_writer();
+				*/
 		Ok(Self {
-			_reader_unp,
-			_writer_unp,
 			_tcp_stream,
 			_tcp_listener,
 			reader,
@@ -230,7 +203,7 @@ impl Wakeup {
 		};
 		if need_wakeup {
 			debug!("writing to {}", self.writer)?;
-			let len = write_bytes(self.writer, &[0u8; 1])?;
+			let len = write_bytes(self.writer, &[0u8; 1]);
 			debug!("len={},errno={}", len, errno())?;
 		}
 		Ok(())
@@ -250,24 +223,10 @@ impl Wakeup {
 	}
 }
 
-#[cfg(target_os = "windows")]
-fn socket_pipe(fds: *mut i32) -> Result<(TcpStream, TcpStream), Error> {
-	let port = bmw_deps::portpicker::pick_unused_port().unwrap_or(9999);
-	let listener = TcpListener::bind(format!("127.0.0.1:{}", port))?;
-	let stream = TcpStream::connect(format!("127.0.0.1:{}", port))?;
-	debug!("port={}", port)?;
-	let listener = listener.accept()?;
-	let fds: &mut [i32] = unsafe { std::slice::from_raw_parts_mut(fds, 2) };
-	fds[0] = listener.0.as_raw_socket().try_into().unwrap();
-	fds[1] = stream.as_raw_socket().try_into().unwrap();
-	set_windows_socket_options(fds[0].try_into()?)?;
-	set_windows_socket_options(fds[1].try_into()?)?;
-
-	Ok((listener.0, stream))
-}
-
-fn read_bytes(handle: Handle, buf: &mut [u8]) -> Result<isize, Error> {
+fn read_bytes(handle: Handle, buf: &mut [u8]) -> isize {
 	set_errno(Errno(0));
+	read_bytes_impl(handle, buf)
+	/*
 	#[cfg(unix)]
 	{
 		let cbuf: *mut c_void = buf as *mut _ as *mut c_void;
@@ -284,10 +243,13 @@ fn read_bytes(handle: Handle, buf: &mut [u8]) -> Result<isize, Error> {
 		}
 		Ok(len.try_into().unwrap_or(-1))
 	}
+			*/
 }
 
-fn write_bytes(handle: Handle, buf: &[u8]) -> Result<isize, Error> {
+fn write_bytes(handle: Handle, buf: &[u8]) -> isize {
 	set_errno(Errno(0));
+	write_bytes_impl(handle, buf)
+	/*
 	#[cfg(unix)]
 	{
 		let cbuf: *const c_void = buf as *const _ as *const c_void;
@@ -308,37 +270,7 @@ fn write_bytes(handle: Handle, buf: &[u8]) -> Result<isize, Error> {
 			.try_into()?
 		})
 	}
-}
-
-#[cfg(windows)]
-fn set_windows_socket_options(handle: Handle) -> Result<(), Error> {
-	let fionbio = 0x8004667eu32;
-	let ioctl_res = unsafe { ioctlsocket(handle, fionbio as c_int, &mut 1) };
-
-	if ioctl_res != 0 {
-		return Err(err!(
-			ErrKind::IO,
-			format!("complete fion with error: {}", errno().to_string())
-		));
-	}
-	let sockoptres = unsafe {
-		setsockopt(
-			handle,
-			winapi::SOL_SOCKET,
-			winapi::SO_SNDBUF,
-			&WINSOCK_BUF_SIZE as *const _ as *const i8,
-			std::mem::size_of_val(&WINSOCK_BUF_SIZE) as winapi::c_int,
-		)
-	};
-
-	if sockoptres != 0 {
-		return Err(err!(
-			ErrKind::IO,
-			format!("setsocketopt resulted in error: {}", errno().to_string())
-		));
-	}
-
-	Ok(())
+			*/
 }
 
 #[cfg(test)]
@@ -376,7 +308,7 @@ mod test {
 						info!("reader = {}", wakeup_clone.reader)?;
 						info!("writer = {}", wakeup_clone.writer)?;
 
-						len = read_bytes(wakeup_clone.reader, &mut buffer)?;
+						len = read_bytes(wakeup_clone.reader, &mut buffer);
 						if len == 1 {
 							break;
 						}

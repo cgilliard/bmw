@@ -11,7 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmw_deps::interprocess::unnamed_pipe::{UnnamedPipeReader, UnnamedPipeWriter};
 use bmw_err::*;
 use bmw_util::*;
 use std::net::TcpStream;
@@ -151,8 +150,6 @@ pub(crate) struct WakeupState {
 pub(crate) struct Wakeup {
 	pub(crate) _tcp_stream: Option<Arc<TcpStream>>,
 	pub(crate) _tcp_listener: Option<Arc<TcpStream>>,
-	pub(crate) _reader_unp: Arc<UnnamedPipeReader>,
-	pub(crate) _writer_unp: Arc<UnnamedPipeWriter>,
 	pub(crate) reader: Handle,
 	pub(crate) writer: Handle,
 	pub(crate) state: Box<dyn LockBox<WakeupState>>,
