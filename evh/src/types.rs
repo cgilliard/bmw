@@ -14,6 +14,7 @@
 use bmw_deps::interprocess::unnamed_pipe::{UnnamedPipeReader, UnnamedPipeWriter};
 use bmw_err::*;
 use bmw_util::*;
+use std::net::TcpStream;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -146,6 +147,8 @@ pub(crate) struct WakeupState {
 
 #[derive(Clone)]
 pub(crate) struct Wakeup {
+	pub(crate) _tcp_stream: Option<Arc<TcpStream>>,
+	pub(crate) _tcp_listener: Option<Arc<TcpStream>>,
 	pub(crate) _reader_unp: Arc<UnnamedPipeReader>,
 	pub(crate) _writer_unp: Arc<UnnamedPipeWriter>,
 	pub(crate) reader: Handle,
