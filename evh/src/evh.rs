@@ -18,22 +18,26 @@ use crate::{
 };
 use bmw_deps::errno::{errno, set_errno, Errno};
 use bmw_deps::interprocess::unnamed_pipe::pipe;
-use bmw_deps::winapi;
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
-use std::net::{TcpListener, TcpStream};
-use std::os::raw::c_int;
 use std::sync::Arc;
+
+#[cfg(windows)]
+use bmw_deps::winapi;
+#[cfg(windows)]
+use bmw_deps::ws2_32::{ioctlsocket, recv, send, setsockopt};
+#[cfg(windows)]
+use std::net::{TcpListener, TcpStream};
+#[cfg(windows)]
+use std::os::raw::c_int;
+#[cfg(windows)]
+use std::os::windows::io::AsRawSocket;
 
 #[cfg(unix)]
 use bmw_deps::libc::{c_void, fcntl, read, write, F_SETFL, O_NONBLOCK};
-#[cfg(windows)]
-use bmw_deps::ws2_32::{ioctlsocket, recv, send, setsockopt};
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
-#[cfg(windows)]
-use std::os::windows::io::AsRawSocket;
 
 #[cfg(windows)]
 const WINSOCK_BUF_SIZE: winapi::c_int = 100_000_000;

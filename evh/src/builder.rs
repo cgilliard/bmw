@@ -10,3 +10,37 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+use crate::types::EventHandlerImpl;
+use crate::{Builder, ConnectionData, EventHandler, EventHandlerConfig, ThreadContext};
+use bmw_err::*;
+
+impl Builder {
+	pub fn build_evh<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>(
+		config: EventHandlerConfig,
+	) -> Result<impl EventHandler<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>, Error>
+	where
+		OnRead: Fn(ConnectionData, ThreadContext) -> Result<(), Error>
+			+ Send
+			+ 'static
+			+ Clone
+			+ Sync
+			+ Unpin,
+		OnAccept: Fn(ConnectionData, ThreadContext) -> Result<(), Error>
+			+ Send
+			+ 'static
+			+ Clone
+			+ Sync
+			+ Unpin,
+		OnClose: Fn(ConnectionData, ThreadContext) -> Result<(), Error>
+			+ Send
+			+ 'static
+			+ Clone
+			+ Sync
+			+ Unpin,
+		HouseKeeper: Fn(ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+		OnPanic: Fn(ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	{
+		EventHandlerImpl::new(config)
+	}
+}

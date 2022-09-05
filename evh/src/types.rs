@@ -107,6 +107,8 @@ where
 	fn add_server(&mut self, connection: ServerConnection) -> Result<(), Error>;
 }
 
+pub struct Builder {}
+
 #[derive(Clone)]
 pub(crate) struct EventHandlerImpl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 where

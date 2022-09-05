@@ -20,6 +20,6 @@ mod types;
 mod win;
 
 pub use crate::types::{
-	ClientConnection, ConnectionData, EventHandler, EventHandlerConfig, ServerConnection,
+	Builder, ClientConnection, ConnectionData, EventHandler, EventHandlerConfig, ServerConnection,
 	ThreadContext,
 };
