@@ -24,7 +24,7 @@ use bmw_util::*;
 #[cfg(unix)]
 use crate::linux::{get_reader_writer, read_bytes_impl, write_bytes_impl};
 #[cfg(windows)]
-use crate::windows::{get_reader_writer, read_bytes_impl, write_bytes_impl};
+use crate::win::{get_reader_writer, read_bytes_impl, write_bytes_impl};
 
 info!();
 

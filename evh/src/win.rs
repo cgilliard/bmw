@@ -14,9 +14,13 @@
 #[cfg(windows)]
 use crate::types::Handle;
 #[cfg(windows)]
+use bmw_deps::errno::{errno, set_errno, Errno};
+#[cfg(windows)]
 use bmw_deps::winapi;
 #[cfg(windows)]
 use bmw_deps::ws2_32::{ioctlsocket, recv, send, setsockopt};
+use bmw_err::*;
+use bmw_log::*;
 #[cfg(windows)]
 use std::net::{TcpListener, TcpStream};
 #[cfg(windows)]
@@ -28,6 +32,8 @@ use std::sync::Arc;
 
 #[cfg(windows)]
 const WINSOCK_BUF_SIZE: winapi::c_int = 100_000_000;
+
+info!();
 
 #[cfg(target_os = "windows")]
 pub(crate) fn socket_pipe(fds: *mut i32) -> Result<(TcpStream, TcpStream), Error> {
@@ -117,15 +123,12 @@ pub(crate) fn get_reader_writer() -> Result<
 	Error,
 > {
 	let (_tcp_stream, _tcp_listener);
-	let (reader, writer) = {
-		let mut rethandles = [0u64; 2];
-		let handles: *mut c_int = &mut rethandles as *mut _ as *mut c_int;
-		let (listener, stream) = socket_pipe(handles)?;
-		let listener_socket = listener.as_raw_socket();
-		let stream_socket = stream.as_raw_socket();
-		_tcp_stream = Some(Arc::new(stream));
-		_tcp_listener = Some(Arc::new(listener));
-		(listener_socket, stream_socket)
-	};
+	let mut rethandles = [0u64; 2];
+	let handles: *mut c_int = &mut rethandles as *mut _ as *mut c_int;
+	let (listener, stream) = socket_pipe(handles)?;
+	let listener_socket = listener.as_raw_socket();
+	let stream_socket = stream.as_raw_socket();
+	_tcp_stream = Some(Arc::new(stream));
+	_tcp_listener = Some(Arc::new(listener));
 	Ok((listener_socket, stream_socket, _tcp_listener, _tcp_stream))
 }
