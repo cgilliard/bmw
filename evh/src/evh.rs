@@ -21,7 +21,7 @@ use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
 
-#[cfg(linux)]
+#[cfg(target_os = "linux")]
 use crate::linux::*;
 #[cfg(target_os = "macos")]
 use crate::mac::*;
