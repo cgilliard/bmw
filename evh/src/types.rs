@@ -99,7 +99,6 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) kevs: Vec<kevent>,
 	#[cfg(target_os = "macos")]
 	pub(crate) ret_kevs: Vec<kevent>,
-	#[cfg(target_os = "macos")]
 	pub(crate) selector: Handle,
 	pub(crate) now: u128,
 	pub(crate) connection_hashtable: Box<dyn Hashtable<u128, ConnectionInfo>>,

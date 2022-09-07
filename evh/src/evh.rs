@@ -37,6 +37,9 @@ use crate::win::*;
 #[cfg(target_os = "macos")]
 use bmw_deps::kqueue_sys::{kevent, kqueue, EventFilter, EventFlag, FilterFlag};
 
+#[cfg(target_os = "linux")]
+use bmw_deps::nix::sys::epoll::{epoll_create1, EpollCreateFlags};
+
 const READ_SLAB_SIZE: usize = 512;
 const READ_SLAB_PTR_OFFSET: usize = 504;
 
@@ -213,7 +216,7 @@ impl EventHandlerContext {
 			#[cfg(target_os = "macos")]
 			selector: unsafe { kqueue() },
 			#[cfg(target_os = "linux")]
-			selector: 0,
+			selector: epoll_create1(EpollCreateFlags::empty())?,
 			#[cfg(windows)]
 			selector: 0,
 			read_slabs,
@@ -893,6 +896,7 @@ mod test {
 	use crate::{ConnData, EventHandler, EventHandlerConfig, ServerConnection};
 	use bmw_err::*;
 	use bmw_log::*;
+	use bmw_test::port::pick_free_port;
 	use bmw_util::*;
 	use std::io::Read;
 	use std::io::Write;
@@ -954,6 +958,8 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_basic() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
 		let config = EventHandlerConfig {
 			threads: 1,
 			housekeeping_frequency_millis: 100_000,
@@ -988,14 +994,14 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
-		let handles = create_listeners(1, "127.0.0.1:9000", 10)?;
+		let handles = create_listeners(1, "127.0.0.1:9020", 10)?;
 		let sc = ServerConnection {
 			tls_config: None,
 			handles,
 		};
 		evh.add_server(sc)?;
 
-		let mut connection = TcpStream::connect("127.0.0.1:9000")?;
+		let mut connection = TcpStream::connect("127.0.0.1:9020")?;
 		info!("about to write")?;
 		connection.write(b"test1")?;
 		let mut buf = vec![];

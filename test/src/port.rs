@@ -12,31 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This is the dependency crate. All bmw dependencies are included in this crate as re-exports and
-//! used by the other crates within the repo.
+use bmw_deps::portpicker::is_free;
+use bmw_err::Error;
+use std::sync::atomic::{AtomicU16, Ordering};
 
-#[cfg(windows)]
-pub use ws2_32;
+static GLOBAL_NEXT_PORT: AtomicU16 = AtomicU16::new(9000);
 
-#[cfg(target_os = "macos")]
-pub use kqueue_sys;
-
-pub use backtrace;
-pub use chrono;
-pub use colored;
-pub use dyn_clone;
-pub use errno;
-pub use failure;
-pub use failure_derive;
-pub use futures;
-pub use interprocess;
-pub use lazy_static;
-pub use libc;
-pub use nix;
-pub use num_format;
-pub use portpicker;
-pub use rand;
-pub use random_string;
-pub use substring;
-pub use try_traits;
-pub use winapi;
+pub fn pick_free_port() -> Result<u16, Error> {
+	loop {
+		let port = GLOBAL_NEXT_PORT.fetch_add(1, Ordering::SeqCst);
+		if is_free(port) {
+			return Ok(port);
+		}
+	}
+}

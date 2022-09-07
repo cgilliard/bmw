@@ -15,4 +15,5 @@
 //! This crate provides functions and other utilities that are used in the tests in other crates
 //! within the bmw repo.
 
+pub mod port;
 pub mod testdir;
