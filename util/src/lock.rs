@@ -25,6 +25,16 @@ thread_local! {
 	pub static LOCKS: RefCell<HashSet<u128>> = RefCell::new(HashSet::new());
 }
 
+/// Rebuild a [`crate::LockBox`] from te usize which is returned from the
+/// [`crate::LockBox::danger_to_usize`] function.
+pub fn lock_box_from_usize<T>(value: usize) -> Box<dyn LockBox<T> + Send + Sync>
+where
+	T: Send + Sync + Clone + 'static,
+{
+	let t = unsafe { Arc::from_raw(value as *mut RwLock<T>) };
+	Box::new(LockImpl { id: random(), t })
+}
+
 impl<'a, T> RwLockReadGuardWrapper<'a, T>
 where
 	T: Send + Sync,
@@ -110,6 +120,11 @@ where
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
 		self.do_rlock()
 	}
+
+	fn danger_to_usize(&self) -> usize {
+		let ptr = Arc::into_raw(self.t.clone());
+		ptr as usize
+	}
 }
 
 impl<T> LockImpl<T> {
@@ -174,9 +189,12 @@ mod test {
 	use crate::{lock, lock_box, RwLockReadGuardWrapper, RwLockWriteGuardWrapper};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::Error;
+	use bmw_log::*;
 	use std::sync::{Arc, RwLock};
 	use std::thread::{sleep, spawn};
 	use std::time::Duration;
+
+	info!();
 
 	#[test]
 	fn test_locks() -> Result<(), Error> {
@@ -320,6 +338,22 @@ mod test {
 			let guard = x.guard();
 			assert_eq!(**guard, 1);
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn test_to_usize() -> Result<(), Error> {
+		let v = {
+			let x: Box<dyn LockBox<u32>> = lock_box!(100u32)?;
+			let v = x.danger_to_usize();
+			v
+		};
+
+		let arc = Arc::new(unsafe { Arc::from_raw(v as *mut RwLock<u32>) });
+		let v = arc.read().unwrap();
+		info!("ptr_ret = {}", *v)?;
+		assert_eq!(*v, 100);
+
 		Ok(())
 	}
 }

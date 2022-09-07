@@ -123,6 +123,10 @@ impl<T> Index<usize> for Array<T> {
 	}
 }
 
+unsafe impl<T> Send for ArrayList<T> where T: Send {}
+
+unsafe impl<T> Sync for ArrayList<T> where T: Sync {}
+
 impl<T> ArrayList<T>
 where
 	T: Clone,
@@ -785,22 +789,6 @@ mod test {
 
 		Ok(())
 	}
-
-	/*
-	#[test]
-	fn test_large_memory_allocation() -> Result<(), Error> {
-		let res: Result<Array<u32>, Error> = Array::new(usize::MAX / 8, &0);
-		assert_eq!(
-			res.unwrap_err(),
-			err!(ErrKind::Alloc, "could not allocate memory for array")
-		);
-		let mut res: Array<u32> = Array::new(4, &0)?;
-		res[0] = 1;
-		res[1] = 2;
-		info!("res={:?}", res)?;
-		Ok(())
-	}
-		*/
 
 	#[test]
 	fn test_string_array() -> Result<(), Error> {

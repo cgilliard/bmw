@@ -1432,12 +1432,58 @@ macro_rules! list_box {
 macro_rules! list_sync {
     ( $( $x:expr ),* ) => {
         {
-            use bmw_util::List;
-            let mut temp_list = bmw_util::Builder::build_list_sync(bmw_util::ListConfig::default(), &None)?;
+            let mut config = bmw_util::SlabAllocatorConfig::default();
+            let mut error: Option<String> = None;
+            let mut slab_size_specified = false;
+            let mut slab_count_specified = false;
+
+            // compiler sees macro as not used if it's not used in one part of the code
+            // these lines make the warnings go away
+            if config.slab_size == 0 { config.slab_size = 0; }
+            if slab_count_specified { slab_count_specified = false; }
+            if slab_size_specified { slab_size_specified = false; }
+            if slab_count_specified {}
+            if slab_size_specified {}
+            if error.is_some() { error = None; }
+
             $(
-                temp_list.push($x)?;
+                match $x {
+                    bmw_util::ConfigOption::SlabSize(slab_size) => {
+                        config.slab_size = slab_size;
+
+                        if slab_size_specified {
+                            error = Some("SlabSize was specified more than once!".to_string());
+                        }
+                        slab_size_specified = true;
+                        if slab_size_specified {}
+
+                    },
+                    bmw_util::ConfigOption::SlabCount(slab_count) => {
+                        config.slab_count = slab_count;
+
+                        if slab_count_specified {
+                            error = Some("SlabCount was specified more than once!".to_string());
+                        }
+
+                        slab_count_specified = true;
+                        if slab_count_specified {}
+                    },
+                    _ => {
+                        error = Some(format!("'{:?}' is not allowed for sync_list", $x));
+                    }
+                }
             )*
-            temp_list
+            match error {
+                Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
+                None => {
+                    let mut temp_list = bmw_util::Builder::build_list_sync(bmw_util::ListConfig::default(), config)?;
+                    temp_list.delete_head()?;
+                    $(
+                        temp_list.push($x)?;
+                    )*
+                    Ok(temp_list)
+                },
+            }
         }
     };
 }
@@ -1447,12 +1493,58 @@ macro_rules! list_sync {
 macro_rules! list_sync_box {
     ( $( $x:expr ),* ) => {
         {
-            use bmw_util::List;
-            let mut temp_list = bmw_util::Builder::build_list_sync_box(bmw_util::ListConfig::default(), &None)?;
+            let mut config = bmw_util::SlabAllocatorConfig::default();
+            let mut error: Option<String> = None;
+            let mut slab_size_specified = false;
+            let mut slab_count_specified = false;
+
+            // compiler sees macro as not used if it's not used in one part of the code
+            // these lines make the warnings go away
+            if config.slab_size == 0 { config.slab_size = 0; }
+            if slab_count_specified { slab_count_specified = false; }
+            if slab_size_specified { slab_size_specified = false; }
+            if slab_count_specified {}
+            if slab_size_specified {}
+            if error.is_some() { error = None; }
+
             $(
-                temp_list.push($x)?;
+                match $x {
+                    bmw_util::ConfigOption::SlabSize(slab_size) => {
+                        config.slab_size = slab_size;
+
+                        if slab_size_specified {
+                            error = Some("SlabSize was specified more than once!".to_string());
+                        }
+                        slab_size_specified = true;
+                        if slab_size_specified {}
+
+                    },
+                    bmw_util::ConfigOption::SlabCount(slab_count) => {
+                        config.slab_count = slab_count;
+
+                        if slab_count_specified {
+                            error = Some("SlabCount was specified more than once!".to_string());
+                        }
+
+                        slab_count_specified = true;
+                        if slab_count_specified {}
+                    },
+                    _ => {
+                        error = Some(format!("'{:?}' is not allowed for sync_list", $x));
+                    }
+                }
             )*
-            temp_list
+            match error {
+                Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
+                None => {
+                    let mut temp_list = bmw_util::Builder::build_list_sync(bmw_util::ListConfig::default(), config)?;
+                    temp_list.delete_head()?;
+                    $(
+                        temp_list.push($x)?;
+                    )*
+                    Ok(Box::new(temp_list))
+                },
+            }
         }
     };
 }
@@ -1581,6 +1673,24 @@ macro_rules! queue {
 macro_rules! queue_box {
 	( $size:expr, $default:expr ) => {{
 		bmw_util::Builder::build_queue_box($size, $default)
+	}};
+}
+
+/// This is the sync version of [`crate::queue`]. It is identical other than the returned value is
+/// with Sync/Send traits implemented.
+#[macro_export]
+macro_rules! queue_sync {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_queue_sync($size, $default)
+	}};
+}
+
+/// This is the box version of [`crate::queue`]. It is identical other than the returned value is
+/// in a box `(Box<dyn Queue>)` and Send/Sync traits implemented.
+#[macro_export]
+macro_rules! queue_sync_box {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_queue_sync_box($size, $default)
 	}};
 }
 
@@ -2113,6 +2223,19 @@ mod test {
 		// match
 		let match_count = suffix_tree.tmatch(b"aaa", &mut matches)?;
 		assert_eq!(match_count, 1);
+		Ok(())
+	}
+
+	#[test]
+	fn test_list_sync() -> Result<(), Error> {
+		let mut list = list_sync!()?;
+		//let mut hash = hashset_sync_box!()?;
+		list.push(1)?;
+		assert!(list_eq!(list, list![1]));
+
+		let mut list2: Box<dyn SortableList<_>> = list_sync_box!()?;
+		list2.push(1)?;
+		assert!(list_eq!(list2, list![1]));
 		Ok(())
 	}
 }

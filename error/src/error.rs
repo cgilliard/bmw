@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use bmw_deps::failure::{Backtrace, Context, Fail};
+use bmw_deps::nix::errno::Errno;
 use std::alloc::LayoutError;
+use std::convert::Infallible;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
 use std::num::{ParseIntError, TryFromIntError};
@@ -21,6 +23,7 @@ use std::str::Utf8Error;
 use std::sync::mpsc::{RecvError, SendError};
 use std::sync::MutexGuard;
 use std::sync::{PoisonError, RwLockReadGuard, RwLockWriteGuard};
+use std::time::SystemTimeError;
 
 /// Base Error struct which is used throughout bmw.
 #[derive(Debug, Fail)]
@@ -91,6 +94,12 @@ pub enum ErrorKind {
 	/// Operation not supported
 	#[fail(display = "operation not supported error: {}", _0)]
 	OperationNotSupported(String),
+	/// system time error
+	#[fail(display = "system time error: {}", _0)]
+	SystemTime(String),
+	/// Errno system error
+	#[fail(display = "errno error: {}", _0)]
+	Errno(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
@@ -133,6 +142,10 @@ pub enum ErrKind {
 	Alloc,
 	/// Operation not supported
 	OperationNotSupported,
+	/// System time error
+	SystemTime,
+	/// Errno system error
+	Errno,
 }
 
 impl Display for Error {
@@ -256,6 +269,30 @@ impl From<LayoutError> for Error {
 	fn from(e: LayoutError) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::Alloc(format!("Layout error: {}", e))),
+		}
+	}
+}
+
+impl From<SystemTimeError> for Error {
+	fn from(e: SystemTimeError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::SystemTime(format!("System Time error: {}", e))),
+		}
+	}
+}
+
+impl From<Errno> for Error {
+	fn from(e: Errno) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Errno(format!("Errno system error: {}", e))),
+		}
+	}
+}
+
+impl From<Infallible> for Error {
+	fn from(e: Infallible) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("Infallible: {}", e))),
 		}
 	}
 }

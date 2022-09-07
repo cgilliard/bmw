@@ -545,4 +545,5 @@ pub use crate::types::{
 	ThreadPoolConfig,
 };
 
+pub use crate::lock::lock_box_from_usize;
 pub use bmw_ser::{Reader, Serializable, Writer};

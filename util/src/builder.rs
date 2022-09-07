@@ -17,7 +17,7 @@ use crate::types::{
 use crate::{
 	Array, ArrayList, Hashset, HashsetConfig, Hashtable, HashtableConfig, ListConfig, Lock,
 	LockBox, Match, Pattern, Queue, Serializable, SlabAllocator, SlabAllocatorConfig, SortableList,
-	Stack, SuffixTree, ThreadPoolConfig, ThreadPool,
+	Stack, SuffixTree, ThreadPool, ThreadPoolConfig,
 };
 use bmw_err::Error;
 use std::cell::{RefCell, UnsafeCell};
@@ -111,6 +111,45 @@ impl Builder {
 	pub fn build_queue_box<T>(size: usize, default: &T) -> Result<Box<dyn Queue<T>>, Error>
 	where
 		T: Clone + 'static,
+	{
+		Ok(Box::new(ArrayList::new(size, default)?))
+	}
+
+	/// Build an [`crate::Queue`] based on the specified `size` and `default` value.
+	/// The default value is only used to initialize the underlying [`crate::Array`]
+	/// and is not included in the queue. On success an anonymous impl of [`crate::Queue`]
+	/// is returned. This version requires that T be Send and Sync and returns a "Send/Sync"
+	/// queue.
+	///
+	/// # Errors
+	///
+	/// [`bmw_err::ErrorKind::IllegalArgument`] is returned if the specified size is 0.
+	pub fn build_queue_sync<T>(
+		size: usize,
+		default: &T,
+	) -> Result<impl Queue<T> + Send + Sync, Error>
+	where
+		T: Clone + Send + Sync,
+	{
+		ArrayList::new(size, default)
+	}
+
+	/// Build an [`crate::Queue`] based on the specified `size` and `default` value.
+	/// The default value is only used to initialize the underlying [`crate::Array`]
+	/// and is not included in the queue. On success a Box<dyn Queue<T>>
+	/// is returned. This function may be used if you wish to store the list in a
+	/// struct or enum. This version requires that T be Send and Sync and returns a "Send/Sync"
+	/// queue.
+	///
+	/// # Errors
+	///
+	/// [`bmw_err::ErrorKind::IllegalArgument`] is returned if the specified size is 0.
+	pub fn build_queue_sync_box<T>(
+		size: usize,
+		default: &T,
+	) -> Result<Box<dyn Queue<T> + Send + Sync>, Error>
+	where
+		T: Clone + Send + Sync + 'static,
 	{
 		Ok(Box::new(ArrayList::new(size, default)?))
 	}

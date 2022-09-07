@@ -23,6 +23,8 @@ mod types;
 mod win;
 
 pub use crate::types::{
-	Builder, ClientConnection, ConnectionData, EventHandler, EventHandlerConfig, ServerConnection,
-	ThreadContext,
+	Builder, ClientConnection, ConnData, ConnectionData, EventHandler, EventHandlerConfig,
+	ServerConnection, ThreadContext, WriteHandle,
 };
+
+pub use crate::evh::create_listeners;

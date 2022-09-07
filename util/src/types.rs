@@ -119,6 +119,10 @@ where
 	/// obtain a read lock and corresponding [`std::sync::RwLockReadGuard`] for this
 	/// [`crate::Lock`].
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
+	/// consume the inner Arc and return a usize value. This function is dangerous
+	/// because it potentially leaks memory. The usize must be rebuilt into a lockbox
+	/// that can then be dropped via the [`crate::lock_box_from_usize`] function.
+	fn danger_to_usize(&self) -> usize;
 }
 
 clone_trait_object!(<T>LockBox<T>);
@@ -896,6 +900,7 @@ pub struct Slab<'a> {
 pub trait SlabAllocator: DynClone + Debug {
 	/// If the slab allocator has been initialized, return true, otherwise, false.
 	fn is_init(&self) -> bool;
+
 	/// Allocate a slab and return a [`crate::SlabMut`] on success.
 	/// On failure, return an [`bmw_err::Error`].
 	///
