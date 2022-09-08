@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bmw_deps::bitvec::vec::BitVec;
 use bmw_derive::Serializable;
 use bmw_err::*;
 use bmw_util::*;
@@ -25,6 +26,9 @@ use std::os::unix::prelude::RawFd;
 
 #[cfg(target_os = "macos")]
 use bmw_deps::kqueue_sys::kevent;
+
+#[cfg(target_os = "linux")]
+use bmw_deps::nix::sys::epoll::EpollEvent;
 
 #[derive(Clone, Debug)]
 pub struct TlsServerConfig {
@@ -99,6 +103,10 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) kevs: Vec<kevent>,
 	#[cfg(target_os = "macos")]
 	pub(crate) ret_kevs: Vec<kevent>,
+	#[cfg(target_os = "linux")]
+	pub(crate) filter_set: BitVec,
+	#[cfg(target_os = "linux")]
+	pub(crate) epoll_events: Vec<EpollEvent>,
 	pub(crate) selector: Handle,
 	pub(crate) now: u128,
 	pub(crate) connection_hashtable: Box<dyn Hashtable<u128, ConnectionInfo>>,

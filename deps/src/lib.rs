@@ -22,6 +22,7 @@ pub use ws2_32;
 pub use kqueue_sys;
 
 pub use backtrace;
+pub use bitvec;
 pub use chrono;
 pub use colored;
 pub use dyn_clone;

@@ -38,7 +38,9 @@ use crate::win::*;
 use bmw_deps::kqueue_sys::{kevent, kqueue, EventFilter, EventFlag, FilterFlag};
 
 #[cfg(target_os = "linux")]
-use bmw_deps::nix::sys::epoll::{epoll_create1, EpollCreateFlags};
+use bmw_deps::bitvec::vec::BitVec;
+#[cfg(target_os = "linux")]
+use bmw_deps::nix::sys::epoll::{epoll_create1, EpollCreateFlags, EpollEvent, EpollFlags};
 
 const READ_SLAB_SIZE: usize = 512;
 const READ_SLAB_PTR_OFFSET: usize = 504;
@@ -189,6 +191,11 @@ impl EventHandlerContext {
 			));
 		}
 
+		#[cfg(target_os = "linux")]
+		let mut filter_set: BitVec = BitVec::with_capacity(max_handles_per_thread + 100);
+		#[cfg(target_os = "linux")]
+		filter_set.resize(max_handles_per_thread + 100, false);
+
 		let _handle_slabs = slab_allocator!(
 			SlabSize(HANDLE_SLAB_SIZE),
 			SlabCount(max_handles_per_thread)
@@ -201,6 +208,13 @@ impl EventHandlerContext {
 		let handle_hashtable = hashtable_box!(Slabs(&_handle_slabs))?;
 		let connection_hashtable = hashtable_box!(Slabs(&_connection_slabs))?;
 
+		#[cfg(target_os = "linux")]
+		let epoll_events = {
+			let mut epoll_events = vec![];
+			epoll_events.resize(max_events, EpollEvent::new(EpollFlags::empty(), 0));
+			epoll_events
+		};
+
 		Ok(EventHandlerContext {
 			connection_hashtable,
 			handle_hashtable,
@@ -209,6 +223,8 @@ impl EventHandlerContext {
 			events_in_count: 0,
 			tid,
 			now: 0,
+			#[cfg(target_os = "linux")]
+			filter_set,
 			#[cfg(target_os = "macos")]
 			kevs: vec![],
 			#[cfg(target_os = "macos")]
@@ -217,6 +233,8 @@ impl EventHandlerContext {
 			selector: unsafe { kqueue() },
 			#[cfg(target_os = "linux")]
 			selector: epoll_create1(EpollCreateFlags::empty())?,
+			#[cfg(target_os = "linux")]
+			epoll_events,
 			#[cfg(windows)]
 			selector: 0,
 			read_slabs,
@@ -464,6 +482,15 @@ where
 			self.config.read_slab_count,
 		)?;
 
+		// add wakeup
+		let handle = wakeup.reader;
+		debug!("wakeup handle is {}", handle)?;
+		ctx.events_in[ctx.events_in_count] = EventIn {
+			handle,
+			etype: EventTypeIn::Read,
+		};
+		ctx.events_in_count += 1;
+
 		debug!("pre_loop")?;
 		loop {
 			debug!("start loop")?;
@@ -480,7 +507,7 @@ where
 				count
 			};
 			ctx.events_in_count = 0;
-			self.process_events(&mut ctx, count)?;
+			self.process_events(&mut ctx, count, wakeup)?;
 		}
 	}
 
@@ -538,10 +565,20 @@ where
 		Ok(())
 	}
 
-	fn process_events(&self, ctx: &mut EventHandlerContext, count: usize) -> Result<(), Error> {
+	fn process_events(
+		&self,
+		ctx: &mut EventHandlerContext,
+		count: usize,
+		wakeup: &Wakeup,
+	) -> Result<(), Error> {
 		debug!("process {} events", count)?;
 		for i in 0..count {
 			debug!("event={:?}", ctx.events[i])?;
+			if ctx.events[i].handle == wakeup.reader {
+				debug!("WAKEUP")?;
+				read_bytes(ctx.events[i].handle, &mut [0u8; 1]);
+				continue;
+			}
 			match ctx.handle_hashtable.get(&ctx.events[i].handle)? {
 				Some(id) => match ctx.connection_hashtable.get(&id)? {
 					Some(ci) => {
@@ -599,7 +636,6 @@ where
 		mut rw: ReadWriteInfo,
 		ctx: &mut EventHandlerContext,
 	) -> Result<(), Error> {
-		debug!("process read for {:?}", rw)?;
 		loop {
 			// read as many slabs as we can
 			let mut slabs = ctx.read_slabs.borrow_mut();
@@ -821,6 +857,7 @@ where
 					id: random(),
 					handle: connection.handles[i],
 				}))?;
+			debug!("add handle: {}", connection.handles[i])?;
 			self.wakeup[i].wakeup()?;
 		}
 		Ok(())
@@ -999,6 +1036,7 @@ mod test {
 			tls_config: None,
 			handles,
 		};
+		sleep(Duration::from_millis(1000));
 		evh.add_server(sc)?;
 
 		let mut connection = TcpStream::connect("127.0.0.1:9020")?;

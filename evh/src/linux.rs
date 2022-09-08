@@ -11,15 +11,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::{EventHandlerConfig, EventHandlerContext, Handle};
+use crate::types::{
+	Event, EventHandlerConfig, EventHandlerContext, EventType, EventTypeIn, Handle,
+};
 use bmw_deps::errno::{errno, set_errno, Errno};
 use bmw_deps::libc::{
 	self, accept, c_void, fcntl, pipe, read, sockaddr, write, F_SETFL, O_NONBLOCK,
 };
+use bmw_deps::nix::sys::epoll::{epoll_ctl, epoll_wait, EpollEvent, EpollFlags, EpollOp};
 use bmw_deps::nix::sys::socket::{
 	bind, listen, socket, AddressFamily, InetAddr, SockAddr, SockFlag, SockType,
 };
 use bmw_err::*;
+use bmw_log::*;
 use bmw_util::*;
 use std::mem::{self, size_of, zeroed};
 use std::net::SocketAddr;
@@ -28,6 +32,9 @@ use std::os::raw::c_int;
 use std::os::unix::prelude::RawFd;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+info!();
 
 pub(crate) fn get_reader_writer() -> Result<
 	(
@@ -134,5 +141,125 @@ pub(crate) fn get_events_impl(
 	ctx: &mut EventHandlerContext,
 	wakeup_requested: bool,
 ) -> Result<usize, Error> {
-	todo!()
+	debug!("in get_events_impl")?;
+	for i in 0..ctx.events_in_count {
+		let mut interest = EpollFlags::empty();
+		if ctx.events_in[i].etype == EventTypeIn::Read
+			|| ctx.events_in[i].etype == EventTypeIn::Accept
+		{
+			let fd = ctx.events_in[i].handle;
+			if fd > ctx.filter_set.len().try_into()? {
+				ctx.filter_set.resize((fd + 100).try_into()?, true);
+			}
+
+			interest |= EpollFlags::EPOLLIN;
+			interest |= EpollFlags::EPOLLET;
+			interest |= EpollFlags::EPOLLRDHUP;
+
+			let handle_as_usize: usize = fd.try_into()?;
+			let op = match ctx.filter_set.get(handle_as_usize) {
+				Some(bitref) => {
+					if *bitref {
+						EpollOp::EpollCtlMod
+					} else {
+						EpollOp::EpollCtlAdd
+					}
+				}
+				None => EpollOp::EpollCtlAdd,
+			};
+			ctx.filter_set.set(handle_as_usize, true);
+			let mut event =
+				EpollEvent::new(interest, ctx.events_in[i].handle.try_into().unwrap_or(0));
+			let res = epoll_ctl(ctx.selector, op, ctx.events_in[i].handle, &mut event);
+			match res {
+				Ok(_) => {}
+				Err(e) => {
+					ctx.events[i] = Event {
+						handle: fd,
+						etype: EventType::Error,
+					};
+					error!("Error epoll_ctl2: {}, fd={}, op={:?}", e, fd, op)?
+				}
+			}
+		} else if ctx.events_in[i].etype == EventTypeIn::Write {
+			let fd = ctx.events_in[i].handle;
+			if fd > ctx.filter_set.len().try_into()? {
+				ctx.filter_set.resize((fd + 100).try_into()?, true);
+			}
+			interest |= EpollFlags::EPOLLOUT;
+			interest |= EpollFlags::EPOLLIN;
+			interest |= EpollFlags::EPOLLRDHUP;
+			interest |= EpollFlags::EPOLLET;
+
+			let handle_as_usize: usize = fd.try_into()?;
+			let op = match ctx.filter_set.get(handle_as_usize) {
+				Some(bitref) => {
+					if *bitref {
+						EpollOp::EpollCtlMod
+					} else {
+						EpollOp::EpollCtlAdd
+					}
+				}
+				None => EpollOp::EpollCtlAdd,
+			};
+			ctx.filter_set.set(handle_as_usize, true);
+
+			let mut event =
+				EpollEvent::new(interest, ctx.events_in[i].handle.try_into().unwrap_or(0));
+			let res = epoll_ctl(ctx.selector, op, ctx.events_in[i].handle, &mut event);
+			match res {
+				Ok(_) => {}
+				Err(e) => {
+					ctx.events[i] = Event {
+						handle: fd,
+						etype: EventType::Error,
+					};
+					error!("Error epoll_ctl2: {}, fd={}, op={:?}", e, fd, op)?
+				}
+			}
+		}
+	}
+
+	let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+	let diff = now - ctx.now;
+	let sleep = if wakeup_requested {
+		0
+	} else {
+		config.housekeeping_frequency_millis.saturating_sub(diff)
+	}
+	.try_into()?;
+
+	debug!("wakeup req = {}", wakeup_requested)?;
+	let results = epoll_wait(ctx.selector, &mut ctx.epoll_events, sleep);
+
+	ctx.now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+
+	let mut res_count = 0;
+	match results {
+		Ok(results) => {
+			if results > 0 {
+				for i in 0..results {
+					if !(ctx.epoll_events[i].events() & EpollFlags::EPOLLOUT).is_empty() {
+						ctx.events[i] = Event {
+							handle: ctx.epoll_events[i].data() as Handle,
+							etype: EventType::Write,
+						};
+						res_count += 1;
+					}
+					if !(ctx.epoll_events[i].events() & EpollFlags::EPOLLIN).is_empty() {
+						ctx.events[i] = Event {
+							handle: ctx.epoll_events[i].data() as Handle,
+							etype: EventType::Read,
+						};
+						res_count += 1;
+					}
+				}
+			}
+		}
+		Err(e) => {
+			error!("epoll wait generated error: {}", e.to_string())?;
+		}
+	}
+
+	Ok(res_count)
 }
