@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bmw_deps::errno::Errno;
 use bmw_deps::failure::{Backtrace, Context, Fail};
-use bmw_deps::nix::errno::Errno;
 use std::alloc::LayoutError;
 use std::convert::Infallible;
 use std::ffi::OsString;

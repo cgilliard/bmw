@@ -849,6 +849,11 @@ where
 			));
 		}
 		for i in 0..connection.handles.size() {
+			if connection.handles[i] == 0 {
+				// windows/mac do not support reusing address so we pass in 0
+				// to indicate no handle
+				continue;
+			}
 			let mut data = self.data[i].wlock()?;
 			let guard = data.guard();
 			(**guard)
@@ -997,8 +1002,10 @@ mod test {
 	fn test_eventhandler_basic() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
 		let config = EventHandlerConfig {
-			threads: 1,
+			threads,
 			housekeeping_frequency_millis: 100_000,
 			read_slab_count: 1,
 			max_handles_per_thread: 2,
@@ -1031,7 +1038,8 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
-		let handles = create_listeners(1, "127.0.0.1:9020", 10)?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles);
 		let sc = ServerConnection {
 			tls_config: None,
 			handles,
@@ -1039,7 +1047,7 @@ mod test {
 		sleep(Duration::from_millis(1000));
 		evh.add_server(sc)?;
 
-		let mut connection = TcpStream::connect("127.0.0.1:9020")?;
+		let mut connection = TcpStream::connect(addr)?;
 		info!("about to write")?;
 		connection.write(b"test1")?;
 		let mut buf = vec![];

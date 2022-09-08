@@ -11,18 +11,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::Handle;
+use crate::types::{EventHandlerContext, Handle};
+use crate::EventHandlerConfig;
 use bmw_deps::errno::{errno, set_errno, Errno};
 use bmw_deps::winapi;
 use bmw_deps::ws2_32::{ioctlsocket, recv, send, setsockopt};
 use bmw_err::*;
 use bmw_log::*;
+use bmw_util::*;
 use std::net::{TcpListener, TcpStream};
 use std::os::raw::c_int;
-use std::os::windows::io::AsRawSocket;
+use std::os::windows::io::{AsRawSocket, IntoRawSocket};
 use std::sync::Arc;
 
 const WINSOCK_BUF_SIZE: winapi::c_int = 100_000_000;
+const REUSE_ADDR: winapi::c_int = 1;
 
 info!();
 
@@ -117,4 +120,29 @@ pub(crate) fn get_reader_writer() -> Result<
 	_tcp_stream = Some(Arc::new(stream));
 	_tcp_listener = Some(Arc::new(listener));
 	Ok((listener_socket, stream_socket, _tcp_listener, _tcp_stream))
+}
+
+pub(crate) fn accept_impl(handle: Handle) -> Result<Handle, Error> {
+	todo!()
+}
+
+pub(crate) fn get_events_impl(
+	config: &EventHandlerConfig,
+	ctx: &mut EventHandlerContext,
+	requested: bool,
+) -> Result<usize, Error> {
+	todo!()
+}
+
+pub(crate) fn create_listeners_impl(
+	size: usize,
+	addr: &str,
+	listen_size: usize,
+) -> Result<Array<Handle>, Error> {
+	let mut ret = array!(size, &0)?;
+	let handle = TcpListener::bind(addr)?.into_raw_socket();
+
+	ret[0] = handle;
+
+	Ok(ret)
 }
