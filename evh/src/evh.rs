@@ -450,9 +450,9 @@ impl<'a> ConnData for ConnectionData<'a> {
 			self.event_handler_data.clone(),
 		)
 	}
-	fn borrow_slab_allocator<F, T>(&self, f: F) -> Result<T, Error>
+	fn borrow_slab_allocator<F, T>(&self, mut f: F) -> Result<T, Error>
 	where
-		F: Fn(Ref<dyn SlabAllocator>) -> Result<T, Error>,
+		F: FnMut(Ref<dyn SlabAllocator>) -> Result<T, Error>,
 	{
 		let slabs = self.slabs.borrow();
 		f(slabs)
@@ -487,13 +487,13 @@ impl EventHandlerData {
 impl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 	EventHandlerImpl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 where
-	OnRead: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
 		+ Sync
 		+ Unpin,
-	OnAccept: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnAccept: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -506,8 +506,8 @@ where
 		+ Sync
 		+ Unpin,
 	HouseKeeper:
-		Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
-	OnPanic: Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+		FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
 {
 	pub(crate) fn new(config: EventHandlerConfig) -> Result<Self, Error> {
 		let mut data = array!(config.threads, &lock_box!(EventHandlerData::new(1, 1,)?)?)?;
@@ -749,7 +749,7 @@ where
 		}
 
 		if total_len > 0 {
-			match &self.on_read {
+			match &mut self.on_read {
 				Some(on_read) => {
 					match on_read(
 						&mut ConnectionData::new(
@@ -822,7 +822,11 @@ where
 		Ok(())
 	}
 
-	fn process_accept(&self, li: ListenerInfo, ctx: &mut EventHandlerContext) -> Result<(), Error> {
+	fn process_accept(
+		&mut self,
+		li: ListenerInfo,
+		ctx: &mut EventHandlerContext,
+	) -> Result<(), Error> {
 		set_errno(Errno(0));
 		let handle = accept_impl(li.handle)?;
 		debug!("accept handle = {},tid={}", handle, ctx.tid)?;
@@ -845,7 +849,7 @@ where
 			etype: EventTypeIn::Read,
 		};
 		ctx.events_in_count += 1;
-		match &self.on_accept {
+		match &mut self.on_accept {
 			Some(on_accept) => {
 				match on_accept(
 					&mut ConnectionData::new(
@@ -882,13 +886,13 @@ impl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 	EventHandler<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 	for EventHandlerImpl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 where
-	OnRead: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
 		+ Sync
 		+ Unpin,
-	OnAccept: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnAccept: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -901,8 +905,8 @@ where
 		+ Sync
 		+ Unpin,
 	HouseKeeper:
-		Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
-	OnPanic: Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+		FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
 {
 	fn set_on_read(&mut self, on_read: OnRead) -> Result<(), Error> {
 		self.on_read = Some(Box::pin(on_read));

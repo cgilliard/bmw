@@ -91,7 +91,7 @@ pub trait ConnData {
 	fn write_handle(&self) -> WriteHandle;
 	fn borrow_slab_allocator<F, T>(&self, f: F) -> Result<T, Error>
 	where
-		F: Fn(Ref<dyn SlabAllocator>) -> Result<T, Error>;
+		F: FnMut(Ref<dyn SlabAllocator>) -> Result<T, Error>;
 	fn slab_offset(&self) -> u16;
 	fn first_slab(&self) -> usize;
 	fn last_slab(&self) -> usize;
@@ -139,13 +139,13 @@ pub struct EventHandlerConfig {
 
 pub trait EventHandler<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 where
-	OnRead: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
 		+ Sync
 		+ Unpin,
-	OnAccept: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnAccept: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -158,8 +158,8 @@ where
 		+ Sync
 		+ Unpin,
 	HouseKeeper:
-		Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
-	OnPanic: Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+		FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
 {
 	fn set_on_read(&mut self, on_read: OnRead) -> Result<(), Error>;
 	fn set_on_accept(&mut self, on_accept: OnAccept) -> Result<(), Error>;
@@ -177,13 +177,13 @@ pub struct Builder {}
 #[derive(Clone)]
 pub(crate) struct EventHandlerImpl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 where
-	OnRead: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
 		+ Sync
 		+ Unpin,
-	OnAccept: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnAccept: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -196,8 +196,8 @@ where
 		+ Sync
 		+ Unpin,
 	HouseKeeper:
-		Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
-	OnPanic: Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+		FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
 {
 	pub(crate) on_read: Option<Pin<Box<OnRead>>>,
 	pub(crate) on_accept: Option<Pin<Box<OnAccept>>>,

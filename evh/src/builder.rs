@@ -20,13 +20,13 @@ impl Builder {
 		config: EventHandlerConfig,
 	) -> Result<impl EventHandler<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>, Error>
 	where
-		OnRead: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+		OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 			+ Send
 			+ 'static
 			+ Clone
 			+ Sync
 			+ Unpin,
-		OnAccept: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+		OnAccept: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 			+ Send
 			+ 'static
 			+ Clone
@@ -39,9 +39,9 @@ impl Builder {
 			+ Sync
 			+ Unpin,
 		HouseKeeper:
-			Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+			FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
 		OnPanic:
-			Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+			FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
 	{
 		EventHandlerImpl::new(config)
 	}
