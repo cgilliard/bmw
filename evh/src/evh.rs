@@ -814,10 +814,20 @@ where
 			None => {}
 		}
 
-		close_impl(rw.handle)?;
-		ctx.connection_hashtable.remove(&rw.id)?;
-		ctx.handle_hashtable.remove(&rw.handle)?;
-		rw.clear_through_impl(rw.last_slab, &ctx.read_slabs)?;
+		match ctx.connection_hashtable.remove(&rw.id)? {
+			Some(ci) => match ci {
+				ConnectionInfo::ReadWriteInfo(mut rwi) => {
+					close_impl(rwi.handle)?;
+					ctx.connection_hashtable.remove(&rwi.id)?;
+					ctx.handle_hashtable.remove(&rwi.handle)?;
+					rwi.clear_through_impl(rwi.last_slab, &ctx.read_slabs)?;
+				}
+				_ => todo!(),
+			},
+			None => {
+				// already closed
+			}
+		}
 
 		Ok(())
 	}
