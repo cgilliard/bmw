@@ -447,13 +447,13 @@ where
 	OnPanic: Fn(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
 {
 	pub(crate) fn new(config: EventHandlerConfig) -> Result<Self, Error> {
-		let data = array!(
-			config.threads,
-			&lock_box!(EventHandlerData::new(
+		let mut data = array!(config.threads, &lock_box!(EventHandlerData::new(1, 1,)?)?)?;
+		for i in 0..config.threads {
+			data[i] = lock_box!(EventHandlerData::new(
 				config.write_queue_size,
 				config.nhandles_queue_size
-			)?)?
-		)?;
+			)?)?;
+		}
 		let mut wakeup = array!(config.threads, &Wakeup::new()?)?;
 		for i in 0..config.threads {
 			wakeup[i] = Wakeup::new()?;
@@ -539,7 +539,11 @@ where
 	fn process_new_connections(&mut self, ctx: &mut EventHandlerContext) -> Result<(), Error> {
 		let mut data = self.data[ctx.tid].wlock()?;
 		let guard = data.guard();
-		debug!("ctx.nhandles.size={}", (**guard).nhandles.length())?;
+		debug!(
+			"ctx.nhandles.size={},ctx.tid={}",
+			(**guard).nhandles.length(),
+			ctx.tid
+		)?;
 		loop {
 			let next = (**guard).nhandles.dequeue();
 			match next {
@@ -575,7 +579,7 @@ where
 		for i in 0..count {
 			debug!("event={:?}", ctx.events[i])?;
 			if ctx.events[i].handle == wakeup.reader {
-				debug!("WAKEUP")?;
+				debug!("WAKEUP, handle={}, tid={}", wakeup.reader, ctx.tid)?;
 				read_bytes(ctx.events[i].handle, &mut [0u8; 1]);
 				continue;
 			}
@@ -707,7 +711,7 @@ where
 	fn process_accept(&self, li: ListenerInfo, ctx: &mut EventHandlerContext) -> Result<(), Error> {
 		set_errno(Errno(0));
 		let handle = accept_impl(li.handle)?;
-		debug!("accept handle = {}", handle)?;
+		debug!("accept handle = {},tid={}", handle, ctx.tid)?;
 		let id = random();
 		let mut rwi = ReadWriteInfo {
 			id,
@@ -727,7 +731,6 @@ where
 			etype: EventTypeIn::Read,
 		};
 		ctx.events_in_count += 1;
-
 		match &self.on_accept {
 			Some(on_accept) => {
 				match on_accept(
@@ -842,28 +845,33 @@ where
 		todo!()
 	}
 	fn add_server(&mut self, connection: ServerConnection) -> Result<(), Error> {
+		debug!("add server")?;
 		if connection.handles.size() != self.data.size() {
 			return Err(err!(
 				ErrKind::IllegalArgument,
 				"connections.handles must equal the number of threads"
 			));
 		}
+
 		for i in 0..connection.handles.size() {
-			if connection.handles[i] == 0 {
+			let handle = connection.handles[i];
+			if handle == 0 {
 				// windows/mac do not support reusing address so we pass in 0
 				// to indicate no handle
 				continue;
 			}
+
 			let mut data = self.data[i].wlock()?;
+			let wakeup = &mut self.wakeup[i];
 			let guard = data.guard();
 			(**guard)
 				.nhandles
 				.enqueue(ConnectionInfo::ListenerInfo(ListenerInfo {
 					id: random(),
-					handle: connection.handles[i],
+					handle,
 				}))?;
-			debug!("add handle: {}", connection.handles[i])?;
-			self.wakeup[i].wakeup()?;
+			debug!("add handle: {}", handle)?;
+			wakeup.wakeup()?;
 		}
 		Ok(())
 	}
@@ -1003,7 +1011,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -1039,7 +1047,7 @@ mod test {
 
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
-		info!("handles.size={},handles={:?}", handles.size(), handles);
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: None,
 			handles,

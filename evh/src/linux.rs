@@ -141,13 +141,14 @@ pub(crate) fn get_events_impl(
 	ctx: &mut EventHandlerContext,
 	wakeup_requested: bool,
 ) -> Result<usize, Error> {
-	debug!("in get_events_impl")?;
+	debug!("in get_events_impl in_count={}", ctx.events_in_count)?;
 	for i in 0..ctx.events_in_count {
 		let mut interest = EpollFlags::empty();
 		if ctx.events_in[i].etype == EventTypeIn::Read
 			|| ctx.events_in[i].etype == EventTypeIn::Accept
 		{
 			let fd = ctx.events_in[i].handle;
+			debug!("add in read fd = {},tid={}", fd, ctx.tid)?;
 			if fd > ctx.filter_set.len().try_into()? {
 				ctx.filter_set.resize((fd + 100).try_into()?, true);
 			}
@@ -183,6 +184,7 @@ pub(crate) fn get_events_impl(
 			}
 		} else if ctx.events_in[i].etype == EventTypeIn::Write {
 			let fd = ctx.events_in[i].handle;
+			debug!("add in write fd = {},tid={}", fd, ctx.tid)?;
 			if fd > ctx.filter_set.len().try_into()? {
 				ctx.filter_set.resize((fd + 100).try_into()?, true);
 			}
