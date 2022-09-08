@@ -16,7 +16,7 @@ use crate::types::{
 };
 use bmw_deps::errno::{errno, set_errno, Errno};
 use bmw_deps::libc::{
-	self, accept, c_void, fcntl, pipe, read, sockaddr, write, F_SETFL, O_NONBLOCK,
+	self, accept, c_void, close, fcntl, pipe, read, sockaddr, write, F_SETFL, O_NONBLOCK,
 };
 use bmw_deps::nix::sys::epoll::{epoll_ctl, epoll_wait, EpollEvent, EpollFlags, EpollOp};
 use bmw_deps::nix::sys::socket::{
@@ -61,6 +61,15 @@ pub(crate) fn read_bytes_impl(handle: Handle, buf: &mut [u8]) -> isize {
 pub(crate) fn write_bytes_impl(handle: Handle, buf: &[u8]) -> isize {
 	let cbuf: *const c_void = buf as *const _ as *const c_void;
 	unsafe { write(handle, cbuf, buf.len().into()) }
+}
+
+pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
+	let handle_as_usize = handle.try_into()?;
+	ctx.filter_set.remove(handle_as_usize);
+	unsafe {
+		close(handle);
+	}
+	Ok(())
 }
 
 pub(crate) fn accept_impl(fd: RawFd) -> Result<RawFd, Error> {

@@ -15,7 +15,7 @@ use crate::types::{Event, EventHandlerContext, EventIn, EventType, EventTypeIn, 
 use crate::EventHandlerConfig;
 use bmw_deps::errno::{errno, set_errno, Errno};
 use bmw_deps::winapi::{self, c_void, ws2def::SOCKADDR};
-use bmw_deps::ws2_32::{accept, ioctlsocket, recv, send, setsockopt};
+use bmw_deps::ws2_32::{accept, closesocket, ioctlsocket, recv, send, setsockopt};
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
@@ -128,6 +128,15 @@ pub(crate) fn get_reader_writer() -> Result<
 	_tcp_stream = Some(Arc::new(stream));
 	_tcp_listener = Some(Arc::new(listener));
 	Ok((listener_socket, stream_socket, _tcp_listener, _tcp_stream))
+}
+
+pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
+	let handle_as_usize = handle.try_into()?;
+	ctx.filter_set.remove(handle_as_usize);
+	unsafe {
+		closesocket(handle);
+	}
+	Ok(())
 }
 
 pub(crate) fn accept_impl(handle: Handle) -> Result<Handle, Error> {

@@ -105,7 +105,7 @@ pub(crate) fn accept_impl(fd: RawFd) -> Result<RawFd, Error> {
 	Ok(handle)
 }
 
-pub(crate) fn close_impl(handle: Handle) -> Result<(), Error> {
+pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
 	unsafe {
 		close(handle);
 	}

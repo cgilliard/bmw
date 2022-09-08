@@ -817,7 +817,7 @@ where
 		match ctx.connection_hashtable.remove(&rw.id)? {
 			Some(ci) => match ci {
 				ConnectionInfo::ReadWriteInfo(mut rwi) => {
-					close_impl(rwi.handle)?;
+					close_impl(ctx, rwi.handle)?;
 					ctx.connection_hashtable.remove(&rwi.id)?;
 					ctx.handle_hashtable.remove(&rwi.handle)?;
 					rwi.clear_through_impl(rwi.last_slab, &ctx.read_slabs)?;
