@@ -105,6 +105,8 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) ret_kevs: Vec<kevent>,
 	#[cfg(target_os = "linux")]
 	pub(crate) filter_set: BitVec,
+	#[cfg(target_os = "windows")]
+	pub(crate) filter_set: BitVec,
 	#[cfg(target_os = "linux")]
 	pub(crate) epoll_events: Vec<EpollEvent>,
 	pub(crate) selector: Handle,

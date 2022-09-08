@@ -221,6 +221,7 @@ pub(crate) fn get_events_impl(
 			}
 		}
 	}
+	ctx.events_in_count = 0;
 
 	let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 	let diff = now - ctx.now;

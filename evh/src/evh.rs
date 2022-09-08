@@ -34,6 +34,11 @@ use crate::mac::*;
 #[cfg(windows)]
 use crate::win::*;
 
+#[cfg(target_os = "windows")]
+use bmw_deps::bitvec::vec::BitVec;
+#[cfg(target_os = "windows")]
+use bmw_deps::wepoll_sys::epoll_create;
+
 #[cfg(target_os = "macos")]
 use bmw_deps::kqueue_sys::{kevent, kqueue, EventFilter, EventFlag, FilterFlag};
 
@@ -196,6 +201,21 @@ impl EventHandlerContext {
 		#[cfg(target_os = "linux")]
 		filter_set.resize(max_handles_per_thread + 100, false);
 
+		#[cfg(target_os = "windows")]
+		let mut filter_set: BitVec = BitVec::with_capacity(max_handles_per_thread + 100);
+		#[cfg(target_os = "windows")]
+		filter_set.resize(max_handles_per_thread + 100, false);
+
+		#[cfg(target_os = "windows")]
+		for i in 0..(max_handles_per_thread + 100) {
+			filter_set.set(i, false);
+		}
+
+		#[cfg(target_os = "linux")]
+		for i in 0..(max_handles_per_thread + 100) {
+			filter_set.set(i, false);
+		}
+
 		let _handle_slabs = slab_allocator!(
 			SlabSize(HANDLE_SLAB_SIZE),
 			SlabCount(max_handles_per_thread)
@@ -225,6 +245,8 @@ impl EventHandlerContext {
 			now: 0,
 			#[cfg(target_os = "linux")]
 			filter_set,
+			#[cfg(target_os = "windows")]
+			filter_set,
 			#[cfg(target_os = "macos")]
 			kevs: vec![],
 			#[cfg(target_os = "macos")]
@@ -236,7 +258,7 @@ impl EventHandlerContext {
 			#[cfg(target_os = "linux")]
 			epoll_events,
 			#[cfg(windows)]
-			selector: 0,
+			selector: unsafe { epoll_create(1) } as u64,
 			read_slabs,
 			_handle_slabs,
 			_connection_slabs,
@@ -506,7 +528,6 @@ where
 				wakeup.post_block()?;
 				count
 			};
-			ctx.events_in_count = 0;
 			self.process_events(&mut ctx, count, wakeup)?;
 		}
 	}

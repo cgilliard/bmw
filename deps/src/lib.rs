@@ -16,6 +16,8 @@
 //! used by the other crates within the repo.
 
 #[cfg(windows)]
+pub use wepoll_sys;
+#[cfg(windows)]
 pub use ws2_32;
 
 #[cfg(target_os = "macos")]

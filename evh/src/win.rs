@@ -11,21 +11,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::{EventHandlerContext, Handle};
+use crate::types::{Event, EventHandlerContext, EventIn, EventType, EventTypeIn, Handle};
 use crate::EventHandlerConfig;
 use bmw_deps::errno::{errno, set_errno, Errno};
-use bmw_deps::winapi;
-use bmw_deps::ws2_32::{ioctlsocket, recv, send, setsockopt};
+use bmw_deps::winapi::{self, c_void, ws2def::SOCKADDR};
+use bmw_deps::ws2_32::{accept, ioctlsocket, recv, send, setsockopt};
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
+use std::mem::{size_of, zeroed};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use bmw_deps::wepoll_sys::{
+	epoll_ctl, epoll_data_t, epoll_event, epoll_wait, EPOLLIN, EPOLLONESHOT, EPOLLOUT, EPOLLRDHUP,
+	EPOLL_CTL_ADD, EPOLL_CTL_MOD,
+};
 use std::net::{TcpListener, TcpStream};
 use std::os::raw::c_int;
 use std::os::windows::io::{AsRawSocket, IntoRawSocket};
 use std::sync::Arc;
 
 const WINSOCK_BUF_SIZE: winapi::c_int = 100_000_000;
-const REUSE_ADDR: winapi::c_int = 1;
+const MAX_EVENTS: i32 = 100;
 
 info!();
 
@@ -75,6 +82,7 @@ pub(crate) fn set_windows_socket_options(handle: Handle) -> Result<(), Error> {
 }
 
 pub(crate) fn read_bytes_impl(handle: Handle, buf: &mut [u8]) -> isize {
+	set_errno(Errno(0));
 	let cbuf: *mut i8 = buf as *mut _ as *mut i8;
 	match buf.len().try_into() {
 		Ok(len) => {
@@ -85,7 +93,7 @@ pub(crate) fn read_bytes_impl(handle: Handle, buf: &mut [u8]) -> isize {
 			}
 			len
 		}
-		Err(e) => {
+		Err(_e) => {
 			let _ = error!("couldn't convert length");
 			-1
 		}
@@ -123,21 +131,201 @@ pub(crate) fn get_reader_writer() -> Result<
 }
 
 pub(crate) fn accept_impl(handle: Handle) -> Result<Handle, Error> {
-	todo!()
+	let handle = unsafe {
+		accept(
+			handle,
+			&mut SOCKADDR { ..zeroed() },
+			&mut (size_of::<SOCKADDR>() as u32).try_into()?,
+		)
+	};
+
+	set_windows_socket_options(handle)?;
+	Ok(handle)
 }
 
 pub(crate) fn get_events_impl(
 	config: &EventHandlerConfig,
 	ctx: &mut EventHandlerContext,
-	requested: bool,
+	wakeup_requested: bool,
 ) -> Result<usize, Error> {
-	todo!()
+	debug!("in get_events_impl in_count={}", ctx.events_in_count)?;
+	for i in 0..ctx.events_in_count {
+		let mut interest = 0;
+		if ctx.events_in[i].etype == EventTypeIn::Read
+			|| ctx.events_in[i].etype == EventTypeIn::Accept
+		{
+			let fd = ctx.events_in[i].handle;
+			debug!("add in read fd = {},tid={}", fd, ctx.tid)?;
+			if fd > ctx.filter_set.len().try_into()? {
+				ctx.filter_set.resize((fd + 100).try_into()?, false);
+			}
+
+			interest |= EPOLLIN;
+			interest |= EPOLLONESHOT;
+			interest |= EPOLLRDHUP;
+
+			let handle_as_usize: usize = fd.try_into()?;
+			let op = match ctx.filter_set.get(handle_as_usize) {
+				Some(bitref) => {
+					if *bitref {
+						EPOLL_CTL_MOD
+					} else {
+						EPOLL_CTL_ADD
+					}
+				}
+				None => EPOLL_CTL_ADD,
+			};
+			ctx.filter_set.set(handle_as_usize, true);
+			let data = epoll_data_t {
+				fd: ctx.events_in[i].handle.try_into()?,
+			};
+			let mut event = epoll_event {
+				events: interest,
+				data,
+			};
+
+			debug!(
+				"epoll_ctl {} read,op={},add={},mod={}",
+				handle_as_usize, op, EPOLL_CTL_ADD, EPOLL_CTL_MOD
+			)?;
+			set_errno(Errno(0));
+			let res = unsafe {
+				epoll_ctl(
+					ctx.selector as *mut c_void,
+					op as i32,
+					usize!(ctx.events_in[i].handle),
+					&mut event,
+				)
+			};
+			if res < 0 {
+				let e = errno();
+				ctx.events[i] = Event {
+					handle: fd,
+					etype: EventType::Error,
+				};
+				error!("Error epoll_ctl: {}, fd={}, op={:?}", e, fd, op)?
+			}
+		} else if ctx.events_in[i].etype == EventTypeIn::Write {
+			let fd = ctx.events_in[i].handle;
+			debug!("add in write fd = {},tid={}", fd, ctx.tid)?;
+			if fd > ctx.filter_set.len().try_into()? {
+				ctx.filter_set.resize((fd + 100).try_into()?, false);
+			}
+			interest |= EPOLLOUT;
+			interest |= EPOLLIN;
+			interest |= EPOLLRDHUP;
+			interest |= EPOLLONESHOT;
+
+			let handle_as_usize: usize = fd.try_into()?;
+			let op = match ctx.filter_set.get(handle_as_usize) {
+				Some(bitref) => {
+					if *bitref {
+						EPOLL_CTL_MOD
+					} else {
+						EPOLL_CTL_ADD
+					}
+				}
+				None => EPOLL_CTL_ADD,
+			};
+			ctx.filter_set.set(handle_as_usize, true);
+
+			let data = epoll_data_t {
+				fd: ctx.events_in[i].handle.try_into()?,
+			};
+			let mut event = epoll_event {
+				events: interest,
+				data,
+			};
+
+			debug!(
+				"epoll_ctl {} write,op={},add={},mod={}",
+				ctx.events_in[i].handle, op, EPOLL_CTL_ADD, EPOLL_CTL_MOD
+			)?;
+			set_errno(Errno(0));
+			let res = unsafe {
+				epoll_ctl(
+					ctx.selector as *mut c_void,
+					op as i32,
+					usize!(ctx.events_in[i].handle),
+					&mut event,
+				)
+			};
+			if res < 0 {
+				let e = errno();
+				ctx.events[i] = Event {
+					handle: fd,
+					etype: EventType::Error,
+				};
+				error!("Error epoll_ctl2: {}, fd={}, op={:?}", e, fd, op)?
+			}
+		}
+	}
+	ctx.events_in_count = 0;
+
+	let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+	let diff = now - ctx.now;
+	let sleep = if wakeup_requested {
+		0
+	} else {
+		config.housekeeping_frequency_millis.saturating_sub(diff)
+	}
+	.try_into()?;
+
+	let mut epoll_events: [epoll_event; MAX_EVENTS as usize] =
+		unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+
+	debug!("wakeup req = {}", wakeup_requested)?;
+	set_errno(Errno(0));
+	let results = unsafe {
+		epoll_wait(
+			ctx.selector as *mut c_void,
+			epoll_events.as_mut_ptr(),
+			MAX_EVENTS,
+			sleep,
+		)
+	};
+
+	ctx.now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+
+	let mut res_count = 0;
+	if results < 0 {
+		error!("epoll wait generated error: {}", errno())?;
+	} else {
+		for i in 0..results as usize {
+			if epoll_events[i].events & EPOLLOUT != 0 {
+				ctx.events[i] = Event {
+					handle: unsafe { epoll_events[i].data.fd } as Handle,
+					etype: EventType::Write,
+				};
+				ctx.events_in[i] = EventIn {
+					handle: unsafe { epoll_events[i].data.fd } as Handle,
+					etype: EventTypeIn::Write,
+				};
+				ctx.events_in_count += 1;
+				res_count += 1;
+			}
+			if epoll_events[i].events & EPOLLIN != 0 {
+				ctx.events[i] = Event {
+					handle: unsafe { epoll_events[i].data.fd } as Handle,
+					etype: EventType::Read,
+				};
+				ctx.events_in[i] = EventIn {
+					handle: unsafe { epoll_events[i].data.fd } as Handle,
+					etype: EventTypeIn::Read,
+				};
+				ctx.events_in_count += 1;
+				res_count += 1;
+			}
+		}
+	}
+
+	Ok(res_count)
 }
 
 pub(crate) fn create_listeners_impl(
 	size: usize,
 	addr: &str,
-	listen_size: usize,
+	_listen_size: usize,
 ) -> Result<Array<Handle>, Error> {
 	let mut ret = array!(size, &0)?;
 	let handle = TcpListener::bind(addr)?.into_raw_socket();
