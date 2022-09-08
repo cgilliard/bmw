@@ -297,6 +297,15 @@ impl From<Infallible> for Error {
 	}
 }
 
+#[cfg(unix)]
+impl From<bmw_deps::nix::errno::Errno> for Error {
+	fn from(e: bmw_deps::nix::errno::Errno) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Errno(format!("Errno system error: {}", e))),
+		}
+	}
+}
+
 #[cfg(test)]
 mod test {
 	use crate as bmw_err;
