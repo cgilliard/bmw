@@ -1073,7 +1073,6 @@ mod test {
 			tls_config: None,
 			handles,
 		};
-		sleep(Duration::from_millis(1000));
 		evh.add_server(sc)?;
 
 		let mut connection = TcpStream::connect(addr)?;
