@@ -11,7 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmw_deps::bitvec::vec::BitVec;
 use bmw_derive::Serializable;
 use bmw_err::*;
 use bmw_util::*;
@@ -28,7 +27,12 @@ use std::os::unix::prelude::RawFd;
 use bmw_deps::kqueue_sys::kevent;
 
 #[cfg(target_os = "linux")]
+use bmw_deps::bitvec::vec::BitVec;
+#[cfg(target_os = "linux")]
 use bmw_deps::nix::sys::epoll::EpollEvent;
+
+#[cfg(target_os = "windows")]
+use bmw_deps::bitvec::vec::BitVec;
 
 #[derive(Clone, Debug)]
 pub struct TlsServerConfig {
