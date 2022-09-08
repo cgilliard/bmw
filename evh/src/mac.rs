@@ -17,7 +17,7 @@ use crate::types::{
 use bmw_deps::errno::{errno, set_errno, Errno};
 use bmw_deps::kqueue_sys::{kevent, EventFilter, EventFlag, FilterFlag};
 use bmw_deps::libc::{
-	self, accept, c_void, fcntl, pipe, read, sockaddr, timespec, write, F_SETFL, O_NONBLOCK,
+	self, accept, c_void, close, fcntl, pipe, read, sockaddr, timespec, write, F_SETFL, O_NONBLOCK,
 };
 use bmw_deps::nix::sys::socket::{
 	bind, listen, socket, AddressFamily, InetAddr, SockAddr, SockFlag, SockType,
@@ -105,12 +105,19 @@ pub(crate) fn accept_impl(fd: RawFd) -> Result<RawFd, Error> {
 	Ok(handle)
 }
 
+pub(crate) fn close_impl(handle: Handle) -> Result<(), Error> {
+	unsafe {
+		close(handle);
+	}
+	Ok(())
+}
+
 pub(crate) fn get_events_impl(
 	config: &EventHandlerConfig,
 	ctx: &mut EventHandlerContext,
 	wakeup_requested: bool,
 ) -> Result<usize, Error> {
-	info!(
+	debug!(
 		"get_impl_mac: {}, pushing {} fd",
 		ctx.tid, ctx.events_in_count
 	)?;
@@ -164,6 +171,7 @@ pub(crate) fn get_events_impl(
 		)
 	};
 	ctx.now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+	debug!("ret_count = {}", ret_count)?;
 	if ret_count < 0 {
 		return Err(err!(
 			ErrKind::IO,
@@ -188,6 +196,7 @@ pub(crate) fn get_events_impl(
 				}
 			},
 		};
+		debug!("ev = {:?}", ctx.events[i])?;
 	}
 
 	Ok(ret_count.try_into()?)

@@ -160,6 +160,40 @@ impl Serializable for ConnectionInfo {
 	}
 }
 
+impl ReadWriteInfo {
+	fn clear_through_impl(
+		&mut self,
+		slab_id: usize,
+		slabs: &Rc<RefCell<dyn SlabAllocator>>,
+	) -> Result<(), Error> {
+		debug!("clear through impl")?;
+		let mut next = self.first_slab;
+		let mut slabs = slabs.borrow_mut();
+		loop {
+			if next == usize::MAX {
+				break;
+			}
+
+			let next_slab = usize::from_be_bytes(try_into!(
+				&slabs.get(next)?.get()[READ_SLAB_PTR_OFFSET..READ_SLAB_SIZE]
+			)?);
+			debug!("free {}", next)?;
+			slabs.free(next)?;
+
+			if next == slab_id {
+				self.first_slab = next_slab;
+				if next_slab == usize::MAX {
+					self.last_slab = usize::MAX;
+				}
+				break;
+			}
+			next = next_slab;
+		}
+
+		Ok(())
+	}
+}
+
 impl ThreadContext {
 	fn new() -> Self {
 		Self {}
@@ -363,6 +397,35 @@ impl<'a> ConnectionData<'a> {
 			event_handler_data,
 		}
 	}
+
+	fn clear_through_impl(&mut self, slab_id: usize) -> Result<(), Error> {
+		self.rwi.clear_through_impl(slab_id, &self.slabs)
+		/*
+		let mut next = self.rwi.first_slab;
+		let mut slabs = self.slabs.borrow_mut();
+		loop {
+			if next == usize::MAX {
+				break;
+			}
+
+			let next_slab = usize::from_be_bytes(try_into!(
+				&slabs.get(next)?.get()[READ_SLAB_PTR_OFFSET..READ_SLAB_SIZE]
+			)?);
+			slabs.free(next)?;
+
+			if next == slab_id {
+				self.rwi.first_slab = next_slab;
+				if next_slab == usize::MAX {
+					self.rwi.last_slab = usize::MAX;
+				}
+				break;
+			}
+			next = next_slab;
+		}
+
+		Ok(())
+				*/
+	}
 }
 
 impl<'a> ConnData for ConnectionData<'a> {
@@ -404,29 +467,7 @@ impl<'a> ConnData for ConnectionData<'a> {
 		self.rwi.last_slab
 	}
 	fn clear_through(&mut self, slab_id: usize) -> Result<(), Error> {
-		let mut next = self.rwi.first_slab;
-		let mut slabs = self.slabs.borrow_mut();
-		loop {
-			if next == usize::MAX {
-				break;
-			}
-
-			let next_slab = usize::from_be_bytes(try_into!(
-				&slabs.get(next)?.get()[READ_SLAB_PTR_OFFSET..READ_SLAB_SIZE]
-			)?);
-			slabs.free(next)?;
-
-			if next == slab_id {
-				self.rwi.first_slab = next_slab;
-				if next_slab == usize::MAX {
-					self.rwi.last_slab = usize::MAX;
-				}
-				break;
-			}
-			next = next_slab;
-		}
-
-		Ok(())
+		self.clear_through_impl(slab_id)
 	}
 }
 
@@ -458,7 +499,7 @@ where
 		+ Clone
 		+ Sync
 		+ Unpin,
-	OnClose: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnClose: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -591,7 +632,7 @@ where
 	}
 
 	fn process_events(
-		&self,
+		&mut self,
 		ctx: &mut EventHandlerContext,
 		count: usize,
 		wakeup: &Wakeup,
@@ -606,23 +647,16 @@ where
 			}
 			match ctx.handle_hashtable.get(&ctx.events[i].handle)? {
 				Some(id) => match ctx.connection_hashtable.get(&id)? {
-					Some(ci) => {
-						debug!("process ci = {:?}", ci)?;
-						match ci {
-							ConnectionInfo::ListenerInfo(li) => {
-								debug!("ci is a listener")?;
-								self.process_accept(li, ctx)?;
-							}
-							ConnectionInfo::ReadWriteInfo(rw) => {
-								debug!("ci is a rw")?;
-								match ctx.events[i].etype {
-									EventType::Read => self.process_read(rw, ctx)?,
-									EventType::Write => self.process_write(rw, ctx)?,
-									_ => {}
-								}
-							}
+					Some(ci) => match ci {
+						ConnectionInfo::ListenerInfo(li) => {
+							self.process_accept(li, ctx)?;
 						}
-					}
+						ConnectionInfo::ReadWriteInfo(rw) => match ctx.events[i].etype {
+							EventType::Read => self.process_read(rw, ctx)?,
+							EventType::Write => self.process_write(rw, ctx)?,
+							_ => {}
+						},
+					},
 					None => todo!(),
 				},
 				None => {
@@ -634,33 +668,44 @@ where
 	}
 
 	fn process_write(
-		&self,
+		&mut self,
 		mut rw: ReadWriteInfo,
-		_ctx: &mut EventHandlerContext,
+		ctx: &mut EventHandlerContext,
 	) -> Result<(), Error> {
-		let mut write_state = rw.write_state.wlock()?;
-		let guard = write_state.guard();
-		loop {
-			let len = (**guard).write_buffer.len();
-			if len == 0 {
-				(**guard).unset_flag(WRITE_STATE_FLAG_PENDING);
-				break;
+		let mut do_close = false;
+
+		{
+			let mut write_state = rw.write_state.wlock()?;
+			let guard = write_state.guard();
+			loop {
+				let len = (**guard).write_buffer.len();
+				if len == 0 {
+					(**guard).unset_flag(WRITE_STATE_FLAG_PENDING);
+					break;
+				}
+				let wlen = write_bytes(rw.handle, &(**guard).write_buffer);
+				if wlen < 0 {
+					do_close = true;
+					break;
+				}
+				(**guard).write_buffer.drain(0..wlen as usize);
 			}
-			let wlen = write_bytes(rw.handle, &(**guard).write_buffer);
-			if wlen < 0 {
-				// TODO: handle close
-				break;
-			}
-			(**guard).write_buffer.drain(0..wlen as usize);
+		}
+
+		if do_close {
+			self.process_close(ctx, &mut rw)?;
 		}
 		Ok(())
 	}
 
 	fn process_read(
-		&self,
+		&mut self,
 		mut rw: ReadWriteInfo,
 		ctx: &mut EventHandlerContext,
 	) -> Result<(), Error> {
+		debug!("process read")?;
+		let mut do_close = false;
+		let mut total_len = 0;
 		loop {
 			// read as many slabs as we can
 			let mut slabs = ctx.read_slabs.borrow_mut();
@@ -692,19 +737,67 @@ where
 					&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_PTR_OFFSET],
 				)
 			};
-			debug!("len={}", len)?;
-			if len < 0 {
+			if len == 0 {
+				do_close = true;
+			}
+			if len <= 0 {
 				break;
 			}
 
+			total_len += len;
 			rw.slab_offset += len as u16;
 		}
 
-		match &self.on_read {
-			Some(on_read) => {
-				match on_read(
+		if total_len > 0 {
+			match &self.on_read {
+				Some(on_read) => {
+					match on_read(
+						&mut ConnectionData::new(
+							&mut rw,
+							ctx.tid,
+							ctx.read_slabs.clone(),
+							self.wakeup[ctx.tid].clone(),
+							self.data[ctx.tid].clone(),
+						),
+						&mut ctx.callback_context,
+					) {
+						Ok(_) => {}
+						Err(e) => {
+							warn!("Callback on_read generated error: {}", e)?;
+						}
+					}
+				}
+				None => {}
+			}
+		}
+
+		if do_close {
+			// update rw
+			let id = rw.id;
+			ctx.connection_hashtable
+				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
+			self.process_close(ctx, &mut rw)?;
+		} else {
+			// just update hashtable
+			let id = rw.id;
+			ctx.connection_hashtable
+				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw))?;
+		}
+
+		Ok(())
+	}
+
+	fn process_close(
+		&mut self,
+		ctx: &mut EventHandlerContext,
+		rw: &mut ReadWriteInfo,
+	) -> Result<(), Error> {
+		debug!("process close for {}/{}", rw.handle, rw.id)?;
+		match &mut self.on_close {
+			Some(on_close) => {
+				match on_close(
 					&mut ConnectionData::new(
-						&mut rw,
+						rw,
 						ctx.tid,
 						ctx.read_slabs.clone(),
 						self.wakeup[ctx.tid].clone(),
@@ -721,10 +814,10 @@ where
 			None => {}
 		}
 
-		// update rw
-		let id = rw.id;
-		ctx.connection_hashtable
-			.insert(&id, &ConnectionInfo::ReadWriteInfo(rw))?;
+		close_impl(rw.handle)?;
+		ctx.connection_hashtable.remove(&rw.id)?;
+		ctx.handle_hashtable.remove(&rw.handle)?;
+		rw.clear_through_impl(rw.last_slab, &ctx.read_slabs)?;
 
 		Ok(())
 	}
@@ -801,7 +894,7 @@ where
 		+ Clone
 		+ Sync
 		+ Unpin,
-	OnClose: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnClose: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -854,7 +947,12 @@ where
 					(**guard) += 1;
 					tid
 				};
-				Self::execute_thread(&mut evh, tid, &mut wakeup[tid])?;
+				match Self::execute_thread(&mut evh, tid, &mut wakeup[tid]) {
+					Ok(_) => {}
+					Err(e) => {
+						fatal!("execute_thread generated error: {}", e)?;
+					}
+				}
 				Ok(())
 			})?;
 		}
@@ -1087,6 +1185,107 @@ mod test {
 		connection.write(b"test2")?;
 		let len = connection.read(&mut buf)?;
 		assert_eq!(&buf[0..len], b"test2");
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_close() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 2;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 1,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		let mut close_count = lock_box!(0)?;
+		let close_count_clone = close_count.clone();
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read fs = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab)?;
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			conn_data.write_handle().write(&res)?;
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			info!("accept a connection handle = {}", conn_data.get_handle())?;
+			Ok(())
+		})?;
+		evh.set_on_close(move |conn_data, _thread_context| {
+			info!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			let mut close_count = close_count.wlock()?;
+			(**close_count.guard()) += 1;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+		};
+		evh.add_server(sc)?;
+
+		{
+			let mut connection = TcpStream::connect(addr)?;
+			connection.write(b"test1")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test1");
+			connection.write(b"test2")?;
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test2");
+		}
+
+		for _ in 0..10 {
+			let mut connection = TcpStream::connect(addr)?;
+			connection.write(b"test1")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test1");
+			connection.write(b"test2")?;
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test2");
+		}
+
+		let mut count_count = 0;
+		loop {
+			sleep(Duration::from_millis(1));
+			let count = **((close_count_clone.rlock()?).guard());
+			if count != 11 {
+				count_count += 1;
+				if count_count < 1_000 {
+					continue;
+				}
+			}
+			assert_eq!((**((close_count_clone.rlock()?).guard())), 11);
+			break;
+		}
 
 		Ok(())
 	}

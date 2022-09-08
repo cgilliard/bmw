@@ -151,7 +151,7 @@ where
 		+ Clone
 		+ Sync
 		+ Unpin,
-	OnClose: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnClose: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -189,7 +189,7 @@ where
 		+ Clone
 		+ Sync
 		+ Unpin,
-	OnClose: Fn(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnClose: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
