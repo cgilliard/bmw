@@ -25,7 +25,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use bmw_deps::wepoll_sys::{
 	epoll_ctl, epoll_data_t, epoll_event, epoll_wait, EPOLLIN, EPOLLONESHOT, EPOLLOUT, EPOLLRDHUP,
-	EPOLL_CTL_ADD, EPOLL_CTL_MOD,
+	EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
 };
 use std::net::{TcpListener, TcpStream};
 use std::os::raw::c_int;
@@ -138,6 +138,31 @@ pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Resul
 	unsafe {
 		closesocket(handle);
 	}
+
+	let data = epoll_data_t {
+		fd: handle.try_into()?,
+	};
+	let mut event = epoll_event {
+		events: EPOLLIN | EPOLLOUT | EPOLLRDHUP,
+		data,
+	};
+
+	let res = unsafe {
+		epoll_ctl(
+			ctx.selector as *mut c_void,
+			EPOLL_CTL_DEL as i32,
+			usize!(handle),
+			&mut event,
+		)
+	};
+	if res < 0 {
+		let e = errno();
+		error!(
+			"Error epoll_ctl: {}, fd={}, op={:?}, tid={}",
+			e, handle, "DELETE", ctx.tid
+		)?
+	}
+
 	Ok(())
 }
 
@@ -181,7 +206,7 @@ pub(crate) fn epoll_ctl_impl(
 		}
 		None => EPOLL_CTL_ADD,
 	};
-	debug!("filter_set {}, tid={}", handle_as_usize, tid)?;
+	debug!("filter_set true {}, tid={}", handle_as_usize, tid)?;
 	filter_set.replace(handle_as_usize, true);
 	let data = epoll_data_t { fd: fd.try_into()? };
 	let mut event = epoll_event {
@@ -197,7 +222,10 @@ pub(crate) fn epoll_ctl_impl(
 	let res = unsafe { epoll_ctl(selector as *mut c_void, op as i32, usize!(fd), &mut event) };
 	if res < 0 {
 		let e = errno();
-		error!("Error epoll_ctl: {}, fd={}, op={:?}", e, fd, op)?
+		error!(
+			"Error epoll_ctl: {}, fd={}, op={:?}, tid={}",
+			e, fd, op, tid
+		)?
 	}
 	Ok(())
 }

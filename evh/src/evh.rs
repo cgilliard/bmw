@@ -650,7 +650,7 @@ where
 			let mut next = (**guard).nhandles.dequeue();
 			match next {
 				Some(ref mut nhandle) => {
-					debug!("handle={:?}", nhandle)?;
+					debug!("handle={:?} on tid={}", nhandle, ctx.tid)?;
 					match nhandle {
 						ConnectionInfo::ListenerInfo(li) => {
 							let id = random();
@@ -852,17 +852,18 @@ where
 				if len > 0 {
 					total_len += len;
 					rw.slab_offset += len as u16;
-				}
-				#[cfg(target_os = "windows")]
-				{
-					if !ctx.write_set.contains(&rw.handle)? {
-						epoll_ctl_impl(
-							EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
-							rw.handle,
-							&mut ctx.filter_set,
-							ctx.selector as *mut c_void,
-							ctx.tid,
-						)?;
+
+					#[cfg(target_os = "windows")]
+					{
+						if !ctx.write_set.contains(&rw.handle)? {
+							epoll_ctl_impl(
+								EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+								rw.handle,
+								&mut ctx.filter_set,
+								ctx.selector as *mut c_void,
+								ctx.tid,
+							)?;
+						}
 					}
 				}
 
@@ -1509,7 +1510,8 @@ mod test {
 			assert_eq!(&buf[0..len], b"test2");
 		}
 
-		for _ in 0..10 {
+		let total = 1000;
+		for _ in 0..total {
 			let mut connection = TcpStream::connect(addr)?;
 			connection.write(b"test1")?;
 			let mut buf = vec![];
@@ -1525,13 +1527,13 @@ mod test {
 		loop {
 			sleep(Duration::from_millis(1));
 			let count = **((close_count_clone.rlock()?).guard());
-			if count != 11 {
+			if count != total + 1 {
 				count_count += 1;
 				if count_count < 1_000 {
 					continue;
 				}
 			}
-			assert_eq!((**((close_count_clone.rlock()?).guard())), 11);
+			assert_eq!((**((close_count_clone.rlock()?).guard())), total + 1);
 			break;
 		}
 
