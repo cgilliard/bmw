@@ -720,19 +720,19 @@ where
 			self.process_close(ctx, &mut rw)?;
 		} else {
 			let id = rw.id;
-			let handle = rw.handle;
+			let _handle = rw.handle;
 			ctx.connection_hashtable
 				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw))?;
 			#[cfg(target_os = "windows")]
 			{
 				epoll_ctl_impl(
 					EPOLLIN | EPOLLOUT | EPOLLONESHOT | EPOLLRDHUP,
-					handle,
+					_handle,
 					&mut ctx.filter_set,
 					ctx.selector as *mut c_void,
 					ctx.tid,
 				)?;
-				ctx.write_set.insert(&handle)?;
+				ctx.write_set.insert(&_handle)?;
 			}
 		}
 		Ok(())
