@@ -134,7 +134,7 @@ pub(crate) fn get_reader_writer() -> Result<
 pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
 	let handle_as_usize: usize = handle.try_into()?;
 	ctx.filter_set.remove(handle_as_usize);
-	warn!("closesocket={},tid={}", handle_as_usize, ctx.tid)?;
+	debug!("closesocket={},tid={}", handle_as_usize, ctx.tid)?;
 	unsafe {
 		closesocket(handle);
 	}
@@ -163,11 +163,11 @@ pub(crate) fn epoll_ctl_impl(
 ) -> Result<(), Error> {
 	let handle_as_usize: usize = fd.try_into()?;
 	if handle_as_usize >= filter_set.len().try_into()? {
-		warn!(
-			"===========filter set resize prev size = {}, new = {}",
+		debug!(
+			"filter set resize prev size = {}, new = {}",
 			filter_set.len(),
 			handle_as_usize + 100
-		);
+		)?;
 		filter_set.resize((handle_as_usize + 100).try_into()?, false);
 	}
 
@@ -176,7 +176,7 @@ pub(crate) fn epoll_ctl_impl(
 	} else {
 		EPOLL_CTL_ADD
 	};
-	warn!("filter_set {}, tid={}", handle_as_usize, tid);
+	debug!("filter_set {}, tid={}", handle_as_usize, tid)?;
 	filter_set.insert(handle_as_usize, true);
 	let data = epoll_data_t { fd: fd.try_into()? };
 	let mut event = epoll_event {

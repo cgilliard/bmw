@@ -258,7 +258,7 @@ impl EventHandlerContext {
 		}
 
 		#[cfg(target_os = "windows")]
-		let _write_set_slabs = slab_allocator!(SlabSize(WRITE_SET_SIZE), SlabCount(MAX_EVENTS))?;
+		let _write_set_slabs = slab_allocator!(SlabSize(WRITE_SET_SIZE), SlabCount(2 * MAX_EVENTS))?;
 
 		let _handle_slabs = slab_allocator!(
 			SlabSize(HANDLE_SLAB_SIZE),
@@ -1267,8 +1267,8 @@ mod test {
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
-			read_slab_count: 1,
-			max_handles_per_thread: 2,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
