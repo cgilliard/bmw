@@ -133,7 +133,7 @@ pub(crate) fn get_reader_writer() -> Result<
 
 pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
 	let handle_as_usize: usize = handle.try_into()?;
-	ctx.filter_set.remove(handle_as_usize);
+	ctx.filter_set.replace(handle_as_usize, false);
 	debug!("closesocket={},tid={}", handle_as_usize, ctx.tid)?;
 	unsafe {
 		closesocket(handle);
@@ -171,13 +171,18 @@ pub(crate) fn epoll_ctl_impl(
 		filter_set.resize((handle_as_usize + 100).try_into()?, false);
 	}
 
-	let op = if filter_set.remove(handle_as_usize) {
-		EPOLL_CTL_MOD
-	} else {
-		EPOLL_CTL_ADD
+	let op = match filter_set.get(handle_as_usize) {
+		Some(bitref) => {
+			if *bitref {
+				EPOLL_CTL_MOD
+			} else {
+				EPOLL_CTL_ADD
+			}
+		}
+		None => EPOLL_CTL_ADD,
 	};
 	debug!("filter_set {}, tid={}", handle_as_usize, tid)?;
-	filter_set.insert(handle_as_usize, true);
+	filter_set.replace(handle_as_usize, true);
 	let data = epoll_data_t { fd: fd.try_into()? };
 	let mut event = epoll_event {
 		events: interest,
@@ -190,17 +195,6 @@ pub(crate) fn epoll_ctl_impl(
 	)?;
 	set_errno(Errno(0));
 	let mut res = unsafe { epoll_ctl(selector as *mut c_void, op as i32, usize!(fd), &mut event) };
-	// on windows sometimes the bitvec gets unset, attempt with EPOLL_CTL_MOD
-	if res < 0 && op == EPOLL_CTL_ADD {
-		res = unsafe {
-			epoll_ctl(
-				selector as *mut c_void,
-				EPOLL_CTL_MOD as i32,
-				usize!(fd),
-				&mut event,
-			)
-		};
-	}
 	if res < 0 {
 		let e = errno();
 		error!("Error epoll_ctl: {}, fd={}, op={:?}", e, fd, op)?
