@@ -1831,6 +1831,136 @@ mod test {
 	}
 
 	#[test]
+	fn test_eventhandler_is_reuse_port() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 2;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		let mut close_count = lock_box!(0)?;
+		let close_count_clone = close_count.clone();
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read fs = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			conn_data.write_handle().write(&res)?;
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+
+		let mut tid0count = lock_box!(0)?;
+		let mut tid1count = lock_box!(0)?;
+		let tid0count_clone = tid0count.clone();
+		let tid1count_clone = tid1count.clone();
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			if conn_data.tid() == 0 {
+				let mut tid0count = tid0count.wlock()?;
+				let guard = tid0count.guard();
+				(**guard) += 1;
+			} else if conn_data.tid() == 1 {
+				let mut tid1count = tid1count.wlock()?;
+				let guard = tid1count.guard();
+				(**guard) += 1;
+			}
+			info!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_close(move |conn_data, _thread_context| {
+			info!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			let mut close_count = close_count.wlock()?;
+			(**close_count.guard()) += 1;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		{
+			let mut connection = TcpStream::connect(addr)?;
+			connection.write(b"test1")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test1");
+			connection.write(b"test2")?;
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test2");
+		}
+
+		let total = 100;
+		for _ in 0..total {
+			let mut connection = TcpStream::connect(addr)?;
+			connection.write(b"test1")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test1");
+			connection.write(b"test2")?;
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test2");
+		}
+
+		let mut count_count = 0;
+		loop {
+			sleep(Duration::from_millis(1));
+			let count = **((close_count_clone.rlock()?).guard());
+			if count != total + 1 {
+				count_count += 1;
+				if count_count < 1_000 {
+					continue;
+				}
+			}
+			assert_eq!((**((close_count_clone.rlock()?).guard())), total + 1);
+			break;
+		}
+
+		let tid0count = **(tid0count_clone.rlock()?.guard());
+		let tid1count = **(tid1count_clone.rlock()?.guard());
+		info!("tid0count={},tid1count={}", tid0count, tid1count)?;
+		#[cfg(target_os = "linux")]
+		{
+			assert_ne!(tid0count, 0);
+			assert_ne!(tid1count, 0);
+		}
+
+		Ok(())
+	}
+
+	#[test]
 	fn test_arc_to_ptr() -> Result<(), Error> {
 		use std::sync::Arc;
 		let x = Arc::new(10u32);
