@@ -65,6 +65,7 @@ pub(crate) fn write_bytes_impl(handle: Handle, buf: &[u8]) -> isize {
 
 pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
 	let handle_as_usize = handle.try_into()?;
+	debug!("filter set remove {}, tid={}", handle_as_usize, ctx.tid)?;
 	ctx.filter_set.remove(handle_as_usize);
 	unsafe {
 		close(handle);
@@ -177,7 +178,7 @@ pub(crate) fn get_events_impl(
 				}
 				None => EpollOp::EpollCtlAdd,
 			};
-			ctx.filter_set.set(handle_as_usize, true);
+			ctx.filter_set.replace(handle_as_usize, true);
 			let mut event =
 				EpollEvent::new(interest, ctx.events_in[i].handle.try_into().unwrap_or(0));
 			let res = epoll_ctl(ctx.selector, op, ctx.events_in[i].handle, &mut event);
@@ -188,7 +189,10 @@ pub(crate) fn get_events_impl(
 						handle: fd,
 						etype: EventType::Error,
 					};
-					error!("Error epoll_ctl2: {}, fd={}, op={:?}", e, fd, op)?
+					error!(
+						"Error epoll_ctl2: {}, fd={}, op={:?},tid={}",
+						e, fd, op, ctx.tid
+					)?
 				}
 			}
 		} else if ctx.events_in[i].etype == EventTypeIn::Write {
@@ -225,7 +229,10 @@ pub(crate) fn get_events_impl(
 						handle: fd,
 						etype: EventType::Error,
 					};
-					error!("Error epoll_ctl2: {}, fd={}, op={:?}", e, fd, op)?
+					error!(
+						"Error epoll_ctl1: {}, fd={}, op={:?},tid={}",
+						e, fd, op, ctx.tid
+					)?
 				}
 			}
 		}
