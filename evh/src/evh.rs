@@ -520,6 +520,7 @@ where
 	OnPanic: FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
 {
 	pub(crate) fn new(config: EventHandlerConfig) -> Result<Self, Error> {
+		Self::check_config(&config)?;
 		let mut data = array!(config.threads, &lock_box!(EventHandlerData::new(1, 1,)?)?)?;
 		for i in 0..config.threads {
 			data[i] = lock_box!(EventHandlerData::new(
@@ -542,6 +543,16 @@ where
 			data,
 			wakeup,
 		})
+	}
+
+	fn check_config(config: &EventHandlerConfig) -> Result<(), Error> {
+		if config.read_slab_count >= u32::MAX.try_into()? {
+			return Err(err!(
+				ErrKind::Configuration,
+				"read_slab_count must be smaller than u32::MAX"
+			));
+		}
+		Ok(())
 	}
 
 	fn execute_thread(&mut self, tid: usize, wakeup: &mut Wakeup) -> Result<(), Error> {
@@ -605,9 +616,11 @@ where
 							// deserializable/serializable
 							ctx.connection_hashtable.insert(&next, &ci)?;
 						}
-						_ => todo!(),
+						ConnectionInfo::ListenerInfo(li) => {
+							warn!("Attempt to write to a listener: {:?}", li.handle)?;
+						}
 					},
-					None => todo!(),
+					None => warn!("Couldn't look up conn info for {}", next)?,
 				},
 				None => break,
 			}
@@ -674,11 +687,9 @@ where
 							_ => {}
 						},
 					},
-					None => todo!(),
+					None => warn!("Couldn't look up conn info for {}", id)?,
 				},
-				None => {
-					todo!()
-				}
+				None => warn!("Couldn't look up id for handle {}", ctx.events[i].handle)?,
 			}
 		}
 		Ok(())
@@ -904,7 +915,10 @@ where
 					ctx.handle_hashtable.remove(&rwi.handle)?;
 					rwi.clear_through_impl(rwi.last_slab, &ctx.read_slabs)?;
 				}
-				_ => todo!(),
+				ConnectionInfo::ListenerInfo(li) => warn!(
+					"Unexpected error: listener info found in process close: {:?}",
+					li
+				)?,
 			},
 			None => {
 				// already closed
