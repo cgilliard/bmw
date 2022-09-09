@@ -690,8 +690,17 @@ where
 		for i in 0..count {
 			debug!("event={:?}", ctx.events[i])?;
 			if ctx.events[i].handle == wakeup.reader {
-				debug!("WAKEUP, handle={}, tid={}", wakeup.reader, ctx.tid)?;
+				debug!("======WAKEUP, handle={}, tid={}", wakeup.reader, ctx.tid)?;
 				read_bytes(ctx.events[i].handle, &mut [0u8; 1]);
+				#[cfg(target_os = "windows")]
+				epoll_ctl_impl(
+					EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+					ctx.events[i].handle,
+					&mut ctx.filter_set,
+					ctx.selector as *mut c_void,
+					ctx.tid,
+				)?;
+
 				continue;
 			}
 			match ctx.handle_hashtable.get(&ctx.events[i].handle)? {
@@ -708,7 +717,10 @@ where
 					},
 					None => warn!("Couldn't look up conn info for {}", id)?,
 				},
-				None => warn!("Couldn't look up id for handle {}", ctx.events[i].handle)?,
+				None => warn!(
+					"Couldn't look up id for handle {}, tid={}",
+					ctx.events[i].handle, ctx.tid
+				)?,
 			}
 		}
 		Ok(())
@@ -930,10 +942,10 @@ where
 		match ctx.connection_hashtable.remove(&rw.id)? {
 			Some(ci) => match ci {
 				ConnectionInfo::ReadWriteInfo(mut rwi) => {
-					close_impl(ctx, rwi.handle)?;
 					ctx.connection_hashtable.remove(&rwi.id)?;
 					ctx.handle_hashtable.remove(&rwi.handle)?;
 					rwi.clear_through_impl(rwi.last_slab, &ctx.read_slabs)?;
+					close_impl(ctx, rwi.handle)?;
 				}
 				ConnectionInfo::ListenerInfo(li) => warn!(
 					"Unexpected error: listener info found in process close: {:?}",
@@ -955,8 +967,8 @@ where
 	) -> Result<(), Error> {
 		set_errno(Errno(0));
 		let handle = accept_impl(li.handle)?;
-		info!(
-			"accept handle = {},tid={},reuse_port={}",
+		debug!(
+			"===================accept handle = {},tid={},reuse_port={}",
 			handle, ctx.tid, li.is_reuse_port
 		)?;
 		let id = random();
@@ -984,10 +996,10 @@ where
 		)?;
 
 		if li.is_reuse_port {
-			self.process_accepted_connection(ctx, handle, rwi, li.handle, id)?;
+			self.process_accepted_connection(ctx, handle, rwi, id)?;
 		} else {
 			let tid = random::<usize>() % self.config.threads;
-			info!("tid={},threads={}", tid, self.config.threads)?;
+			debug!("tid={},threads={}", tid, self.config.threads)?;
 
 			match &mut self.on_accept {
 				Some(on_accept) => {
@@ -1018,6 +1030,7 @@ where
 					.enqueue(ConnectionInfo::ReadWriteInfo(rwi))?;
 			}
 
+			debug!("wakeup called on tid = {}", tid)?;
 			self.wakeup[tid].wakeup()?;
 		}
 		Ok(())
@@ -1028,7 +1041,6 @@ where
 		ctx: &mut EventHandlerContext,
 		handle: Handle,
 		mut rwi: ReadWriteInfo,
-		_li_handle: Handle,
 		id: u128,
 	) -> Result<(), Error> {
 		ctx.events_in[ctx.events_in_count] = EventIn {
@@ -1056,15 +1068,6 @@ where
 			}
 			None => {}
 		}
-
-		#[cfg(target_os = "windows")]
-		epoll_ctl_impl(
-			EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
-			_li_handle,
-			&mut ctx.filter_set,
-			ctx.selector as *mut c_void,
-			ctx.tid,
-		)?;
 
 		ctx.connection_hashtable
 			.insert(&id, &ConnectionInfo::ReadWriteInfo(rwi))?;
@@ -1254,7 +1257,7 @@ impl Wakeup {
 		let need_wakeup = **needed.guard() && !(**requested.guard());
 		**requested.guard() = true;
 		if need_wakeup {
-			debug!("writing to {}", self.writer)?;
+			debug!("wakeup writing to {}", self.writer)?;
 			let len = write_bytes(self.writer, &[0u8; 1]);
 			debug!("len={},errno={}", len, errno())?;
 		}
@@ -1441,7 +1444,7 @@ mod test {
 		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
-			housekeeping_frequency_millis: 100_000,
+			housekeeping_frequency_millis: 10_000,
 			read_slab_count: 2,
 			max_handles_per_thread: 3,
 			..Default::default()

@@ -207,8 +207,12 @@ pub(crate) fn get_events_impl(
 	ctx: &mut EventHandlerContext,
 	wakeup_requested: bool,
 ) -> Result<usize, Error> {
-	info!("in get_events_impl in_count={}", ctx.events_in_count)?;
+	debug!(
+		"in get_events_impl in_count={}, tid={}",
+		ctx.events_in_count, ctx.tid
+	)?;
 	for i in 0..ctx.events_in_count {
+		debug!("event[{}]={:?}", i, ctx.events_in[i])?;
 		if ctx.events_in[i].etype == EventTypeIn::Read
 			|| ctx.events_in[i].etype == EventTypeIn::Accept
 		{
