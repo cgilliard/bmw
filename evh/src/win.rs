@@ -152,6 +152,62 @@ pub(crate) fn accept_impl(handle: Handle) -> Result<Handle, Error> {
 	Ok(handle)
 }
 
+pub(crate) fn epoll_ctl_impl(
+	interest: u32,
+	fd: Handle,
+	ctx: &mut EventHandlerContext,
+) -> Result<(), Error> {
+	if fd > ctx.filter_set.len().try_into()? {
+		ctx.filter_set.resize((fd + 100).try_into()?, false);
+	}
+
+	interest |= EPOLLIN;
+	interest |= EPOLLONESHOT;
+	interest |= EPOLLRDHUP;
+
+	let handle_as_usize: usize = fd.try_into()?;
+	let op = match ctx.filter_set.get(handle_as_usize) {
+		Some(bitref) => {
+			if *bitref {
+				EPOLL_CTL_MOD
+			} else {
+				EPOLL_CTL_ADD
+			}
+		}
+		None => EPOLL_CTL_ADD,
+	};
+	ctx.filter_set.set(handle_as_usize, true);
+	let data = epoll_data_t {
+		fd: ctx.events_in[i].handle.try_into()?,
+	};
+	let mut event = epoll_event {
+		events: interest,
+		data,
+	};
+
+	debug!(
+		"epoll_ctl {} read,op={},add={},mod={}",
+		handle_as_usize, op, EPOLL_CTL_ADD, EPOLL_CTL_MOD
+	)?;
+	set_errno(Errno(0));
+	let res = unsafe {
+		epoll_ctl(
+			ctx.selector as *mut c_void,
+			op as i32,
+			usize!(ctx.events_in[i].handle),
+			&mut event,
+		)
+	};
+	if res < 0 {
+		let e = errno();
+		ctx.events[i] = Event {
+			handle: fd,
+			etype: EventType::Error,
+		};
+		error!("Error epoll_ctl: {}, fd={}, op={:?}", e, fd, op)?
+	}
+}
+
 pub(crate) fn get_events_impl(
 	config: &EventHandlerConfig,
 	ctx: &mut EventHandlerContext,
@@ -164,109 +220,10 @@ pub(crate) fn get_events_impl(
 			|| ctx.events_in[i].etype == EventTypeIn::Accept
 		{
 			let fd = ctx.events_in[i].handle;
-			debug!("add in read fd = {},tid={}", fd, ctx.tid)?;
-			if fd > ctx.filter_set.len().try_into()? {
-				ctx.filter_set.resize((fd + 100).try_into()?, false);
-			}
-
-			interest |= EPOLLIN;
-			interest |= EPOLLONESHOT;
-			interest |= EPOLLRDHUP;
-
-			let handle_as_usize: usize = fd.try_into()?;
-			let op = match ctx.filter_set.get(handle_as_usize) {
-				Some(bitref) => {
-					if *bitref {
-						EPOLL_CTL_MOD
-					} else {
-						EPOLL_CTL_ADD
-					}
-				}
-				None => EPOLL_CTL_ADD,
-			};
-			ctx.filter_set.set(handle_as_usize, true);
-			let data = epoll_data_t {
-				fd: ctx.events_in[i].handle.try_into()?,
-			};
-			let mut event = epoll_event {
-				events: interest,
-				data,
-			};
-
-			debug!(
-				"epoll_ctl {} read,op={},add={},mod={}",
-				handle_as_usize, op, EPOLL_CTL_ADD, EPOLL_CTL_MOD
-			)?;
-			set_errno(Errno(0));
-			let res = unsafe {
-				epoll_ctl(
-					ctx.selector as *mut c_void,
-					op as i32,
-					usize!(ctx.events_in[i].handle),
-					&mut event,
-				)
-			};
-			if res < 0 {
-				let e = errno();
-				ctx.events[i] = Event {
-					handle: fd,
-					etype: EventType::Error,
-				};
-				error!("Error epoll_ctl: {}, fd={}, op={:?}", e, fd, op)?
-			}
+			epoll_ctl_impl(EPOLLIN | EPOLLONESHOT | EPOLLRDHUP, fd, ctx)?;
 		} else if ctx.events_in[i].etype == EventTypeIn::Write {
 			let fd = ctx.events_in[i].handle;
-			debug!("add in write fd = {},tid={}", fd, ctx.tid)?;
-			if fd > ctx.filter_set.len().try_into()? {
-				ctx.filter_set.resize((fd + 100).try_into()?, false);
-			}
-			interest |= EPOLLOUT;
-			interest |= EPOLLIN;
-			interest |= EPOLLRDHUP;
-			interest |= EPOLLONESHOT;
-
-			let handle_as_usize: usize = fd.try_into()?;
-			let op = match ctx.filter_set.get(handle_as_usize) {
-				Some(bitref) => {
-					if *bitref {
-						EPOLL_CTL_MOD
-					} else {
-						EPOLL_CTL_ADD
-					}
-				}
-				None => EPOLL_CTL_ADD,
-			};
-			ctx.filter_set.set(handle_as_usize, true);
-
-			let data = epoll_data_t {
-				fd: ctx.events_in[i].handle.try_into()?,
-			};
-			let mut event = epoll_event {
-				events: interest,
-				data,
-			};
-
-			debug!(
-				"epoll_ctl {} write,op={},add={},mod={}",
-				ctx.events_in[i].handle, op, EPOLL_CTL_ADD, EPOLL_CTL_MOD
-			)?;
-			set_errno(Errno(0));
-			let res = unsafe {
-				epoll_ctl(
-					ctx.selector as *mut c_void,
-					op as i32,
-					usize!(ctx.events_in[i].handle),
-					&mut event,
-				)
-			};
-			if res < 0 {
-				let e = errno();
-				ctx.events[i] = Event {
-					handle: fd,
-					etype: EventType::Error,
-				};
-				error!("Error epoll_ctl2: {}, fd={}, op={:?}", e, fd, op)?
-			}
+			epoll_ctl_impl(EPOLLIN | EPOLLOUT | EPOLLONESHOT | EPOLLRDHUP, fd, ctx)?;
 		}
 	}
 	ctx.events_in_count = 0;
@@ -306,11 +263,6 @@ pub(crate) fn get_events_impl(
 					handle: unsafe { epoll_events[i].data.fd } as Handle,
 					etype: EventType::Write,
 				};
-				ctx.events_in[i] = EventIn {
-					handle: unsafe { epoll_events[i].data.fd } as Handle,
-					etype: EventTypeIn::Write,
-				};
-				ctx.events_in_count += 1;
 				res_count += 1;
 			}
 			if epoll_events[i].events & EPOLLIN != 0 {
@@ -318,11 +270,6 @@ pub(crate) fn get_events_impl(
 					handle: unsafe { epoll_events[i].data.fd } as Handle,
 					etype: EventType::Read,
 				};
-				ctx.events_in[i] = EventIn {
-					handle: unsafe { epoll_events[i].data.fd } as Handle,
-					etype: EventTypeIn::Read,
-				};
-				ctx.events_in_count += 1;
 				res_count += 1;
 			}
 		}
