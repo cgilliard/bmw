@@ -172,7 +172,7 @@ where
 	fn set_on_panic(&mut self, on_panic: OnPanic) -> Result<(), Error>;
 	fn stop(&mut self) -> Result<(), Error>;
 	fn start(&mut self) -> Result<(), Error>;
-	fn add_client(&mut self, connection: ClientConnection) -> Result<ConnectionData, Error>;
+	fn add_client(&mut self, connection: ClientConnection) -> Result<WriteHandle, Error>;
 	fn add_server(&mut self, connection: ServerConnection) -> Result<(), Error>;
 }
 

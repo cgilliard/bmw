@@ -652,7 +652,16 @@ where
 							ctx.connection_hashtable.insert(&id, nhandle)?;
 							ctx.handle_hashtable.insert(&li.handle, &id)?;
 						}
-						ConnectionInfo::ReadWriteInfo(_rw) => {}
+						ConnectionInfo::ReadWriteInfo(rw) => {
+							let id = rw.id;
+							ctx.events_in[ctx.events_in_count] = EventIn {
+								handle: rw.handle,
+								etype: EventTypeIn::Read,
+							};
+							ctx.events_in_count += 1;
+							ctx.connection_hashtable.insert(&id, nhandle)?;
+							ctx.handle_hashtable.insert(&rw.handle, &id)?
+						}
 					}
 				}
 				None => break,
@@ -1079,8 +1088,42 @@ where
 		Ok(())
 	}
 
-	fn add_client(&mut self, _connection: ClientConnection) -> Result<ConnectionData, Error> {
-		todo!()
+	fn add_client(&mut self, connection: ClientConnection) -> Result<WriteHandle, Error> {
+		let tid: usize = random::<usize>() % self.data.size();
+		let id: u128 = random::<u128>();
+		let handle = connection.handle;
+		let write_state = lock_box!(WriteState {
+			write_buffer: vec![],
+			flags: 0
+		})?;
+		let wh = WriteHandle::new(
+			handle,
+			id,
+			self.wakeup[tid].clone(),
+			write_state.clone(),
+			self.data[tid].clone(),
+		);
+
+		let rwi = ReadWriteInfo {
+			id,
+			handle,
+			accept_handle: None,
+			write_state,
+			first_slab: u32::MAX,
+			last_slab: u32::MAX,
+			slab_offset: 0,
+		};
+
+		{
+			let mut data = self.data[tid].wlock()?;
+			let guard = data.guard();
+			(**guard)
+				.nhandles
+				.enqueue(ConnectionInfo::ReadWriteInfo(rwi))?;
+		}
+
+		self.wakeup[tid].wakeup()?;
+		Ok(wh)
 	}
 	fn add_server(&mut self, connection: ServerConnection) -> Result<(), Error> {
 		debug!("add server")?;
@@ -1182,7 +1225,7 @@ mod test {
 	use crate::evh::{create_listeners, errno, read_bytes};
 	use crate::evh::{READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
 	use crate::types::{EventHandlerImpl, Wakeup};
-	use crate::{ConnData, EventHandler, EventHandlerConfig, ServerConnection};
+	use crate::{ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection};
 	use bmw_err::*;
 	use bmw_log::*;
 	use bmw_test::port::pick_free_port;
@@ -1190,6 +1233,10 @@ mod test {
 	use std::io::Read;
 	use std::io::Write;
 	use std::net::TcpStream;
+	#[cfg(unix)]
+	use std::os::unix::io::IntoRawFd;
+	#[cfg(windows)]
+	use std::os::windows::io::IntoRawSocket;
 	use std::thread::sleep;
 	use std::time::Duration;
 
@@ -1577,6 +1624,126 @@ mod test {
 			assert_eq!(buf[i], 'a' as u8 + (i % 26) as u8);
 		}
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_client() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 2;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 1,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		let mut client_handle = lock_box!(0)?;
+		let client_handle_clone = client_handle.clone();
+
+		let mut client_received_test1 = lock_box!(false)?;
+		let mut server_received_test1 = lock_box!(false)?;
+		let mut server_received_abc = lock_box!(false)?;
+		let client_received_test1_clone = client_received_test1.clone();
+		let server_received_test1_clone = server_received_test1.clone();
+		let server_received_abc_clone = server_received_abc.clone();
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read handle={}", conn_data.get_handle())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			debug!("first_slab={}", first_slab)?;
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				assert_eq!(first_slab, last_slab);
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			let client_handle = client_handle_clone.rlock()?;
+			let guard = client_handle.guard();
+			if conn_data.get_handle() != **guard {
+				if res[0] == 't' as u8 {
+					conn_data.write_handle().write(&res)?;
+					if res == b"test1".to_vec() {
+						let mut server_received_test1 = server_received_test1.wlock()?;
+						(**server_received_test1.guard()) = true;
+					}
+				}
+				if res == b"abc".to_vec() {
+					let mut server_received_abc = server_received_abc.wlock()?;
+					(**server_received_abc.guard()) = true;
+				}
+			} else {
+				let mut x = vec![];
+				x.extend(b"abc");
+				conn_data.write_handle().write(&x)?;
+				if res == b"test1".to_vec() {
+					let mut client_received_test1 = client_received_test1.wlock()?;
+					(**client_received_test1.guard()) = true;
+				}
+			}
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			info!("accept a connection handle = {}", conn_data.get_handle())?;
+			Ok(())
+		})?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+		};
+		evh.add_server(sc)?;
+
+		let connection = TcpStream::connect(addr)?;
+		#[cfg(unix)]
+		let connection_handle = connection.into_raw_fd();
+		#[cfg(windows)]
+		let connection_handle = connection.into_raw_socket();
+		{
+			let mut client_handle = client_handle.wlock()?;
+			(**client_handle.guard()) = connection_handle;
+		}
+
+		let client = ClientConnection {
+			handle: connection_handle,
+			tls_config: None,
+		};
+		let mut wh = evh.add_client(client)?;
+
+		wh.write(b"test1")?;
+		let mut count = 0;
+		loop {
+			sleep(Duration::from_millis(1));
+			if !(**(client_received_test1_clone.rlock()?.guard())
+				&& **(server_received_test1_clone.rlock()?.guard())
+				&& **(server_received_abc_clone.rlock()?.guard()))
+			{
+				count += 1;
+				if count < 2_000 {
+					continue;
+				}
+			}
+			assert!(**(client_received_test1_clone.rlock()?.guard()));
+			assert!(**(server_received_test1_clone.rlock()?.guard()));
+			assert!(**(server_received_abc_clone.rlock()?.guard()));
+			break;
+		}
 		Ok(())
 	}
 
