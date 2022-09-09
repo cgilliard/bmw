@@ -93,9 +93,9 @@ pub trait ConnData {
 	where
 		F: FnMut(Ref<dyn SlabAllocator>) -> Result<T, Error>;
 	fn slab_offset(&self) -> u16;
-	fn first_slab(&self) -> usize;
-	fn last_slab(&self) -> usize;
-	fn clear_through(&mut self, slab_id: usize) -> Result<(), Error>;
+	fn first_slab(&self) -> u32;
+	fn last_slab(&self) -> u32;
+	fn clear_through(&mut self, slab_id: u32) -> Result<(), Error>;
 }
 
 pub(crate) struct EventHandlerContext {
@@ -244,8 +244,8 @@ pub(crate) struct ReadWriteInfo {
 	pub(crate) handle: Handle,
 	pub(crate) accept_handle: Option<Handle>,
 	pub(crate) write_state: Box<dyn LockBox<WriteState>>,
-	pub(crate) first_slab: usize,
-	pub(crate) last_slab: usize,
+	pub(crate) first_slab: u32,
+	pub(crate) last_slab: u32,
 	pub(crate) slab_offset: u16,
 }
 

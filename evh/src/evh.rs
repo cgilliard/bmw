@@ -50,7 +50,7 @@ use bmw_deps::bitvec::vec::BitVec;
 use bmw_deps::nix::sys::epoll::{epoll_create1, EpollCreateFlags, EpollEvent, EpollFlags};
 
 const READ_SLAB_SIZE: usize = 512;
-const READ_SLAB_PTR_OFFSET: usize = 504;
+const READ_SLAB_NEXT_OFFSET: usize = 508;
 
 const HANDLE_SLAB_SIZE: usize = 42;
 const CONNECTION_SLAB_SIZE: usize = 90;
@@ -121,8 +121,8 @@ impl Serializable for ConnectionInfo {
 				let accept_handle: Option<Handle> = Option::read(reader)?;
 				let write_state: Box<dyn LockBox<WriteState>> =
 					lock_box_from_usize(reader.read_usize()?);
-				let first_slab = reader.read_usize()?;
-				let last_slab = reader.read_usize()?;
+				let first_slab = reader.read_u32()?;
+				let last_slab = reader.read_u32()?;
 				let slab_offset = reader.read_u16()?;
 				debug!("deser for id = {}", id)?;
 				Ok(ConnectionInfo::ReadWriteInfo(ReadWriteInfo {
@@ -157,8 +157,8 @@ impl Serializable for ConnectionInfo {
 				ri.handle.write(writer)?;
 				ri.accept_handle.write(writer)?;
 				writer.write_usize(ri.write_state.danger_to_usize())?;
-				writer.write_usize(ri.first_slab)?;
-				writer.write_usize(ri.last_slab)?;
+				writer.write_u32(ri.first_slab)?;
+				writer.write_u32(ri.last_slab)?;
 				writer.write_u16(ri.slab_offset)?;
 			}
 		}
@@ -170,27 +170,27 @@ impl Serializable for ConnectionInfo {
 impl ReadWriteInfo {
 	fn clear_through_impl(
 		&mut self,
-		slab_id: usize,
+		slab_id: u32,
 		slabs: &Rc<RefCell<dyn SlabAllocator>>,
 	) -> Result<(), Error> {
-		debug!("clear through impl")?;
+		debug!("clear through impl: {}", slab_id)?;
 		let mut next = self.first_slab;
 		let mut slabs = slabs.borrow_mut();
 		loop {
-			if next == usize::MAX {
+			if next == u32::MAX {
 				break;
 			}
 
-			let next_slab = usize::from_be_bytes(try_into!(
-				&slabs.get(next)?.get()[READ_SLAB_PTR_OFFSET..READ_SLAB_SIZE]
+			let next_slab: u32 = u32::from_be_bytes(try_into!(
+				&slabs.get(next.try_into()?)?.get()[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
 			)?);
-			debug!("free {}", next)?;
-			slabs.free(next)?;
+			debug!("free {}, next_slab={}", next, next_slab)?;
+			slabs.free(next.try_into()?)?;
 
 			if next == slab_id {
 				self.first_slab = next_slab;
-				if next_slab == usize::MAX {
-					self.last_slab = usize::MAX;
+				if next_slab == u32::MAX {
+					self.last_slab = u32::MAX;
 				}
 				break;
 			}
@@ -433,7 +433,7 @@ impl<'a> ConnectionData<'a> {
 		}
 	}
 
-	fn clear_through_impl(&mut self, slab_id: usize) -> Result<(), Error> {
+	fn clear_through_impl(&mut self, slab_id: u32) -> Result<(), Error> {
 		self.rwi.clear_through_impl(slab_id, &self.slabs)
 	}
 }
@@ -470,13 +470,13 @@ impl<'a> ConnData for ConnectionData<'a> {
 	fn slab_offset(&self) -> u16 {
 		self.rwi.slab_offset
 	}
-	fn first_slab(&self) -> usize {
+	fn first_slab(&self) -> u32 {
 		self.rwi.first_slab
 	}
-	fn last_slab(&self) -> usize {
+	fn last_slab(&self) -> u32 {
 		self.rwi.last_slab
 	}
-	fn clear_through(&mut self, slab_id: usize) -> Result<(), Error> {
+	fn clear_through(&mut self, slab_id: u32) -> Result<(), Error> {
 		self.clear_through_impl(slab_id)
 	}
 }
@@ -749,38 +749,68 @@ where
 		loop {
 			// read as many slabs as we can
 			let mut slabs = ctx.read_slabs.borrow_mut();
-			let mut slab =
-				if rw.last_slab == usize::MAX || rw.slab_offset as usize >= READ_SLAB_PTR_OFFSET {
-					let mut slab = slabs.allocate()?;
-					let slab_id = slab.id();
-					if rw.first_slab == usize::MAX {
+			let mut slab = if rw.last_slab == u32::MAX {
+				debug!("pre allocate")?;
+				let mut slab = slabs.allocate()?;
+				debug!("allocate: {}", slab.id())?;
+				let slab_id: u32 = slab.id().try_into()?;
+				rw.last_slab = slab_id;
+				rw.first_slab = slab_id;
+
+				rw.slab_offset = 0;
+				slab.get_mut()[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
+					.clone_from_slice(&u32::MAX.to_be_bytes());
+				slab
+			} else if rw.slab_offset as usize >= READ_SLAB_NEXT_OFFSET {
+				let slab_id: u32;
+				{
+					debug!("pre_allocate")?;
+					let slab = slabs.allocate()?;
+					slab_id = slab.id().try_into()?;
+					debug!("allocate: {}", slab_id)?;
+					if rw.first_slab == u32::MAX {
 						rw.first_slab = slab_id;
 					}
-					slab.get_mut()[READ_SLAB_PTR_OFFSET..READ_SLAB_SIZE]
-						.clone_from_slice(&rw.last_slab.to_be_bytes());
+				}
+				{
+					slabs.get_mut(rw.last_slab.try_into()?)?.get_mut()
+						[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
+						.clone_from_slice(&(slab_id as u32).to_be_bytes());
 					rw.last_slab = slab_id;
-					rw.slab_offset = 0;
-
-					slab
-				} else {
-					slabs.get_mut(rw.last_slab)?
-				};
-			let len = if usize!(rw.slab_offset) < READ_SLAB_PTR_OFFSET {
+				}
+				rw.slab_offset = 0;
+				debug!("rw.last_slab={}", rw.last_slab)?;
+				slabs.get_mut(slab_id.try_into()?)?
+			} else {
+				slabs.get_mut(rw.last_slab.try_into()?)?
+			};
+			let len = if usize!(rw.slab_offset) < READ_SLAB_NEXT_OFFSET {
 				read_bytes(
 					rw.handle,
-					&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_PTR_OFFSET],
+					&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_NEXT_OFFSET],
 				)
 			} else {
 				rw.slab_offset = 0;
 				read_bytes(
 					rw.handle,
-					&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_PTR_OFFSET],
+					&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_NEXT_OFFSET],
 				)
 			};
+
+			debug!("len={}", len)?;
 			if len == 0 {
 				do_close = true;
 			}
-			if len <= 0 {
+			if len < 0
+				|| len
+					< READ_SLAB_NEXT_OFFSET
+						.saturating_sub(rw.slab_offset.into())
+						.try_into()?
+			{
+				if len > 0 {
+					total_len += len;
+					rw.slab_offset += len as u16;
+				}
 				#[cfg(target_os = "windows")]
 				{
 					if !ctx.write_set.contains(&rw.handle)? {
@@ -800,7 +830,6 @@ where
 			total_len += len;
 			rw.slab_offset += len as u16;
 		}
-
 		if total_len > 0 {
 			match &mut self.on_read {
 				Some(on_read) => {
@@ -902,8 +931,8 @@ where
 				write_buffer: vec![],
 				flags: 0
 			})?,
-			first_slab: usize::MAX,
-			last_slab: usize::MAX,
+			first_slab: u32::MAX,
+			last_slab: u32::MAX,
 			slab_offset: 0,
 		};
 
@@ -1137,6 +1166,7 @@ fn write_bytes(handle: Handle, buf: &[u8]) -> isize {
 #[cfg(test)]
 mod test {
 	use crate::evh::{create_listeners, errno, read_bytes};
+	use crate::evh::{READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
 	use crate::types::{EventHandlerImpl, Wakeup};
 	use crate::{ConnData, EventHandler, EventHandlerConfig, ServerConnection};
 	use bmw_err::*;
@@ -1217,11 +1247,14 @@ mod test {
 		let mut evh = EventHandlerImpl::new(config)?;
 
 		evh.set_on_read(move |conn_data, _thread_context| {
-			info!("on read fs = {}", conn_data.slab_offset())?;
+			debug!("on read fs = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
 			let slab_offset = conn_data.slab_offset();
+			debug!("first_slab={}", first_slab)?;
 			let res = conn_data.borrow_slab_allocator(move |sa| {
-				let slab = sa.get(first_slab)?;
+				let slab = sa.get(first_slab.try_into()?)?;
+				assert_eq!(first_slab, last_slab);
 				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
 				let mut ret: Vec<u8> = vec![];
 				ret.extend(&slab.get()[0..slab_offset as usize]);
@@ -1288,7 +1321,7 @@ mod test {
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
 			let res = conn_data.borrow_slab_allocator(move |sa| {
-				let slab = sa.get(first_slab)?;
+				let slab = sa.get(first_slab.try_into()?)?;
 				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
 				let mut ret: Vec<u8> = vec![];
 				ret.extend(&slab.get()[0..slab_offset as usize]);
@@ -1389,7 +1422,7 @@ mod test {
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
 			let res = conn_data.borrow_slab_allocator(move |sa| {
-				let slab = sa.get(first_slab)?;
+				let slab = sa.get(first_slab.try_into()?)?;
 				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
 				if slab.get()[0] == 'x' as u8 {
 					Ok(vec![])
@@ -1449,6 +1482,85 @@ mod test {
 			let len = connection.read(&mut buf)?;
 			assert_eq!(len, 0);
 			assert_eq!(**((close_count_clone.rlock()?).guard()), 1);
+		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_multi_slab_message() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 2;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 3,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read fs = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				assert_ne!(first_slab, last_slab);
+
+				let mut ret: Vec<u8> = vec![];
+				let mut slab_id = first_slab;
+				loop {
+					if slab_id == last_slab {
+						let slab = sa.get(slab_id.try_into()?)?;
+						ret.extend(&slab.get()[0..slab_offset as usize]);
+						break;
+					} else {
+						let slab = sa.get(slab_id.try_into()?)?;
+						let slab_bytes = slab.get();
+						ret.extend(&slab_bytes[0..READ_SLAB_NEXT_OFFSET]);
+						slab_id = u32::from_be_bytes(try_into!(
+							&slab_bytes[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
+						)?);
+					}
+				}
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			conn_data.write_handle().write(&res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			info!("accept a connection handle = {}", conn_data.get_handle())?;
+			Ok(())
+		})?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+		};
+		evh.add_server(sc)?;
+
+		let mut connection = TcpStream::connect(addr)?;
+		let mut message = ['a' as u8; 1024];
+		for i in 0..1024 {
+			message[i] = 'a' as u8 + (i % 26) as u8;
+		}
+		connection.write(&message)?;
+		let mut buf = vec![];
+		buf.resize(2000, 0u8);
+		let len = connection.read(&mut buf)?;
+		assert_eq!(len, 1024);
+		for i in 0..len {
+			assert_eq!(buf[i], 'a' as u8 + (i % 26) as u8);
 		}
 
 		Ok(())
