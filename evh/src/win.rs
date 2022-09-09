@@ -194,7 +194,7 @@ pub(crate) fn epoll_ctl_impl(
 		handle_as_usize, op, EPOLL_CTL_ADD, EPOLL_CTL_MOD
 	)?;
 	set_errno(Errno(0));
-	let mut res = unsafe { epoll_ctl(selector as *mut c_void, op as i32, usize!(fd), &mut event) };
+	let res = unsafe { epoll_ctl(selector as *mut c_void, op as i32, usize!(fd), &mut event) };
 	if res < 0 {
 		let e = errno();
 		error!("Error epoll_ctl: {}, fd={}, op={:?}", e, fd, op)?
