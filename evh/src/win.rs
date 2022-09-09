@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::{Event, EventHandlerContext, EventIn, EventType, EventTypeIn, Handle};
+use crate::types::{Event, EventHandlerContext, EventType, EventTypeIn, Handle};
 use crate::EventHandlerConfig;
 use bmw_deps::bitvec::vec::BitVec;
 use bmw_deps::errno::{errno, set_errno, Errno};
@@ -132,7 +132,7 @@ pub(crate) fn get_reader_writer() -> Result<
 }
 
 pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
-	info!("closesocket={}", handle);
+	debug!("closesocket={}", handle)?;
 	let handle_as_usize = handle.try_into()?;
 	ctx.filter_set.remove(handle_as_usize);
 	unsafe {
@@ -202,7 +202,6 @@ pub(crate) fn get_events_impl(
 ) -> Result<usize, Error> {
 	debug!("in get_events_impl in_count={}", ctx.events_in_count)?;
 	for i in 0..ctx.events_in_count {
-		let mut interest = 0;
 		if ctx.events_in[i].etype == EventTypeIn::Read
 			|| ctx.events_in[i].etype == EventTypeIn::Accept
 		{
