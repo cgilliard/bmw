@@ -37,7 +37,7 @@ use crate::win::*;
 #[cfg(target_os = "windows")]
 use bmw_deps::bitvec::vec::BitVec;
 #[cfg(target_os = "windows")]
-use bmw_deps::wepoll_sys::{epoll_create, EPOLLIN, EPOLLONESHOT, EPOLLRDHUP};
+use bmw_deps::wepoll_sys::{epoll_create, EPOLLIN, EPOLLONESHOT, EPOLLOUT, EPOLLRDHUP};
 #[cfg(target_os = "windows")]
 use std::os::raw::c_void;
 
@@ -255,7 +255,7 @@ impl EventHandlerContext {
 		}
 
 		#[cfg(target_os = "windows")]
-		let _write_set_slabs = slab_allocator!(SlabSize(WRITE_SET_SIZE), SlabCount(MAX_EVENTS));
+		let _write_set_slabs = slab_allocator!(SlabSize(WRITE_SET_SIZE), SlabCount(MAX_EVENTS))?;
 
 		let _handle_slabs = slab_allocator!(
 			SlabSize(HANDLE_SLAB_SIZE),
@@ -718,8 +718,9 @@ where
 					rw.handle,
 					&mut ctx.filter_set,
 					ctx.selector as *mut c_void,
+					ctx.tid,
 				)?;
-				ctx.write_set.insert(rw.handle)?;
+				ctx.write_set.insert(&rw.handle)?;
 			}
 		}
 		Ok(())
@@ -770,12 +771,13 @@ where
 			if len <= 0 {
 				#[cfg(target_os = "windows")]
 				{
-					if !ctx.write_set.contains(rw.handle)? {
+					if !ctx.write_set.contains(&rw.handle)? {
 						epoll_ctl_impl(
 							EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
 							rw.handle,
 							&mut ctx.filter_set,
 							ctx.selector as *mut c_void,
+							ctx.tid,
 						)?;
 					}
 				}
@@ -925,6 +927,7 @@ where
 			li.handle,
 			&mut ctx.filter_set,
 			ctx.selector as *mut c_void,
+			ctx.tid,
 		)?;
 
 		ctx.connection_hashtable
