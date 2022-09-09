@@ -124,6 +124,7 @@ impl Serializable for ConnectionInfo {
 				let first_slab = reader.read_u32()?;
 				let last_slab = reader.read_u32()?;
 				let slab_offset = reader.read_u16()?;
+				let is_accepted = reader.read_u8()? != 0;
 				debug!("deser for id = {}", id)?;
 				Ok(ConnectionInfo::ReadWriteInfo(ReadWriteInfo {
 					id,
@@ -133,6 +134,7 @@ impl Serializable for ConnectionInfo {
 					first_slab,
 					last_slab,
 					slab_offset,
+					is_accepted,
 				}))
 			}
 			_ => Err(err!(
@@ -160,6 +162,10 @@ impl Serializable for ConnectionInfo {
 				writer.write_u32(ri.first_slab)?;
 				writer.write_u32(ri.last_slab)?;
 				writer.write_u16(ri.slab_offset)?;
+				writer.write_u8(match ri.is_accepted {
+					true => 1,
+					false => 0,
+				})?;
 			}
 		}
 
@@ -483,7 +489,11 @@ impl<'a> ConnData for ConnectionData<'a> {
 
 impl EventHandlerData {
 	fn new(write_queue_size: usize, nhandles_queue_size: usize) -> Result<Self, Error> {
-		let connection_info = ConnectionInfo::ListenerInfo(ListenerInfo { handle: 0, id: 0 });
+		let connection_info = ConnectionInfo::ListenerInfo(ListenerInfo {
+			handle: 0,
+			id: 0,
+			is_reuse_port: false,
+		});
 
 		let evhd = EventHandlerData {
 			write_queue: queue_sync_box!(write_queue_size, &0)?,
@@ -637,9 +647,9 @@ where
 			ctx.tid
 		)?;
 		loop {
-			let next = (**guard).nhandles.dequeue();
+			let mut next = (**guard).nhandles.dequeue();
 			match next {
-				Some(nhandle) => {
+				Some(ref mut nhandle) => {
 					debug!("handle={:?}", nhandle)?;
 					match nhandle {
 						ConnectionInfo::ListenerInfo(li) => {
@@ -660,7 +670,7 @@ where
 							};
 							ctx.events_in_count += 1;
 							ctx.connection_hashtable.insert(&id, nhandle)?;
-							ctx.handle_hashtable.insert(&rw.handle, &id)?
+							ctx.handle_hashtable.insert(&rw.handle, &id)?;
 						}
 					}
 				}
@@ -850,6 +860,7 @@ where
 			total_len += len;
 			rw.slab_offset += len as u16;
 		}
+		debug!("read {} on tid = {}", total_len, ctx.tid)?;
 		if total_len > 0 {
 			match &mut self.on_read {
 				Some(on_read) => {
@@ -944,7 +955,10 @@ where
 	) -> Result<(), Error> {
 		set_errno(Errno(0));
 		let handle = accept_impl(li.handle)?;
-		debug!("accept handle = {},tid={}", handle, ctx.tid)?;
+		info!(
+			"accept handle = {},tid={},reuse_port={}",
+			handle, ctx.tid, li.is_reuse_port
+		)?;
 		let id = random();
 		let mut rwi = ReadWriteInfo {
 			id,
@@ -957,8 +971,66 @@ where
 			first_slab: u32::MAX,
 			last_slab: u32::MAX,
 			slab_offset: 0,
+			is_accepted: true,
 		};
 
+		#[cfg(target_os = "windows")]
+		epoll_ctl_impl(
+			EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+			li.handle,
+			&mut ctx.filter_set,
+			ctx.selector as *mut c_void,
+			ctx.tid,
+		)?;
+
+		if li.is_reuse_port {
+			self.process_accepted_connection(ctx, handle, rwi, li.handle, id)?;
+		} else {
+			let tid = random::<usize>() % self.config.threads;
+			info!("tid={},threads={}", tid, self.config.threads)?;
+
+			match &mut self.on_accept {
+				Some(on_accept) => {
+					match on_accept(
+						&mut ConnectionData::new(
+							&mut rwi,
+							tid,
+							ctx.read_slabs.clone(),
+							self.wakeup[tid].clone(),
+							self.data[tid].clone(),
+						),
+						&mut ctx.callback_context,
+					) {
+						Ok(_) => {}
+						Err(e) => {
+							warn!("Callback on_read generated error: {}", e)?;
+						}
+					}
+				}
+				None => {}
+			}
+
+			{
+				let mut data = self.data[tid].wlock()?;
+				let guard = data.guard();
+				(**guard)
+					.nhandles
+					.enqueue(ConnectionInfo::ReadWriteInfo(rwi))?;
+			}
+
+			self.wakeup[tid].wakeup()?;
+		}
+		Ok(())
+	}
+
+	fn process_accepted_connection(
+		&mut self,
+		ctx: &mut EventHandlerContext,
+		handle: Handle,
+		mut rwi: ReadWriteInfo,
+		_li_handle: Handle,
+		id: u128,
+	) -> Result<(), Error> {
 		ctx.events_in[ctx.events_in_count] = EventIn {
 			handle,
 			etype: EventTypeIn::Read,
@@ -988,7 +1060,7 @@ where
 		#[cfg(target_os = "windows")]
 		epoll_ctl_impl(
 			EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
-			li.handle,
+			_li_handle,
 			&mut ctx.filter_set,
 			ctx.selector as *mut c_void,
 			ctx.tid,
@@ -997,7 +1069,6 @@ where
 		ctx.connection_hashtable
 			.insert(&id, &ConnectionInfo::ReadWriteInfo(rwi))?;
 		ctx.handle_hashtable.insert(&handle, &id)?;
-
 		Ok(())
 	}
 
@@ -1112,6 +1183,7 @@ where
 			first_slab: u32::MAX,
 			last_slab: u32::MAX,
 			slab_offset: 0,
+			is_accepted: false,
 		};
 
 		{
@@ -1150,6 +1222,7 @@ where
 				.enqueue(ConnectionInfo::ListenerInfo(ListenerInfo {
 					id: random(),
 					handle,
+					is_reuse_port: connection.is_reuse_port,
 				}))?;
 			debug!("add handle: {}", handle)?;
 			wakeup.wakeup()?;
@@ -1340,6 +1413,7 @@ mod test {
 		let sc = ServerConnection {
 			tls_config: None,
 			handles,
+			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
 
@@ -1416,6 +1490,7 @@ mod test {
 		let sc = ServerConnection {
 			tls_config: None,
 			handles,
+			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
 
@@ -1526,6 +1601,7 @@ mod test {
 		let sc = ServerConnection {
 			tls_config: None,
 			handles,
+			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
 
@@ -1607,6 +1683,7 @@ mod test {
 		let sc = ServerConnection {
 			tls_config: None,
 			handles,
+			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
 
@@ -1707,6 +1784,7 @@ mod test {
 		let sc = ServerConnection {
 			tls_config: None,
 			handles,
+			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
 

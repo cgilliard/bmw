@@ -64,6 +64,7 @@ pub struct ClientConnection {
 pub struct ServerConnection {
 	pub(crate) handles: Array<Handle>,
 	pub(crate) tls_config: Option<TlsServerConfig>,
+	pub(crate) is_reuse_port: bool,
 }
 
 pub struct ConnectionData<'a> {
@@ -236,6 +237,7 @@ unsafe impl Sync for ConnectionInfo {}
 pub(crate) struct ListenerInfo {
 	pub(crate) id: u128,
 	pub(crate) handle: Handle,
+	pub(crate) is_reuse_port: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -247,6 +249,7 @@ pub(crate) struct ReadWriteInfo {
 	pub(crate) first_slab: u32,
 	pub(crate) last_slab: u32,
 	pub(crate) slab_offset: u16,
+	pub(crate) is_accepted: bool,
 }
 
 #[derive(Clone, Debug)]
