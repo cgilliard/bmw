@@ -54,6 +54,8 @@ const READ_SLAB_PTR_OFFSET: usize = 504;
 
 const HANDLE_SLAB_SIZE: usize = 42;
 const CONNECTION_SLAB_SIZE: usize = 90;
+#[cfg(target_os = "windows")]
+const WRITE_SET_SIZE: usize = 42;
 
 const WRITE_STATE_FLAG_PENDING: u8 = 0x1 << 0;
 
@@ -252,6 +254,9 @@ impl EventHandlerContext {
 			filter_set.set(i, false);
 		}
 
+		#[cfg(target_os = "windows")]
+		let _write_set_slabs = slab_allocator!(SlabSize(WRITE_SET_SIZE), SlabCount(MAX_EVENTS));
+
 		let _handle_slabs = slab_allocator!(
 			SlabSize(HANDLE_SLAB_SIZE),
 			SlabCount(max_handles_per_thread)
@@ -263,6 +268,9 @@ impl EventHandlerContext {
 		let read_slabs = slab_allocator!(SlabSize(READ_SLAB_SIZE), SlabCount(read_slab_count))?;
 		let handle_hashtable = hashtable_box!(Slabs(&_handle_slabs))?;
 		let connection_hashtable = hashtable_box!(Slabs(&_connection_slabs))?;
+
+		#[cfg(target_os = "windows")]
+		let write_set = hashset_box!(Slabs(&_write_set_slabs))?;
 
 		#[cfg(target_os = "linux")]
 		let epoll_events = {
@@ -283,6 +291,10 @@ impl EventHandlerContext {
 			filter_set,
 			#[cfg(target_os = "windows")]
 			filter_set,
+			#[cfg(target_os = "windows")]
+			write_set,
+			#[cfg(target_os = "windows")]
+			_write_set_slabs,
 			#[cfg(target_os = "macos")]
 			kevs: vec![],
 			#[cfg(target_os = "macos")]
@@ -569,6 +581,8 @@ where
 				};
 				debug!("get_events returned with {} event", count)?;
 				wakeup.post_block()?;
+				#[cfg(target_os = "windows")]
+				ctx.write_set.clear()?;
 				count
 			};
 			self.process_events(&mut ctx, count, wakeup)?;
@@ -696,6 +710,17 @@ where
 
 		if do_close {
 			self.process_close(ctx, &mut rw)?;
+		} else {
+			#[cfg(target_os = "windows")]
+			{
+				epoll_ctl_impl(
+					EPOLLIN | EPOLLOUT | EPOLLONESHOT | EPOLLRDHUP,
+					rw.handle,
+					&mut ctx.filter_set,
+					ctx.selector as *mut c_void,
+				)?;
+				ctx.write_set.insert(rw.handle)?;
+			}
 		}
 		Ok(())
 	}
@@ -744,12 +769,16 @@ where
 			}
 			if len <= 0 {
 				#[cfg(target_os = "windows")]
-				epoll_ctl_impl(
-					EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
-					rw.handle,
-					&mut ctx.filter_set,
-					ctx.selector as *mut c_void,
-				)?;
+				{
+					if !ctx.write_set.contains(rw.handle)? {
+						epoll_ctl_impl(
+							EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+							rw.handle,
+							&mut ctx.filter_set,
+							ctx.selector as *mut c_void,
+						)?;
+					}
+				}
 
 				break;
 			}

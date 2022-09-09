@@ -33,7 +33,7 @@ use std::os::windows::io::{AsRawSocket, IntoRawSocket};
 use std::sync::Arc;
 
 const WINSOCK_BUF_SIZE: winapi::c_int = 100_000_000;
-const MAX_EVENTS: i32 = 100;
+pub(crate) const MAX_EVENTS: i32 = 100;
 
 info!();
 

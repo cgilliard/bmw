@@ -117,9 +117,13 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) now: u128,
 	pub(crate) connection_hashtable: Box<dyn Hashtable<u128, ConnectionInfo>>,
 	pub(crate) handle_hashtable: Box<dyn Hashtable<Handle, u128>>,
+	#[cfg(target_os = "windows")]
+	pub(crate) write_set: Box<dyn Hashset<Handle>>,
 	pub(crate) read_slabs: Rc<RefCell<dyn SlabAllocator>>,
 	pub(crate) _connection_slabs: Rc<RefCell<dyn SlabAllocator>>,
 	pub(crate) _handle_slabs: Rc<RefCell<dyn SlabAllocator>>,
+	#[cfg(target_os = "windows")]
+	pub(crate) _write_set_slabs: Rc<RefCell<dyn SlabAllocator>>,
 	pub(crate) callback_context: ThreadContext,
 }
 
