@@ -714,8 +714,14 @@ where
 		}
 
 		if do_close {
+			let id = rw.id;
+			ctx.connection_hashtable
+				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 			self.process_close(ctx, &mut rw)?;
 		} else {
+			let id = rw.id;
+			ctx.connection_hashtable
+				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw))?;
 			#[cfg(target_os = "windows")]
 			{
 				epoll_ctl_impl(

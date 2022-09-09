@@ -66,7 +66,7 @@ pub(crate) fn write_bytes_impl(handle: Handle, buf: &[u8]) -> isize {
 pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
 	let handle_as_usize = handle.try_into()?;
 	debug!("filter set remove {}, tid={}", handle_as_usize, ctx.tid)?;
-	ctx.filter_set.remove(handle_as_usize);
+	ctx.filter_set.replace(handle_as_usize, false);
 	unsafe {
 		close(handle);
 	}
