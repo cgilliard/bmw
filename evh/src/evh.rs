@@ -58,6 +58,7 @@ const CONNECTION_SLAB_SIZE: usize = 90;
 const WRITE_SET_SIZE: usize = 42;
 
 const WRITE_STATE_FLAG_PENDING: u8 = 0x1 << 0;
+const WRITE_STATE_FLAG_CLOSE: u8 = 0x1 << 1;
 
 info!();
 
@@ -123,6 +124,7 @@ impl Serializable for ConnectionInfo {
 				let first_slab = reader.read_usize()?;
 				let last_slab = reader.read_usize()?;
 				let slab_offset = reader.read_u16()?;
+				debug!("deser for id = {}", id)?;
 				Ok(ConnectionInfo::ReadWriteInfo(ReadWriteInfo {
 					id,
 					handle,
@@ -149,6 +151,7 @@ impl Serializable for ConnectionInfo {
 				li.write(writer)?;
 			}
 			ConnectionInfo::ReadWriteInfo(ri) => {
+				debug!("ser for id={}", ri.id)?;
 				writer.write_u8(1)?;
 				writer.write_u128(ri.id)?;
 				ri.handle.write(writer)?;
@@ -345,13 +348,29 @@ impl WriteHandle {
 			event_handler_data,
 		}
 	}
-	pub fn close(&self) -> Result<(), Error> {
-		todo!()
+	pub fn close(&mut self) -> Result<(), Error> {
+		{
+			debug!("wlock for {}", self.id)?;
+			let mut write_state = self.write_state.wlock()?;
+			let guard = write_state.guard();
+			(**guard).set_flag(WRITE_STATE_FLAG_CLOSE);
+			debug!("unlockwlock for {}", self.id)?;
+		}
+		{
+			let mut event_handler_data = self.event_handler_data.wlock()?;
+			let guard = event_handler_data.guard();
+			(**guard).write_queue.enqueue(self.id)?;
+		}
+		self.wakeup.wakeup()?;
+		Ok(())
 	}
 	pub fn write(&mut self, data: &[u8]) -> Result<(), Error> {
 		let data_len = data.len();
 		let len = {
 			let write_state = self.write_state.rlock()?;
+			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_CLOSE) {
+				return Err(err!(ErrKind::IO, "write handle closed"));
+			}
 			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_PENDING) {
 				0
 			} else {
@@ -377,11 +396,13 @@ impl WriteHandle {
 
 	fn queue_data(&mut self, data: &[u8]) -> Result<(), Error> {
 		let was_pending = {
+			debug!("wlock for {}", self.id)?;
 			let mut write_state = self.write_state.wlock()?;
 			let guard = write_state.guard();
 			let ret = (**guard).is_set(WRITE_STATE_FLAG_PENDING);
 			(**guard).set_flag(WRITE_STATE_FLAG_PENDING);
 			(**guard).write_buffer.extend(data);
+			debug!("unlock wlock for {}", self.id)?;
 			ret
 		};
 		if !was_pending {
@@ -414,31 +435,6 @@ impl<'a> ConnectionData<'a> {
 
 	fn clear_through_impl(&mut self, slab_id: usize) -> Result<(), Error> {
 		self.rwi.clear_through_impl(slab_id, &self.slabs)
-		/*
-		let mut next = self.rwi.first_slab;
-		let mut slabs = self.slabs.borrow_mut();
-		loop {
-			if next == usize::MAX {
-				break;
-			}
-
-			let next_slab = usize::from_be_bytes(try_into!(
-				&slabs.get(next)?.get()[READ_SLAB_PTR_OFFSET..READ_SLAB_SIZE]
-			)?);
-			slabs.free(next)?;
-
-			if next == slab_id {
-				self.rwi.first_slab = next_slab;
-				if next_slab == usize::MAX {
-					self.rwi.last_slab = usize::MAX;
-				}
-				break;
-			}
-			next = next_slab;
-		}
-
-		Ok(())
-				*/
 	}
 }
 
@@ -596,13 +592,18 @@ where
 			match (**guard).write_queue.dequeue() {
 				Some(next) => match ctx.connection_hashtable.get(&next)? {
 					Some(ci) => match ci {
-						ConnectionInfo::ReadWriteInfo(rwi) => {
+						ConnectionInfo::ReadWriteInfo(ref rwi) => {
 							let handle = rwi.handle;
 							ctx.events_in[ctx.events_in_count] = EventIn {
 								handle,
 								etype: EventTypeIn::Write,
 							};
 							ctx.events_in_count += 1;
+
+							// we must update the hashtable to keep
+							// things consistent in terms of our
+							// deserializable/serializable
+							ctx.connection_hashtable.insert(&next, &ci)?;
 						}
 						_ => todo!(),
 					},
@@ -691,12 +692,16 @@ where
 		let mut do_close = false;
 
 		{
+			debug!("wlock for {}", rw.id)?;
 			let mut write_state = rw.write_state.wlock()?;
 			let guard = write_state.guard();
 			loop {
 				let len = (**guard).write_buffer.len();
 				if len == 0 {
 					(**guard).unset_flag(WRITE_STATE_FLAG_PENDING);
+					if (**guard).is_set(WRITE_STATE_FLAG_CLOSE) {
+						do_close = true;
+					}
 					break;
 				}
 				let wlen = write_bytes(rw.handle, &(**guard).write_buffer);
@@ -1349,6 +1354,94 @@ mod test {
 			}
 			assert_eq!((**((close_count_clone.rlock()?).guard())), 11);
 			break;
+		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_server_close() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 2;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 1,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		let mut close_count = lock_box!(0)?;
+		let close_count_clone = close_count.clone();
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read fs = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab)?;
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				if slab.get()[0] == 'x' as u8 {
+					Ok(vec![])
+				} else {
+					let mut ret: Vec<u8> = vec![];
+					ret.extend(&slab.get()[0..slab_offset as usize]);
+					Ok(ret)
+				}
+			})?;
+			conn_data.clear_through(first_slab)?;
+			if res.len() > 0 {
+				conn_data.write_handle().write(&res)?;
+			} else {
+				conn_data.write_handle().close()?;
+			}
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			info!("accept a connection handle = {}", conn_data.get_handle())?;
+			Ok(())
+		})?;
+		evh.set_on_close(move |conn_data, _thread_context| {
+			info!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			let mut close_count = close_count.wlock()?;
+			(**close_count.guard()) += 1;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+		};
+		evh.add_server(sc)?;
+
+		{
+			let mut connection = TcpStream::connect(addr)?;
+			connection.write(b"test1")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test1");
+			connection.write(b"test2")?;
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test2");
+			connection.write(b"xabc")?;
+			let len = connection.read(&mut buf)?;
+			assert_eq!(len, 0);
+			assert_eq!(**((close_count_clone.rlock()?).guard()), 1);
 		}
 
 		Ok(())
