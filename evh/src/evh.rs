@@ -1169,7 +1169,7 @@ mod test {
 							break;
 						}
 					}
-					sleep(Duration::from_millis(1_000));
+					sleep(Duration::from_millis(100));
 					info!("len={},err={}", len, errno())?;
 				}
 			}
@@ -1181,7 +1181,7 @@ mod test {
 			Ok(())
 		});
 
-		sleep(Duration::from_millis(3_000));
+		sleep(Duration::from_millis(300));
 		wakeup.wakeup()?;
 
 		loop {
