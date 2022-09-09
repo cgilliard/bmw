@@ -25,7 +25,6 @@ use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
 use std::cell::{Ref, RefCell};
-use std::os::raw::c_void;
 use std::rc::Rc;
 
 #[cfg(target_os = "linux")]
@@ -39,6 +38,8 @@ use crate::win::*;
 use bmw_deps::bitvec::vec::BitVec;
 #[cfg(target_os = "windows")]
 use bmw_deps::wepoll_sys::{epoll_create, EPOLLIN, EPOLLONESHOT, EPOLLRDHUP};
+#[cfg(target_os = "windows")]
+use std::os::raw::c_void;
 
 #[cfg(target_os = "macos")]
 use bmw_deps::kqueue_sys::{kevent, kqueue, EventFilter, EventFlag, FilterFlag};
@@ -742,6 +743,7 @@ where
 				do_close = true;
 			}
 			if len <= 0 {
+				#[cfg(target_os = "windows")]
 				epoll_ctl_impl(
 					EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
 					rw.handle,
@@ -845,7 +847,6 @@ where
 		li: ListenerInfo,
 		ctx: &mut EventHandlerContext,
 	) -> Result<(), Error> {
-		info!("process accept");
 		set_errno(Errno(0));
 		let handle = accept_impl(li.handle)?;
 		debug!("accept handle = {},tid={}", handle, ctx.tid)?;
@@ -889,6 +890,7 @@ where
 			None => {}
 		}
 
+		#[cfg(target_os = "windows")]
 		epoll_ctl_impl(
 			EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
 			li.handle,
@@ -1290,21 +1292,16 @@ mod test {
 			let len = connection.read(&mut buf)?;
 			assert_eq!(&buf[0..len], b"test2");
 		}
-		info!("here");
-		for i in 0..10 {
-			info!("i={}", i);
+
+		for _ in 0..10 {
 			let mut connection = TcpStream::connect(addr)?;
 			connection.write(b"test1")?;
-			info!("1");
 			let mut buf = vec![];
 			buf.resize(100, 0u8);
 			let len = connection.read(&mut buf)?;
-			info!("2");
 			assert_eq!(&buf[0..len], b"test1");
 			connection.write(b"test2")?;
-			info!("3");
 			let len = connection.read(&mut buf)?;
-			info!("4");
 			assert_eq!(&buf[0..len], b"test2");
 		}
 
