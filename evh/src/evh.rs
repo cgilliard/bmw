@@ -706,9 +706,12 @@ where
 			match ctx.handle_hashtable.get(&ctx.events[i].handle)? {
 				Some(id) => match ctx.connection_hashtable.get(&id)? {
 					Some(ci) => match ci {
-						ConnectionInfo::ListenerInfo(li) => {
-							self.process_accept(li, ctx)?;
-						}
+						ConnectionInfo::ListenerInfo(li) => loop {
+							let handle = self.process_accept(&li, ctx)?;
+							if handle <= 0 {
+								break;
+							}
+						},
 						ConnectionInfo::ReadWriteInfo(rw) => match ctx.events[i].etype {
 							EventType::Read => self.process_read(rw, ctx)?,
 							EventType::Write => self.process_write(rw, ctx)?,
@@ -963,11 +966,15 @@ where
 
 	fn process_accept(
 		&mut self,
-		li: ListenerInfo,
+		li: &ListenerInfo,
 		ctx: &mut EventHandlerContext,
-	) -> Result<(), Error> {
+	) -> Result<Handle, Error> {
 		set_errno(Errno(0));
 		let handle = accept_impl(li.handle)?;
+		// this is a would block and means no more accepts to process
+		if handle < 0 {
+			return Ok(handle);
+		}
 		debug!(
 			"===================accept handle = {},tid={},reuse_port={}",
 			handle, ctx.tid, li.is_reuse_port
@@ -998,6 +1005,7 @@ where
 
 		if li.is_reuse_port {
 			self.process_accepted_connection(ctx, handle, rwi, id)?;
+			debug!("process acc: {},tid={}", handle, ctx.tid)?;
 		} else {
 			let tid = random::<usize>() % self.config.threads;
 			debug!("tid={},threads={}", tid, self.config.threads)?;
@@ -1034,7 +1042,7 @@ where
 			debug!("wakeup called on tid = {}", tid)?;
 			self.wakeup[tid].wakeup()?;
 		}
-		Ok(())
+		Ok(handle)
 	}
 
 	fn process_accepted_connection(

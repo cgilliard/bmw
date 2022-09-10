@@ -22,3 +22,13 @@ args:
         long: itt
         takes_value: true
         value_name: itt
+    - clients:
+        help: number of clients
+        long: clients
+        takes_value: true
+        value_name: clients
+    - threads:
+        help: number of threads for server
+        long: threads
+        takes_value: true
+        value_name: threads

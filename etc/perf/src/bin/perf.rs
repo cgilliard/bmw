@@ -92,10 +92,13 @@ pub mod built_info {
 }
 
 fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
+	let threads: usize = match args.is_present("threads") {
+		true => args.value_of("threads").unwrap().parse()?,
+		false => 1,
+	};
 	let port = 8081;
 	info!("Using port: {}", port)?;
 	let addr = &format!("127.0.0.1:{}", port)[..];
-	let threads = 2;
 	let config = EventHandlerConfig {
 		threads,
 		housekeeping_frequency_millis: 10_000,
@@ -163,20 +166,25 @@ fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 
 fn run_client(args: ArgMatches) -> Result<(), Error> {
 	let port = 8081;
-	let itt = match args.is_present("itt") {
+	let itt: usize = match args.is_present("itt") {
 		true => args.value_of("itt").unwrap().parse()?,
 		false => 1_000,
 	};
-	let count = match args.is_present("count") {
+	let count: usize = match args.is_present("count") {
 		true => args.value_of("count").unwrap().parse()?,
 		false => 10,
 	};
+	let clients: usize = match args.is_present("clients") {
+		true => args.value_of("clients").unwrap().parse()?,
+		false => 1,
+	};
+	let total = count * itt * clients;
 
-	info!("itt={},count={}", itt, count)?;
+	info!("itt={},count={},clients={}", itt, count, clients)?;
 
 	info!("Using port: {}", port)?;
 	let addr = &format!("127.0.0.1:{}", port)[..];
-	let threads = 2;
+	let threads = clients;
 	let config = EventHandlerConfig {
 		threads,
 		housekeeping_frequency_millis: 10_000,
@@ -186,7 +194,7 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 	};
 	let mut evh = bmw_evh::Builder::build_evh(config)?;
 
-	let mut recv_count = lock_box!(0)?;
+	let mut recv_count = lock_box!(0usize)?;
 	let mut recv_count_clone = recv_count.clone();
 	let (tx, rx) = sync_channel(1);
 	let mut sender = lock_box!(tx)?;
@@ -207,8 +215,8 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 			)?;
 			let mut recv_count = recv_count.wlock()?;
 			let guard = recv_count.guard();
-			(**guard) += slab_offset;
-			if (**guard) >= count * 4 {
+			(**guard) += slab_offset as usize;
+			if (**guard) >= count * 4 * threads {
 				let mut tx = sender.wlock()?;
 				(**tx.guard()).send(1)?;
 			}
@@ -238,22 +246,28 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 	evh.set_housekeeper(move |_thread_context| Ok(()))?;
 	evh.start()?;
 
-	let connection = TcpStream::connect(addr)?;
-	#[cfg(unix)]
-	let connection_handle = connection.into_raw_fd();
-	#[cfg(windows)]
-	let connection_handle = connection.into_raw_socket();
+	let mut whs = vec![];
+	for i in 0..clients {
+		let connection = TcpStream::connect(addr)?;
+		#[cfg(unix)]
+		let connection_handle = connection.into_raw_fd();
+		#[cfg(windows)]
+		let connection_handle = connection.into_raw_socket();
 
-	let client = ClientConnection {
-		handle: connection_handle,
-		tls_config: None,
-	};
-	let mut wh = evh.add_client(client)?;
+		let client = ClientConnection {
+			handle: connection_handle,
+			tls_config: None,
+		};
+		let mut wh = evh.add_client(client)?;
+		whs.push(wh);
+	}
 
 	let now = Instant::now();
 	for i in 0..itt {
 		for _ in 0..count {
-			wh.write(b"test")?;
+			for wh in &mut whs {
+				wh.write(b"test")?;
+			}
 		}
 
 		let ret = rx.recv()?;
@@ -265,12 +279,10 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 	}
 	let elapsed = now.elapsed();
 	let elapsed_nanos = elapsed.as_nanos() as f64;
-	let qps = ((itt * count) as f64 / elapsed_nanos) * 1_000_000_000.0;
+	let qps = ((itt * count * clients) as f64 / elapsed_nanos) * 1_000_000_000.0;
 	info!(
-		"received {}  messages in {:?}, QPS = {}",
-		itt * count,
-		elapsed,
-		qps
+		"received {} messages in {:?}, QPS = {}",
+		total, elapsed, qps,
 	)?;
 
 	Ok(())
