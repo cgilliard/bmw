@@ -78,6 +78,9 @@ pub(crate) fn create_listeners_impl(
 		bind(fd, &sock_addr)?;
 		listen(fd, listen_size)?;
 		ret[i] = fd;
+		unsafe {
+			fcntl(fd, F_SETFL, O_NONBLOCK);
+		}
 	}
 
 	Ok(ret)
@@ -94,6 +97,10 @@ pub(crate) fn accept_impl(fd: RawFd) -> Result<RawFd, Error> {
 	};
 
 	if handle < 0 {
+		if errno().0 == libc::EAGAIN {
+			// would block, return the negative number
+			return Ok(handle);
+		}
 		let fmt = format!("accept failed: {}", errno());
 		return Err(err!(ErrKind::IO, fmt));
 	}
