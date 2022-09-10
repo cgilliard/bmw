@@ -52,7 +52,7 @@ pub struct TlsClientConfig {
 #[cfg(unix)]
 pub(crate) type Handle = RawFd;
 #[cfg(windows)]
-pub(crate) type Handle = u64;
+pub(crate) type Handle = usize;
 
 pub struct ThreadContext {}
 

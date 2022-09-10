@@ -315,7 +315,7 @@ impl EventHandlerContext {
 			#[cfg(target_os = "linux")]
 			epoll_events,
 			#[cfg(windows)]
-			selector: unsafe { epoll_create(1) } as u64,
+			selector: unsafe { epoll_create(1) } as usize,
 			read_slabs,
 			_handle_slabs,
 			_connection_slabs,
@@ -713,7 +713,7 @@ where
 								break;
 							}
 							#[cfg(windows)]
-							if handle == u64::MAX {
+							if handle == usize::MAX {
 								break;
 							}
 						},
@@ -982,7 +982,7 @@ where
 			return Ok(handle);
 		}
 		#[cfg(windows)]
-		if handle == u64::MAX {
+		if handle == usize::MAX {
 			return Ok(handle);
 		}
 		debug!(
@@ -1815,7 +1815,7 @@ mod test {
 		#[cfg(unix)]
 		let connection_handle = connection.into_raw_fd();
 		#[cfg(windows)]
-		let connection_handle = connection.into_raw_socket();
+		let connection_handle = connection.into_raw_socket().try_into()?;
 		{
 			let mut client_handle = client_handle.wlock()?;
 			(**client_handle.guard()) = connection_handle;

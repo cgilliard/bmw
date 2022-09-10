@@ -17,8 +17,6 @@
 
 #[cfg(windows)]
 pub use wepoll_sys;
-#[cfg(windows)]
-pub use ws2_32;
 
 #[cfg(target_os = "macos")]
 pub use kqueue_sys;

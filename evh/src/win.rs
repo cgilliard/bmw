@@ -15,8 +15,8 @@ use crate::types::{Event, EventHandlerContext, EventType, EventTypeIn, Handle};
 use crate::EventHandlerConfig;
 use bmw_deps::bitvec::vec::*;
 use bmw_deps::errno::{errno, set_errno, Errno};
-use bmw_deps::winapi::ws2def::SOCKADDR;
-use bmw_deps::ws2_32::{accept, closesocket, ioctlsocket, recv, send, setsockopt};
+use bmw_deps::winapi::shared::ws2def::SOCKADDR;
+use bmw_deps::winapi::um::winsock2::{accept, closesocket, ioctlsocket, recv, send, setsockopt};
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
@@ -130,7 +130,12 @@ pub(crate) fn get_reader_writer() -> Result<
 	let stream_socket = stream.as_raw_socket();
 	_tcp_stream = Some(Arc::new(stream));
 	_tcp_listener = Some(Arc::new(listener));
-	Ok((listener_socket, stream_socket, _tcp_listener, _tcp_stream))
+	Ok((
+		listener_socket.try_into()?,
+		stream_socket.try_into()?,
+		_tcp_listener,
+		_tcp_stream,
+	))
 }
 
 pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
@@ -176,7 +181,7 @@ pub(crate) fn accept_impl(handle: Handle) -> Result<Handle, Error> {
 			&mut (size_of::<SOCKADDR>() as u32).try_into()?,
 		)
 	};
-	if handle != u64::MAX {
+	if handle != usize::MAX {
 		set_windows_socket_options(handle)?;
 	}
 	Ok(handle)
@@ -324,7 +329,7 @@ pub(crate) fn create_listeners_impl(
 	_listen_size: usize,
 ) -> Result<Array<Handle>, Error> {
 	let mut ret = array!(size, &0)?;
-	let handle = TcpListener::bind(addr)?.into_raw_socket();
+	let handle = TcpListener::bind(addr)?.into_raw_socket().try_into()?;
 	let fionbio = 0x8004667eu32;
 	let ioctl_res = unsafe { ioctlsocket(handle, fionbio as c_int, &mut 1) };
 
