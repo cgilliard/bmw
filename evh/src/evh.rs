@@ -708,7 +708,12 @@ where
 					Some(ci) => match ci {
 						ConnectionInfo::ListenerInfo(li) => loop {
 							let handle = self.process_accept(&li, ctx)?;
+							#[cfg(unix)]
 							if handle <= 0 {
+								break;
+							}
+							#[cfg(windows)]
+							if handle == u64::MAX {
 								break;
 							}
 						},
@@ -972,7 +977,12 @@ where
 		set_errno(Errno(0));
 		let handle = accept_impl(li.handle)?;
 		// this is a would block and means no more accepts to process
+		#[cfg(unix)]
 		if handle < 0 {
+			return Ok(handle);
+		}
+		#[cfg(windows)]
+		if handle == u64::MAX {
 			return Ok(handle);
 		}
 		debug!(

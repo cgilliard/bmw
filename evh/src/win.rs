@@ -15,7 +15,7 @@ use crate::types::{Event, EventHandlerContext, EventType, EventTypeIn, Handle};
 use crate::EventHandlerConfig;
 use bmw_deps::bitvec::vec::*;
 use bmw_deps::errno::{errno, set_errno, Errno};
-use bmw_deps::winapi::{self, c_void, ws2def::SOCKADDR};
+use bmw_deps::winapi::ws2def::SOCKADDR;
 use bmw_deps::ws2_32::{accept, closesocket, ioctlsocket, recv, send, setsockopt};
 use bmw_err::*;
 use bmw_log::*;
@@ -28,11 +28,13 @@ use bmw_deps::wepoll_sys::{
 	EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
 };
 use std::net::{TcpListener, TcpStream};
-use std::os::raw::c_int;
+use std::os::raw::{c_int, c_void};
 use std::os::windows::io::{AsRawSocket, IntoRawSocket};
 use std::sync::Arc;
 
-const WINSOCK_BUF_SIZE: winapi::c_int = 100_000_000;
+const SOL_SOCKET: c_int = 0xFFFF;
+const SO_SNDBUF: c_int = 0x1001;
+const WINSOCK_BUF_SIZE: c_int = 100_000_000;
 pub(crate) const MAX_EVENTS: usize = 100;
 
 info!();
@@ -65,10 +67,10 @@ pub(crate) fn set_windows_socket_options(handle: Handle) -> Result<(), Error> {
 	let sockoptres = unsafe {
 		setsockopt(
 			handle,
-			winapi::SOL_SOCKET,
-			winapi::SO_SNDBUF,
+			SOL_SOCKET,
+			SO_SNDBUF,
 			&WINSOCK_BUF_SIZE as *const _ as *const i8,
-			std::mem::size_of_val(&WINSOCK_BUF_SIZE) as winapi::c_int,
+			std::mem::size_of_val(&WINSOCK_BUF_SIZE) as c_int,
 		)
 	};
 
@@ -174,8 +176,9 @@ pub(crate) fn accept_impl(handle: Handle) -> Result<Handle, Error> {
 			&mut (size_of::<SOCKADDR>() as u32).try_into()?,
 		)
 	};
-
-	set_windows_socket_options(handle)?;
+	if handle != u64::MAX {
+		set_windows_socket_options(handle)?;
+	}
 	Ok(handle)
 }
 
@@ -322,6 +325,15 @@ pub(crate) fn create_listeners_impl(
 ) -> Result<Array<Handle>, Error> {
 	let mut ret = array!(size, &0)?;
 	let handle = TcpListener::bind(addr)?.into_raw_socket();
+	let fionbio = 0x8004667eu32;
+	let ioctl_res = unsafe { ioctlsocket(handle, fionbio as c_int, &mut 1) };
+
+	if ioctl_res != 0 {
+		return Err(err!(
+			ErrKind::IO,
+			format!("complete fion with error: {}", errno().to_string())
+		));
+	}
 
 	ret[0] = handle;
 
