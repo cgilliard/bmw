@@ -119,6 +119,13 @@ pub(crate) fn close_impl(_ctx: &mut EventHandlerContext, handle: Handle) -> Resu
 	Ok(())
 }
 
+pub(crate) fn close_handle_impl(handle: Handle) -> Result<(), Error> {
+	unsafe {
+		close(handle);
+	}
+	Ok(())
+}
+
 pub(crate) fn get_events_impl(
 	config: &EventHandlerConfig,
 	ctx: &mut EventHandlerContext,

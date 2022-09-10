@@ -838,6 +838,9 @@ pub trait ThreadPool<T> {
 	/// Returns the current size of the thread pool which will be between
 	/// [`crate::ThreadPoolConfig::min_size`] and [`crate::ThreadPoolConfig::max_size`].
 	fn size(&self) -> Result<usize, Error>;
+
+	/// Get the [`crate::ThreadPoolState`] for this thread pool.
+	fn stopper(&self) -> Result<ThreadPoolStopper, Error>;
 }
 
 /// Struct that is used as a mutable reference to data in a slab. See [`crate::SlabAllocator`] for
@@ -1154,6 +1157,22 @@ pub struct ArrayIterator<'a, T> {
 	pub(crate) cur: usize,
 }
 
+/// Internally used struct that stores the state of the thread pool.
+#[derive(Debug, Clone, Serializable)]
+pub struct ThreadPoolState {
+	pub(crate) waiting: usize,
+	pub(crate) cur_size: usize,
+	pub(crate) config: ThreadPoolConfig,
+	pub(crate) stop: bool,
+}
+
+/// Struct that can be used to stop the thread pool. Note the limitations
+/// in [`crate::ThreadPoolStopper::stop`].
+#[derive(Debug, Clone)]
+pub struct ThreadPoolStopper {
+	pub(crate) state: Box<dyn LockBox<ThreadPoolState>>,
+}
+
 // crate local structs/enums
 
 #[derive(Clone, Debug)]
@@ -1231,14 +1250,6 @@ pub(crate) struct SlabAllocatorImpl {
 pub(crate) struct LockImpl<T> {
 	pub(crate) t: Arc<RwLock<T>>,
 	pub(crate) id: u128,
-}
-
-#[derive(Debug, Clone, Serializable)]
-pub(crate) struct ThreadPoolState {
-	pub(crate) waiting: usize,
-	pub(crate) cur_size: usize,
-	pub(crate) config: ThreadPoolConfig,
-	pub(crate) stop: bool,
 }
 
 pub(crate) struct FutureWrapper<T> {

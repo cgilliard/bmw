@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use crate::types::{FutureWrapper, ThreadPoolImpl, ThreadPoolState, ThreadPoolTestConfig};
-use crate::{Builder, LockBox, PoolResult, ThreadPool, ThreadPoolConfig};
+use crate::{Builder, LockBox, PoolResult, ThreadPool, ThreadPoolConfig, ThreadPoolStopper};
 use bmw_deps::dyn_clone::clone_box;
 use bmw_deps::futures::executor::block_on;
 use bmw_err::{err, ErrKind, Error};
@@ -102,8 +102,8 @@ impl<T: 'static + Send + Sync> ThreadPoolImpl<T> {
 								let guard = &mut **state.guard();
 
 								debug!("state = {:?}", guard)?;
-								// we have too many threads. Exit
-								// this one.
+								// we have too many threads or stop
+								// was set. Exit this one.
 								if guard.stop || guard.waiting >= guard.config.min_size {
 									return Ok(());
 								}
@@ -225,6 +225,29 @@ impl<T: 'static + Send + Sync> ThreadPool<T> for ThreadPoolImpl<T> {
 	fn size(&self) -> Result<usize, Error> {
 		let state = self.state.rlock()?;
 		Ok((**state.guard()).cur_size)
+	}
+
+	fn stopper(&self) -> Result<ThreadPoolStopper, Error> {
+		Ok(ThreadPoolStopper {
+			state: self.state.clone(),
+		})
+	}
+}
+
+impl ThreadPoolStopper {
+	/// Stop all threads in the thread pool from executing new tasks.
+	/// note that this does not terminate the threads if they are idle, it
+	/// will just make the threads end after their next task is executed.
+	/// The main purpose of this function is so that the state can be stored
+	/// in a struct, but caller must ensure that the threads stop.
+	/// This is not the case with [`crate::ThreadPool::stop`] and that function
+	/// should be used where possible.
+	pub fn stop(&mut self) -> Result<(), Error> {
+		let mut state = self.state.wlock()?;
+		let guard = state.guard();
+		(**guard).stop = true;
+
+		Ok(())
 	}
 }
 

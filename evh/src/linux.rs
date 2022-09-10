@@ -73,6 +73,13 @@ pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Resul
 	Ok(())
 }
 
+pub(crate) fn close_handle_impl(handle: Handle) -> Result<(), Error> {
+	unsafe {
+		close(handle);
+	}
+	Ok(())
+}
+
 pub(crate) fn accept_impl(fd: RawFd) -> Result<RawFd, Error> {
 	set_errno(Errno(0));
 	let handle = unsafe {

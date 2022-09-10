@@ -173,6 +173,13 @@ pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Resul
 	Ok(())
 }
 
+pub(crate) fn close_handle_impl(handle: Handle) -> Result<(), Error> {
+	unsafe {
+		closesocket(handle);
+	}
+	Ok(())
+}
+
 pub(crate) fn accept_impl(handle: Handle) -> Result<Handle, Error> {
 	let handle = unsafe {
 		accept(

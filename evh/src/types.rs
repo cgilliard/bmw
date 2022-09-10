@@ -212,6 +212,7 @@ where
 	pub(crate) config: EventHandlerConfig,
 	pub(crate) data: Array<Box<dyn LockBox<EventHandlerData>>>,
 	pub(crate) wakeup: Array<Wakeup>,
+	pub(crate) thread_pool_stopper: Option<ThreadPoolStopper>,
 }
 
 #[derive(Clone)]

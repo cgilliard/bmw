@@ -552,6 +552,7 @@ where
 			config,
 			data,
 			wakeup,
+			thread_pool_stopper: None,
 		})
 	}
 
@@ -585,10 +586,12 @@ where
 		};
 		ctx.events_in_count += 1;
 
-		debug!("pre_loop")?;
 		loop {
 			debug!("start loop")?;
-			self.process_new_connections(&mut ctx)?;
+			let stop = self.process_new_connections(&mut ctx)?;
+			if stop {
+				break;
+			}
 			self.process_write_queue(&mut ctx)?;
 			let count = {
 				debug!("calling get_events")?;
@@ -604,6 +607,25 @@ where
 			};
 			self.process_events(&mut ctx, count, wakeup)?;
 		}
+		debug!("thread {} stop ", ctx.tid)?;
+		self.close_handles(&mut ctx)?;
+		Ok(())
+	}
+
+	fn close_handles(&self, ctx: &mut EventHandlerContext) -> Result<(), Error> {
+		for (_, conn) in ctx.connection_hashtable.iter() {
+			match conn {
+				ConnectionInfo::ListenerInfo(li) => {
+					debug!("shut down li = {:?}", li)?;
+					close_handle_impl(li.handle)?;
+				}
+				ConnectionInfo::ReadWriteInfo(rw) => {
+					debug!("shut down rw = {:?}", rw)?;
+					close_handle_impl(rw.handle)?;
+				}
+			}
+		}
+		Ok(())
 	}
 
 	fn process_write_queue(&mut self, ctx: &mut EventHandlerContext) -> Result<(), Error> {
@@ -638,9 +660,12 @@ where
 		Ok(())
 	}
 
-	fn process_new_connections(&mut self, ctx: &mut EventHandlerContext) -> Result<(), Error> {
+	fn process_new_connections(&mut self, ctx: &mut EventHandlerContext) -> Result<bool, Error> {
 		let mut data = self.data[ctx.tid].wlock()?;
 		let guard = data.guard();
+		if (**guard).stop {
+			return Ok(true);
+		}
 		debug!(
 			"ctx.nhandles.size={},ctx.tid={}",
 			(**guard).nhandles.length(),
@@ -677,7 +702,7 @@ where
 				None => break,
 			}
 		}
-		Ok(())
+		Ok(false)
 	}
 
 	fn process_events(
@@ -690,7 +715,7 @@ where
 		for i in 0..count {
 			debug!("event={:?}", ctx.events[i])?;
 			if ctx.events[i].handle == wakeup.reader {
-				debug!("======WAKEUP, handle={}, tid={}", wakeup.reader, ctx.tid)?;
+				debug!("WAKEUP, handle={}, tid={}", wakeup.reader, ctx.tid)?;
 				read_bytes(ctx.events[i].handle, &mut [0u8; 1]);
 				#[cfg(target_os = "windows")]
 				epoll_ctl_impl(
@@ -1146,7 +1171,17 @@ where
 		Ok(())
 	}
 	fn stop(&mut self) -> Result<(), Error> {
-		todo!()
+		match self.thread_pool_stopper.as_mut() {
+			Some(ref mut stopper) => stopper.stop()?,
+			None => {}
+		}
+		for i in 0..self.wakeup.size() {
+			let mut data = self.data[i].wlock()?;
+			let guard = data.guard();
+			(**guard).stop = true;
+			self.wakeup[i].wakeup()?;
+		}
+		Ok(())
 	}
 	fn start(&mut self) -> Result<(), Error> {
 		let tid = lock!(0)?;
@@ -1177,6 +1212,8 @@ where
 				Ok(())
 			})?;
 		}
+
+		self.thread_pool_stopper = Some(tp.stopper()?);
 
 		Ok(())
 	}
@@ -1974,6 +2011,84 @@ mod test {
 			assert_ne!(tid0count, 0);
 			assert_ne!(tid1count, 0);
 		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_stop() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 2;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read fs = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			conn_data.write_handle().write(&res)?;
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			info!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			info!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut connection = TcpStream::connect(addr)?;
+		sleep(Duration::from_millis(1000));
+		evh.stop()?;
+		sleep(Duration::from_millis(1000));
+
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = connection.read(&mut buf)?;
+
+		assert_eq!(len, 0);
 
 		Ok(())
 	}

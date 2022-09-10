@@ -542,7 +542,7 @@ pub use crate::types::{
 	ListConfig, ListIterator, Lock, LockBox, Match, Pattern, PatternParam, PoolResult, Queue,
 	RwLockReadGuardWrapper, RwLockWriteGuardWrapper, Slab, SlabAllocator, SlabAllocatorConfig,
 	SlabMut, SlabReader, SlabWriter, SortableList, Stack, SuffixParam, SuffixTree, ThreadPool,
-	ThreadPoolConfig,
+	ThreadPoolConfig, ThreadPoolStopper,
 };
 
 pub use crate::lock::lock_box_from_usize;
