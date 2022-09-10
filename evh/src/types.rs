@@ -57,14 +57,14 @@ pub(crate) type Handle = u64;
 pub struct ThreadContext {}
 
 pub struct ClientConnection {
-	pub(crate) handle: Handle,
-	pub(crate) tls_config: Option<TlsClientConfig>,
+	pub handle: Handle,
+	pub tls_config: Option<TlsClientConfig>,
 }
 
 pub struct ServerConnection {
-	pub(crate) handles: Array<Handle>,
-	pub(crate) tls_config: Option<TlsServerConfig>,
-	pub(crate) is_reuse_port: bool,
+	pub handles: Array<Handle>,
+	pub tls_config: Option<TlsServerConfig>,
+	pub is_reuse_port: bool,
 }
 
 pub struct ConnectionData<'a> {

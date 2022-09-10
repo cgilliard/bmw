@@ -1,5 +1,5 @@
 [package]
-name = "ds_perf"
+name = "perf"
 version = "0.0.3-beta.1"
 edition = "2021"
 description = "Utility to test performance of data structurs"
@@ -17,6 +17,7 @@ bmw_deps = { path = "../../deps" }
 bmw_log = { path = "../../log" }
 bmw_util = { path = "../../util" }
 bmw_err = { path = "../../error" }
+bmw_evh = { path = "../../evh" }
 
 clap = { version = "2.33", features = ["yaml"] }
 
