@@ -63,6 +63,7 @@ const WRITE_STATE_FLAG_CLOSE: u8 = 0x1 << 1;
 
 const EAGAIN: i32 = 11;
 const ETEMPUNAVAILABLE: i32 = 35;
+const WINNONBLOCKING: i32 = 10035;
 
 info!();
 
@@ -393,7 +394,7 @@ impl WriteHandle {
 
 		if len < 0 {
 			// check for would block
-			if errno().0 != EAGAIN && errno().0 != ETEMPUNAVAILABLE {
+			if errno().0 != EAGAIN && errno().0 != ETEMPUNAVAILABLE && errno().0 != WINNONBLOCKING {
 				return Err(err!(
 					ErrKind::IO,
 					format!("writing generated error: {}", errno())
@@ -884,7 +885,10 @@ where
 			}
 			if len < 0 {
 				// EAGAIN is would block.
-				if errno().0 != EAGAIN && errno().0 != ETEMPUNAVAILABLE {
+				if errno().0 != EAGAIN
+					&& errno().0 != ETEMPUNAVAILABLE
+					&& errno().0 != WINNONBLOCKING
+				{
 					info!("error = {}, e.0 = {}", errno(), errno().0);
 					do_close = true;
 				}
