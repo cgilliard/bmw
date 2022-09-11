@@ -62,6 +62,7 @@ const WRITE_STATE_FLAG_PENDING: u8 = 0x1 << 0;
 const WRITE_STATE_FLAG_CLOSE: u8 = 0x1 << 1;
 
 const EAGAIN: i32 = 11;
+const ETEMPUNAVAILABLE: i32 = 35;
 
 info!();
 
@@ -392,16 +393,18 @@ impl WriteHandle {
 
 		if len < 0 {
 			// check for would block
-			if errno().0 != EAGAIN {
+			if errno().0 != EAGAIN && errno().0 != ETEMPUNAVAILABLE {
 				return Err(err!(
 					ErrKind::IO,
 					format!("writing generated error: {}", errno())
 				));
 			}
-		}
-		let len: usize = len.try_into()?;
-		if len < data_len {
-			self.queue_data(&data[len..])?;
+			self.queue_data(data)?;
+		} else {
+			let len: usize = len.try_into()?;
+			if len < data_len {
+				self.queue_data(&data[len..])?;
+			}
 		}
 		Ok(())
 	}
@@ -801,6 +804,7 @@ where
 			let id = rw.id;
 			ctx.connection_hashtable
 				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
+			info!("write close");
 			self.process_close(ctx, &mut rw)?;
 		} else {
 			let id = rw.id;
@@ -875,11 +879,13 @@ where
 
 			debug!("len={}", len)?;
 			if len == 0 {
+				info!("len = 0");
 				do_close = true;
 			}
 			if len < 0 {
 				// EAGAIN is would block.
-				if errno().0 != EAGAIN {
+				if errno().0 != EAGAIN && errno().0 != ETEMPUNAVAILABLE {
+					info!("error = {}, e.0 = {}", errno(), errno().0);
 					do_close = true;
 				}
 			}
@@ -941,6 +947,7 @@ where
 			let id = rw.id;
 			ctx.connection_hashtable
 				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
+			info!("process close read");
 			self.process_close(ctx, &mut rw)?;
 		} else {
 			// just update hashtable
@@ -957,7 +964,7 @@ where
 		ctx: &mut EventHandlerContext,
 		rw: &mut ReadWriteInfo,
 	) -> Result<(), Error> {
-		debug!("process close for {}/{}", rw.handle, rw.id)?;
+		info!("process close for {}/{}", rw.handle, rw.id)?;
 		match &mut self.on_close {
 			Some(on_close) => {
 				match on_close(

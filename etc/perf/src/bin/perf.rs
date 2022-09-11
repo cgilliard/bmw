@@ -188,7 +188,12 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 		let addr = addr.clone();
 		let config = config.clone();
 		completions.push(execute!(pool, {
-			run_thread(&config, addr, itt, count, clients, i, local_state)
+			let res = run_thread(&config, addr, itt, count, clients, i, local_state);
+			match res {
+				Ok(_) => {}
+				Err(e) => error!("run_thread generated error: {}", e)?,
+			}
+			Ok(())
 		})?);
 	}
 
@@ -230,7 +235,7 @@ fn run_thread(
 	let sender = lock_box!(tx)?;
 
 	evh.set_on_read(move |conn_data, _thread_context| {
-		debug!("on read fs = {}", conn_data.slab_offset())?;
+		debug!("on read offset = {}", conn_data.slab_offset())?;
 		let first_slab = conn_data.first_slab();
 		let slab_offset = conn_data.slab_offset();
 		let last_slab = conn_data.last_slab();
