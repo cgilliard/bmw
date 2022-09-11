@@ -20,6 +20,7 @@ use bmw_log::*;
 use bmw_util::*;
 use clap::{load_yaml, App, ArgMatches};
 use std::net::TcpStream;
+use std::os::windows::io::IntoRawSocket;
 use std::sync::mpsc::sync_channel;
 use std::thread::{sleep, spawn};
 use std::time::{Duration, Instant};
@@ -334,7 +335,7 @@ fn run_thread(
 		#[cfg(unix)]
 		let connection_handle = connection.into_raw_fd();
 		#[cfg(windows)]
-		let connection_handle = connection.into_raw_socket();
+		let connection_handle = connection.into_raw_socket().try_into()?;
 
 		let client = ClientConnection {
 			handle: connection_handle,
