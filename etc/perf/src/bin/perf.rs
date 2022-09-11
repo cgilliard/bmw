@@ -64,13 +64,17 @@ fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 		true => args.value_of("port").unwrap().parse()?,
 		false => 8081,
 	};
+	let read_slab_count = match args.is_present("slabs") {
+		true => args.value_of("slabs").unwrap().parse()?,
+		false => 20,
+	};
 	info!("Using port: {}", port)?;
 	let addr = &format!("127.0.0.1:{}", port)[..];
 	let config = EventHandlerConfig {
 		threads,
 		housekeeping_frequency_millis: 10_000,
-		read_slab_count: 20,
-		max_handles_per_thread: 30,
+		read_slab_count,
+		max_handles_per_thread: 300,
 		..Default::default()
 	};
 	let mut evh = bmw_evh::Builder::build_evh(config)?;

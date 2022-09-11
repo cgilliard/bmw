@@ -61,6 +61,8 @@ const WRITE_SET_SIZE: usize = 42;
 const WRITE_STATE_FLAG_PENDING: u8 = 0x1 << 0;
 const WRITE_STATE_FLAG_CLOSE: u8 = 0x1 << 1;
 
+const EAGAIN: i32 = 11;
+
 info!();
 
 pub fn create_listeners(
@@ -840,16 +842,13 @@ where
 				slab.get_mut()[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
 					.clone_from_slice(&u32::MAX.to_be_bytes());
 				slab
-			} else if rw.slab_offset as usize >= READ_SLAB_NEXT_OFFSET {
+			} else if rw.slab_offset as usize == READ_SLAB_NEXT_OFFSET {
 				let slab_id: u32;
 				{
 					debug!("pre_allocate")?;
 					let mut slab = slabs.allocate()?;
 					slab_id = slab.id().try_into()?;
 					debug!("allocate: {}", slab_id)?;
-					if rw.first_slab == u32::MAX {
-						rw.first_slab = slab_id;
-					}
 					slab.get_mut()[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
 						.clone_from_slice(&u32::MAX.to_be_bytes());
 				}
@@ -866,29 +865,26 @@ where
 			} else {
 				slabs.get_mut(rw.last_slab.try_into()?)?
 			};
-			let len = if usize!(rw.slab_offset) < READ_SLAB_NEXT_OFFSET {
-				read_bytes(
-					rw.handle,
-					&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_NEXT_OFFSET],
-				)
-			} else {
-				rw.slab_offset = 0;
-				read_bytes(
-					rw.handle,
-					&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_NEXT_OFFSET],
-				)
-			};
+			let len = read_bytes(
+				rw.handle,
+				&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_NEXT_OFFSET],
+			);
 
 			debug!("len={}", len)?;
 			if len == 0 {
 				do_close = true;
 			}
-			if len < 0
-				|| len
-					< READ_SLAB_NEXT_OFFSET
-						.saturating_sub(rw.slab_offset.into())
-						.try_into()?
-			{
+			if len < 0 {
+				// EAGAIN is would block.
+				if errno().0 != EAGAIN {
+					do_close = true;
+				}
+			}
+
+			let target_len = READ_SLAB_NEXT_OFFSET
+				.saturating_sub(rw.slab_offset.into())
+				.try_into()?;
+			if len < target_len {
 				if len > 0 {
 					total_len += len;
 					rw.slab_offset += len as u16;

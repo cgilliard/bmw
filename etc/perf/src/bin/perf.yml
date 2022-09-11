@@ -38,3 +38,9 @@ args:
         short: p
         takes_value: true
         value_name: port
+    - slabs:
+        help: read slabs for eventhandler
+        long: slabs
+        short: s
+        takes_value: true
+        value_name: slabs
