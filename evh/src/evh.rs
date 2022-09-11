@@ -51,6 +51,7 @@ use bmw_deps::nix::sys::epoll::{epoll_create1, EpollCreateFlags, EpollEvent, Epo
 
 const READ_SLAB_SIZE: usize = 512;
 const READ_SLAB_NEXT_OFFSET: usize = 508;
+pub const READ_SLAB_DATA_SIZE: usize = 508;
 
 const HANDLE_SLAB_SIZE: usize = 42;
 const CONNECTION_SLAB_SIZE: usize = 90;
@@ -179,9 +180,11 @@ impl ReadWriteInfo {
 		slab_id: u32,
 		slabs: &Rc<RefCell<dyn SlabAllocator>>,
 	) -> Result<(), Error> {
-		debug!("clear through impl: {}", slab_id)?;
 		let mut next = self.first_slab;
 		let mut slabs = slabs.borrow_mut();
+
+		// it's always 0 because we clear only at the slab level.
+		self.slab_offset = 0;
 		loop {
 			if next == u32::MAX {
 				break;
@@ -190,13 +193,14 @@ impl ReadWriteInfo {
 			let next_slab: u32 = u32::from_be_bytes(try_into!(
 				&slabs.get(next.try_into()?)?.get()[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
 			)?);
-			debug!("free {}, next_slab={}", next, next_slab)?;
 			slabs.free(next.try_into()?)?;
 
 			if next == slab_id {
-				self.first_slab = next_slab;
-				if next_slab == u32::MAX {
+				if slab_id == self.last_slab {
+					self.first_slab = u32::MAX;
 					self.last_slab = u32::MAX;
+				} else {
+					self.first_slab = next_slab;
 				}
 				break;
 			}
@@ -840,12 +844,14 @@ where
 				let slab_id: u32;
 				{
 					debug!("pre_allocate")?;
-					let slab = slabs.allocate()?;
+					let mut slab = slabs.allocate()?;
 					slab_id = slab.id().try_into()?;
 					debug!("allocate: {}", slab_id)?;
 					if rw.first_slab == u32::MAX {
 						rw.first_slab = slab_id;
 					}
+					slab.get_mut()[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
+						.clone_from_slice(&u32::MAX.to_be_bytes());
 				}
 				{
 					slabs.get_mut(rw.last_slab.try_into()?)?.get_mut()
@@ -855,6 +861,7 @@ where
 				}
 				rw.slab_offset = 0;
 				debug!("rw.last_slab={}", rw.last_slab)?;
+
 				slabs.get_mut(slab_id.try_into()?)?
 			} else {
 				slabs.get_mut(rw.last_slab.try_into()?)?

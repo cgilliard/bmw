@@ -27,4 +27,4 @@ pub use crate::types::{
 	ServerConnection, ThreadContext, WriteHandle,
 };
 
-pub use crate::evh::create_listeners;
+pub use crate::evh::{create_listeners, READ_SLAB_DATA_SIZE};
