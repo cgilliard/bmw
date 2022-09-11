@@ -80,7 +80,7 @@ fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 	let mut evh = bmw_evh::Builder::build_evh(config)?;
 
 	evh.set_on_read(move |conn_data, _thread_context| {
-		debug!("on read fs = {}", conn_data.slab_offset())?;
+		debug!("on read slab_offset= {}", conn_data.slab_offset())?;
 		let first_slab = conn_data.first_slab();
 		let last_slab = conn_data.last_slab();
 		let slab_offset = conn_data.slab_offset();
@@ -252,42 +252,45 @@ fn run_thread(
 				{
 					let mut recv_count = recv_count.wlock()?;
 					let guard = recv_count.guard();
-					if (**guard).1 != 0 {
-						if (**guard).1 != 'x' as u8 {
-							if slab_bytes[0] != (**guard).1 + 1 {
-								info!(
-									"ne. o={},rc={},si={},f={},l={}",
-									offset,
-									(**guard).0,
-									slab_id,
-									first_slab,
-									last_slab
-								)?;
+
+					if offset != 0 {
+						if (**guard).1 != 0 {
+							if (**guard).1 != 'x' as u8 {
+								if slab_bytes[0] != (**guard).1 + 1 {
+									info!(
+										"ne. o={},rc={},si={},f={},l={}",
+										offset,
+										(**guard).0,
+										slab_id,
+										first_slab,
+										last_slab
+									)?;
+								}
+								assert_eq!(slab_bytes[0], (**guard).1 + 1);
+							} else {
+								if slab_bytes[0] != 'a' as u8 {
+									info!(
+										"ne. o={},r={},s={},f={},l={}",
+										offset,
+										(**guard).0,
+										slab_id,
+										first_slab,
+										last_slab
+									)?;
+								}
+								assert_eq!(slab_bytes[0], 'a' as u8);
 							}
-							assert_eq!(slab_bytes[0], (**guard).1 + 1);
-						} else {
-							if slab_bytes[0] != 'a' as u8 {
-								info!(
-									"ne. o={},r={},s={},f={},l={}",
-									offset,
-									(**guard).0,
-									slab_id,
-									first_slab,
-									last_slab
-								)?;
+						}
+						for i in 1..offset {
+							if slab_bytes[i - 1] != 'x' as u8 {
+								assert_eq!(slab_bytes[i - 1] + 1, slab_bytes[i]);
+							} else {
+								assert_eq!(slab_bytes[i], 'a' as u8);
 							}
-							assert_eq!(slab_bytes[0], 'a' as u8);
 						}
+						(**guard).0 += offset as usize;
+						(**guard).1 = slab_bytes[offset - 1];
 					}
-					for i in 1..offset {
-						if slab_bytes[i - 1] != 'x' as u8 {
-							assert_eq!(slab_bytes[i - 1] + 1, slab_bytes[i]);
-						} else {
-							assert_eq!(slab_bytes[i], 'a' as u8);
-						}
-					}
-					(**guard).0 += offset as usize;
-					(**guard).1 = slab_bytes[offset - 1];
 					if (**guard).0 == count * 4 * clients {
 						let mut tx = sender.wlock()?;
 						(**tx.guard()).send(1)?;
@@ -338,6 +341,7 @@ fn run_thread(
 	let mut whs = vec![];
 	for _ in 0..clients {
 		let connection = TcpStream::connect(addr.clone())?;
+		connection.set_nonblocking(true)?;
 		#[cfg(unix)]
 		let connection_handle = connection.into_raw_fd();
 		#[cfg(windows)]

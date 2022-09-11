@@ -185,8 +185,7 @@ impl ReadWriteInfo {
 		let mut next = self.first_slab;
 		let mut slabs = slabs.borrow_mut();
 
-		// it's always 0 because we clear only at the slab level.
-		self.slab_offset = 0;
+		debug!("clear through with slab_id = {}", slab_id)?;
 		loop {
 			if next == u32::MAX {
 				break;
@@ -196,6 +195,7 @@ impl ReadWriteInfo {
 				&slabs.get(next.try_into()?)?.get()[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
 			)?);
 			slabs.free(next.try_into()?)?;
+			debug!("free {}", next)?;
 
 			if next == slab_id {
 				if slab_id == self.last_slab {
@@ -1360,7 +1360,10 @@ mod test {
 	use crate::evh::{create_listeners, errno, read_bytes};
 	use crate::evh::{READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
 	use crate::types::{EventHandlerImpl, Wakeup};
-	use crate::{ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection};
+	use crate::{
+		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
+		READ_SLAB_DATA_SIZE,
+	};
 	use bmw_err::*;
 	use bmw_log::*;
 	use bmw_test::port::pick_free_port;
@@ -2092,6 +2095,121 @@ mod test {
 		let len = connection.read(&mut buf)?;
 
 		assert_eq!(len, 0);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_partial_clear() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 2;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 4,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let mut second_slab = usize::MAX;
+			let slab_offset = conn_data.slab_offset();
+			let (res, second_slab) = conn_data.borrow_slab_allocator(move |sa| {
+				let mut slab_id = first_slab;
+				let mut ret: Vec<u8> = vec![];
+				info!("on_read ");
+				loop {
+					info!("loop with id={}", slab_id);
+					let slab = sa.get(slab_id.try_into()?)?;
+					let slab_bytes = slab.get();
+					debug!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+					if slab_id != last_slab {
+						ret.extend(&slab_bytes[0..READ_SLAB_DATA_SIZE as usize]);
+					} else {
+						ret.extend(&slab_bytes[0..slab_offset as usize]);
+						break;
+					}
+					slab_id = u32::from_be_bytes(try_into!(
+						slab_bytes[READ_SLAB_DATA_SIZE..READ_SLAB_DATA_SIZE + 4]
+					)?);
+					if second_slab == usize::MAX {
+						info!("set secondslab to {} ", slab_id);
+						second_slab = slab_id.try_into()?;
+					}
+					info!("end loop");
+				}
+				Ok((ret, second_slab))
+			})?;
+			info!("second_slab={}", second_slab);
+			if second_slab != usize::MAX {
+				conn_data.clear_through(second_slab.try_into()?)?;
+			} else {
+				conn_data.clear_through(last_slab)?;
+			}
+			conn_data.write_handle().write(&res)?;
+			debug!("res={:?}", res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			info!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			info!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut connection = TcpStream::connect(addr)?;
+		let mut message = ['a' as u8; 1024];
+		for i in 0..1024 {
+			message[i] = 'a' as u8 + (i % 26) as u8;
+		}
+		connection.write(&message)?;
+		let mut buf = vec![];
+		buf.resize(2000, 0u8);
+		let len = connection.read(&mut buf)?;
+		assert_eq!(len, 1024);
+		for i in 0..len {
+			assert_eq!(buf[i], 'a' as u8 + (i % 26) as u8);
+		}
+
+		connection.write(&message)?;
+		let mut buf = vec![];
+		buf.resize(5000, 0u8);
+		let len = connection.read(&mut buf)?;
+		// there are some remaining bytes left in the last of the three slabs.
+		// only 8 bytes so we have 8 + 1024 = 1032.
+		assert_eq!(len, 1032);
 
 		Ok(())
 	}
