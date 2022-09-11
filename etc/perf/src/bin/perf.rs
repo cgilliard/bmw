@@ -21,7 +21,8 @@ use bmw_util::*;
 use clap::{load_yaml, App, ArgMatches};
 use std::net::TcpStream;
 use std::sync::mpsc::sync_channel;
-use std::time::Instant;
+use std::thread::{sleep, spawn};
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::os::unix::io::IntoRawFd;
@@ -33,6 +34,23 @@ pub mod built_info {
 }
 
 const DICTIONARY: &[u8] = b"abcdefghijklmnopqrstuvwx";
+
+#[derive(Clone, Debug)]
+struct ThreadState {
+	itt: usize,
+	count: usize,
+	last: usize,
+}
+
+impl ThreadState {
+	fn new() -> Self {
+		Self {
+			itt: 0,
+			count: 0,
+			last: 0,
+		}
+	}
+}
 
 fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 	let threads: usize = match args.is_present("threads") {
@@ -154,13 +172,30 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 
 	let pool = thread_pool!(MinSize(threads), MaxSize(threads))?;
 	let mut completions = vec![];
+	let mut state = array!(threads, &lock_box!(ThreadState::new())?)?;
+	let mut state_clone = state.clone();
 	for i in 0..threads {
+		state[i] = lock_box!(ThreadState::new())?;
+		state_clone[i] = state[i].clone();
+		let local_state = state[i].clone();
 		let addr = addr.clone();
 		let config = config.clone();
 		completions.push(execute!(pool, {
-			run_thread(&config, addr, itt, count, clients, i)
+			run_thread(&config, addr, itt, count, clients, i, local_state)
 		})?);
 	}
+
+	spawn(move || -> Result<(), Error> {
+		loop {
+			sleep(Duration::from_millis(1000));
+			info_plain!("--------------------------------------------------------------------------------------------------------------------------------")?;
+			for i in 0..threads {
+				let state = state_clone[i].rlock()?;
+				let guard = state.guard();
+				info!("state[{}]={:?}", i, **guard)?;
+			}
+		}
+	});
 
 	for i in 0..completions.len() {
 		block_on!(completions[i]);
@@ -176,7 +211,9 @@ fn run_thread(
 	count: usize,
 	clients: usize,
 	tid: usize,
+	mut state: Box<dyn LockBox<ThreadState>>,
 ) -> Result<(), Error> {
+	let state_clone = state.clone();
 	let total = count * itt * clients;
 	let mut evh = bmw_evh::Builder::build_evh(config.clone())?;
 
@@ -192,6 +229,7 @@ fn run_thread(
 		let last_slab = conn_data.last_slab();
 		let mut sender = sender.clone();
 		let mut recv_count = recv_count.clone();
+		let mut state_clone = state_clone.clone();
 		conn_data.borrow_slab_allocator(move |sa| {
 			let mut slab_id = first_slab;
 			loop {
@@ -204,47 +242,56 @@ fn run_thread(
 				};
 
 				debug!("read bytes[{}] = {:?}", offset, &slab_bytes[0..offset])?;
-				let mut recv_count = recv_count.wlock()?;
-				let guard = recv_count.guard();
-				if (**guard).1 != 0 {
-					if (**guard).1 != 'x' as u8 {
-						if slab_bytes[0] != (**guard).1 + 1 {
-							info!(
-								"not equal. offset={},recv_count={},slab_id={},first={},last={}",
-								offset,
-								(**guard).0,
-								slab_id,
-								first_slab,
-								last_slab
-							)?;
+				{
+					let mut recv_count = recv_count.wlock()?;
+					let guard = recv_count.guard();
+					if (**guard).1 != 0 {
+						if (**guard).1 != 'x' as u8 {
+							if slab_bytes[0] != (**guard).1 + 1 {
+								info!(
+									"ne. o={},rc={},si={},f={},l={}",
+									offset,
+									(**guard).0,
+									slab_id,
+									first_slab,
+									last_slab
+								)?;
+							}
+							assert_eq!(slab_bytes[0], (**guard).1 + 1);
+						} else {
+							if slab_bytes[0] != 'a' as u8 {
+								info!(
+									"ne. o={},r={},s={},f={},l={}",
+									offset,
+									(**guard).0,
+									slab_id,
+									first_slab,
+									last_slab
+								)?;
+							}
+							assert_eq!(slab_bytes[0], 'a' as u8);
 						}
-						assert_eq!(slab_bytes[0], (**guard).1 + 1);
-					} else {
-						if slab_bytes[0] != 'a' as u8 {
-							info!(
-								"not equal. offset={},recv_count={},slab_id={},first={},last={}",
-								offset,
-								(**guard).0,
-								slab_id,
-								first_slab,
-								last_slab
-							)?;
+					}
+					for i in 1..offset {
+						if slab_bytes[i - 1] != 'x' as u8 {
+							assert_eq!(slab_bytes[i - 1] + 1, slab_bytes[i]);
+						} else {
+							assert_eq!(slab_bytes[i], 'a' as u8);
 						}
-						assert_eq!(slab_bytes[0], 'a' as u8);
+					}
+					(**guard).0 += offset as usize;
+					(**guard).1 = slab_bytes[offset - 1];
+					if (**guard).0 == count * 4 * clients {
+						let mut tx = sender.wlock()?;
+						(**tx.guard()).send(1)?;
 					}
 				}
-				for i in 1..offset {
-					if slab_bytes[i - 1] != 'x' as u8 {
-						assert_eq!(slab_bytes[i - 1] + 1, slab_bytes[i]);
-					} else {
-						assert_eq!(slab_bytes[i], 'a' as u8);
-					}
-				}
-				(**guard).0 += offset as usize;
-				(**guard).1 = slab_bytes[offset - 1];
-				if (**guard).0 == count * 4 * clients {
-					let mut tx = sender.wlock()?;
-					(**tx.guard()).send(1)?;
+
+				{
+					let mut state = state_clone.wlock()?;
+					let guard = state.guard();
+					(**guard).count += offset as usize;
+					(**guard).last = offset as usize;
 				}
 				if slab_id == last_slab {
 					break;
@@ -312,6 +359,12 @@ fn run_thread(
 		}
 
 		rx.recv()?;
+		{
+			let mut state = state.wlock()?;
+			let guard = state.guard();
+			(**guard).itt += 1;
+			(**guard).count = 0;
+		}
 		{
 			let mut recv_count = recv_count_clone.wlock()?;
 			let guard = recv_count.guard();

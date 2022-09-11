@@ -108,7 +108,7 @@ impl Default for EventHandlerConfig {
 
 // Note about serialization of ConnectionInfo: We serialize the write state
 // which is a LockBox. So we use the danger_to_usize fn. It must be deserialized
-// once per serialization or it will leak.
+// once per serialization or it will leak and cause other memory related problems.
 impl Serializable for ConnectionInfo {
 	fn read<R>(reader: &mut R) -> Result<Self, Error>
 	where
