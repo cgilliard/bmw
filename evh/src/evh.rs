@@ -805,7 +805,6 @@ where
 			let id = rw.id;
 			ctx.connection_hashtable
 				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
-			info!("write close");
 			self.process_close(ctx, &mut rw)?;
 		} else {
 			let id = rw.id;
@@ -880,7 +879,6 @@ where
 
 			debug!("len={}", len)?;
 			if len == 0 {
-				info!("len = 0");
 				do_close = true;
 			}
 			if len < 0 {
@@ -889,7 +887,6 @@ where
 					&& errno().0 != ETEMPUNAVAILABLE
 					&& errno().0 != WINNONBLOCKING
 				{
-					info!("error = {}, e.0 = {}", errno(), errno().0);
 					do_close = true;
 				}
 			}
@@ -951,7 +948,6 @@ where
 			let id = rw.id;
 			ctx.connection_hashtable
 				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
-			info!("process close read");
 			self.process_close(ctx, &mut rw)?;
 		} else {
 			// just update hashtable
@@ -968,7 +964,6 @@ where
 		ctx: &mut EventHandlerContext,
 		rw: &mut ReadWriteInfo,
 	) -> Result<(), Error> {
-		info!("process close for {}/{}", rw.handle, rw.id)?;
 		match &mut self.on_close {
 			Some(on_close) => {
 				match on_close(
