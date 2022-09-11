@@ -391,10 +391,13 @@ impl WriteHandle {
 		};
 
 		if len < 0 {
-			return Err(err!(
-				ErrKind::IO,
-				format!("writing generated error: {}", errno())
-			));
+			// check for would block
+			if errno().0 != EAGAIN {
+				return Err(err!(
+					ErrKind::IO,
+					format!("writing generated error: {}", errno())
+				));
+			}
 		}
 		let len: usize = len.try_into()?;
 		if len < data_len {
@@ -2123,9 +2126,9 @@ mod test {
 			let (res, second_slab) = conn_data.borrow_slab_allocator(move |sa| {
 				let mut slab_id = first_slab;
 				let mut ret: Vec<u8> = vec![];
-				info!("on_read ");
+				info!("on_read ")?;
 				loop {
-					info!("loop with id={}", slab_id);
+					info!("loop with id={}", slab_id)?;
 					let slab = sa.get(slab_id.try_into()?)?;
 					let slab_bytes = slab.get();
 					debug!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
@@ -2139,14 +2142,14 @@ mod test {
 						slab_bytes[READ_SLAB_DATA_SIZE..READ_SLAB_DATA_SIZE + 4]
 					)?);
 					if second_slab == usize::MAX {
-						info!("set secondslab to {} ", slab_id);
+						info!("set secondslab to {} ", slab_id)?;
 						second_slab = slab_id.try_into()?;
 					}
-					info!("end loop");
+					info!("end loop")?;
 				}
 				Ok((ret, second_slab))
 			})?;
-			info!("second_slab={}", second_slab);
+			info!("second_slab={}", second_slab)?;
 			if second_slab != usize::MAX {
 				conn_data.clear_through(second_slab.try_into()?)?;
 			} else {
@@ -2210,6 +2213,18 @@ mod test {
 		// there are some remaining bytes left in the last of the three slabs.
 		// only 8 bytes so we have 8 + 1024 = 1032.
 		assert_eq!(len, 1032);
+
+		assert_eq!(buf[0], 99);
+		assert_eq!(buf[1], 100);
+		assert_eq!(buf[2], 101);
+		assert_eq!(buf[3], 102);
+		assert_eq!(buf[4], 103);
+		assert_eq!(buf[5], 104);
+		assert_eq!(buf[6], 105);
+		assert_eq!(buf[7], 106);
+		for i in 8..1032 {
+			assert_eq!(buf[i], 'a' as u8 + ((i - 8) % 26) as u8);
+		}
 
 		Ok(())
 	}

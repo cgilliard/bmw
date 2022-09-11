@@ -283,8 +283,30 @@ fn run_thread(
 						}
 						for i in 1..offset {
 							if slab_bytes[i - 1] != 'x' as u8 {
+								if slab_bytes[i - 1] + 1 != slab_bytes[i] {
+									info!(
+										"ne. o={},rc={},si={},f={},l={},i={}",
+										offset,
+										(**guard).0,
+										slab_id,
+										first_slab,
+										last_slab,
+										i
+									)?;
+								}
 								assert_eq!(slab_bytes[i - 1] + 1, slab_bytes[i]);
 							} else {
+								if slab_bytes[i] != 'a' as u8 {
+									info!(
+										"ne. o={},rc={},si={},f={},l={},i={}",
+										offset,
+										(**guard).0,
+										slab_id,
+										first_slab,
+										last_slab,
+										i
+									)?;
+								}
 								assert_eq!(slab_bytes[i], 'a' as u8);
 							}
 						}
