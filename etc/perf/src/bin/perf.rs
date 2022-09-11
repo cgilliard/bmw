@@ -90,11 +90,30 @@ fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 			loop {
 				let slab = sa.get(slab_id.try_into()?)?;
 				let slab_bytes = slab.get();
-				debug!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
-				if slab_id != last_slab {
-					ret.extend(&slab_bytes[0..READ_SLAB_DATA_SIZE as usize]);
+				let offset = if slab_id != last_slab {
+					READ_SLAB_DATA_SIZE
 				} else {
-					ret.extend(&slab_bytes[0..slab_offset as usize]);
+					slab_offset as usize
+				};
+				ret.extend(&slab_bytes[0..offset as usize]);
+
+				for i in 1..offset {
+					if slab_bytes[i - 1] == 'x' as u8 {
+						if slab_bytes[i] != 'a' as u8 {
+							info!("res={:?}, i={}", slab_bytes, i)?;
+						}
+						assert_eq!(slab_bytes[i], 'a' as u8);
+					} else {
+						if slab_bytes[i - 1] + 1 != slab_bytes[i] {
+							info!("res={:?}, i={}", slab_bytes, i)?;
+							for j in 0..slab_bytes.len() {
+								info!("res[{}]={}", j, slab_bytes[j])?;
+							}
+						}
+						assert_eq!(slab_bytes[i - 1] + 1, slab_bytes[i]);
+					}
+				}
+				if slab_id == last_slab {
 					break;
 				}
 				slab_id = u32::from_be_bytes(try_into!(
@@ -104,6 +123,22 @@ fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 			Ok(ret)
 		})?;
 		conn_data.clear_through(last_slab)?;
+		for i in 1..res.len() {
+			if res[i - 1] == 'x' as u8 {
+				if res[i] != 'a' as u8 {
+					info!("res={:?}, i={}", res, i)?;
+				}
+				assert_eq!(res[i], 'a' as u8);
+			} else {
+				if res[i - 1] + 1 != res[i] {
+					info!("res={:?}, i={}", res, i)?;
+					for j in 0..res.len() {
+						info!("res[{}]={}", j, res[j])?;
+					}
+				}
+				assert_eq!(res[i - 1] + 1, res[i]);
+			}
+		}
 		conn_data.write_handle().write(&res)?;
 		debug!("res={:?}", res)?;
 		Ok(())
@@ -165,6 +200,11 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 		false => 1,
 	};
 
+	let sleep_mod = match args.is_present("sleep_mod") {
+		true => args.value_of("sleep_mod").unwrap().parse()?,
+		false => 100,
+	};
+
 	info!("itt={},count={},clients={}", itt, count, clients)?;
 
 	info!("Using port: {}", port)?;
@@ -188,7 +228,16 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 		let addr = addr.clone();
 		let config = config.clone();
 		completions.push(execute!(pool, {
-			let res = run_thread(&config, addr, itt, count, clients, i, local_state);
+			let res = run_thread(
+				&config,
+				addr,
+				itt,
+				count,
+				clients,
+				i,
+				local_state,
+				sleep_mod,
+			);
 			match res {
 				Ok(_) => {}
 				Err(e) => error!("run_thread generated error: {}", e)?,
@@ -224,6 +273,7 @@ fn run_thread(
 	clients: usize,
 	tid: usize,
 	mut state: Box<dyn LockBox<ThreadState>>,
+	sleep_mod: usize,
 ) -> Result<(), Error> {
 	let state_clone = state.clone();
 	let total = count * itt * clients;
@@ -384,11 +434,16 @@ fn run_thread(
 
 	let now = Instant::now();
 	let dictionary_len = DICTIONARY.len();
+	let mut sleep_counter = 0;
 	for _ in 0..itt {
 		let mut dict_offset = 0;
 		for _ in 0..count {
 			for wh in &mut whs {
 				wh.write(&DICTIONARY[dict_offset..dict_offset + 4])?;
+			}
+			sleep_counter += 1;
+			if sleep_counter % sleep_mod == 0 {
+				sleep(Duration::from_millis(1));
 			}
 			dict_offset += 4;
 			if dict_offset >= dictionary_len {

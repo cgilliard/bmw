@@ -187,7 +187,7 @@ impl ReadWriteInfo {
 		let mut next = self.first_slab;
 		let mut slabs = slabs.borrow_mut();
 
-		debug!("clear through with slab_id = {}", slab_id)?;
+		debug!("clear through impl with slab_id = {}", slab_id)?;
 		loop {
 			if next == u32::MAX {
 				break;
@@ -203,6 +203,7 @@ impl ReadWriteInfo {
 				if slab_id == self.last_slab {
 					self.first_slab = u32::MAX;
 					self.last_slab = u32::MAX;
+					self.slab_offset = 0;
 				} else {
 					self.first_slab = next_slab;
 				}
@@ -391,7 +392,6 @@ impl WriteHandle {
 				write_bytes(self.handle, data)
 			}
 		};
-
 		if len < 0 {
 			// check for would block
 			if errno().0 != EAGAIN && errno().0 != ETEMPUNAVAILABLE && errno().0 != WINNONBLOCKING {
@@ -411,6 +411,10 @@ impl WriteHandle {
 	}
 	pub fn trigger_on_read(&self) -> Result<(), Error> {
 		todo!()
+	}
+
+	pub fn handle(&self) -> Handle {
+		self.handle
 	}
 
 	fn queue_data(&mut self, data: &[u8]) -> Result<(), Error> {
@@ -840,7 +844,7 @@ where
 			let mut slab = if rw.last_slab == u32::MAX {
 				debug!("pre allocate")?;
 				let mut slab = slabs.allocate()?;
-				debug!("allocate: {}", slab.id())?;
+				debug!("allocatefirst: {}/tid={}", slab.id(), ctx.tid)?;
 				let slab_id: u32 = slab.id().try_into()?;
 				rw.last_slab = slab_id;
 				rw.first_slab = slab_id;
@@ -855,16 +859,15 @@ where
 					debug!("pre_allocate")?;
 					let mut slab = slabs.allocate()?;
 					slab_id = slab.id().try_into()?;
-					debug!("allocate: {}", slab_id)?;
+					debug!("allocatesecond: {}/tid={}", slab_id, ctx.tid)?;
 					slab.get_mut()[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
 						.clone_from_slice(&u32::MAX.to_be_bytes());
 				}
-				{
-					slabs.get_mut(rw.last_slab.try_into()?)?.get_mut()
-						[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
-						.clone_from_slice(&(slab_id as u32).to_be_bytes());
-					rw.last_slab = slab_id;
-				}
+
+				slabs.get_mut(rw.last_slab.try_into()?)?.get_mut()
+					[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
+					.clone_from_slice(&(slab_id as u32).to_be_bytes());
+				rw.last_slab = slab_id;
 				rw.slab_offset = 0;
 				debug!("rw.last_slab={}", rw.last_slab)?;
 
@@ -1373,6 +1376,7 @@ mod test {
 		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
 		READ_SLAB_DATA_SIZE,
 	};
+	use bmw_deps::rand::random;
 	use bmw_err::*;
 	use bmw_log::*;
 	use bmw_test::port::pick_free_port;
@@ -1384,10 +1388,11 @@ mod test {
 	use std::os::unix::io::IntoRawFd;
 	#[cfg(windows)]
 	use std::os::windows::io::IntoRawSocket;
+	use std::sync::mpsc::sync_channel;
 	use std::thread::sleep;
 	use std::time::Duration;
 
-	info!();
+	warn!();
 
 	#[test]
 	fn test_wakeup() -> Result<(), Error> {
@@ -1444,7 +1449,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -1512,7 +1517,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -1615,7 +1620,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -2101,9 +2106,9 @@ mod test {
 
 		let mut buf = vec![];
 		buf.resize(100, 0u8);
-		let len = connection.read(&mut buf)?;
+		let res = connection.read(&mut buf);
 
-		assert_eq!(len, 0);
+		assert!(res.is_err() || res.unwrap() == 0);
 
 		Ok(())
 	}
@@ -2162,7 +2167,7 @@ mod test {
 				conn_data.clear_through(last_slab)?;
 			}
 			conn_data.write_handle().write(&res)?;
-			debug!("res={:?}", res)?;
+			info!("res={:?}", res)?;
 			Ok(())
 		})?;
 
@@ -2196,7 +2201,10 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
+
+		sleep(Duration::from_millis(1000));
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(1000));
 
 		let mut connection = TcpStream::connect(addr)?;
 		let mut message = ['a' as u8; 1024];
@@ -2230,6 +2238,284 @@ mod test {
 		assert_eq!(buf[7], 106);
 		for i in 8..1032 {
 			assert_eq!(buf[i], 'a' as u8 + ((i - 8) % 26) as u8);
+		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_different_lengths() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 21,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			debug!("on read slab_offset= {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let mut slab_id = first_slab;
+				let mut ret: Vec<u8> = vec![];
+				loop {
+					let slab = sa.get(slab_id.try_into()?)?;
+					let slab_bytes = slab.get();
+					debug!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+					if slab_id != last_slab {
+						ret.extend(&slab_bytes[0..READ_SLAB_DATA_SIZE as usize]);
+					} else {
+						ret.extend(&slab_bytes[0..slab_offset as usize]);
+						break;
+					}
+					slab_id = u32::from_be_bytes(try_into!(
+						slab_bytes[READ_SLAB_DATA_SIZE..READ_SLAB_DATA_SIZE + 4]
+					)?);
+				}
+				Ok(ret)
+			})?;
+			conn_data.clear_through(last_slab)?;
+			conn_data.write_handle().write(&res)?;
+			debug!("res={:?}", res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+
+		let mut bytes = [0u8; 10240];
+		for i in 0..10240 {
+			bytes[i] = 'a' as u8 + i as u8 % 26;
+		}
+
+		for i in 1..10240 {
+			info!("i={}", i)?;
+			stream.write(&bytes[0..i])?;
+			let mut buf = vec![];
+			buf.resize(i, 0u8);
+			stream.read(&mut buf[0..i])?;
+			assert_eq!(&buf[0..i], &bytes[0..i]);
+		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_different_lengths_client() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 21,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+		evh.set_on_read(move |conn_data, _thread_context| {
+			debug!("on read slab_offset= {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let mut slab_id = first_slab;
+				let mut ret: Vec<u8> = vec![];
+				loop {
+					let slab = sa.get(slab_id.try_into()?)?;
+					let slab_bytes = slab.get();
+					debug!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+					if slab_id != last_slab {
+						ret.extend(&slab_bytes[0..READ_SLAB_DATA_SIZE as usize]);
+					} else {
+						ret.extend(&slab_bytes[0..slab_offset as usize]);
+						break;
+					}
+					slab_id = u32::from_be_bytes(try_into!(
+						slab_bytes[READ_SLAB_DATA_SIZE..READ_SLAB_DATA_SIZE + 4]
+					)?);
+				}
+				Ok(ret)
+			})?;
+			conn_data.clear_through(last_slab)?;
+			conn_data.write_handle().write(&res)?;
+			debug!("res={:?}", res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		debug!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 21,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh2 = crate::Builder::build_evh(config.clone())?;
+
+		let expected = lock_box!("".to_string())?;
+		let mut expected_clone = expected.clone();
+		let (tx, rx) = sync_channel(1);
+
+		evh2.set_on_read(move |conn_data, _thread_context| {
+			debug!("on read offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+			let last_slab = conn_data.last_slab();
+			let value = conn_data.borrow_slab_allocator(move |sa| {
+				let mut slab_id = first_slab;
+				let mut full = vec![];
+				loop {
+					let slab = sa.get(slab_id.try_into()?)?;
+					let slab_bytes = slab.get();
+					let offset = if slab_id == last_slab {
+						slab_offset as usize
+					} else {
+						READ_SLAB_DATA_SIZE
+					};
+
+					full.extend(&slab_bytes[0..offset]);
+					if slab_id == last_slab {
+						break;
+					} else {
+						slab_id = u32::from_be_bytes(try_into!(
+							slab_bytes[READ_SLAB_DATA_SIZE..READ_SLAB_DATA_SIZE + 4]
+						)?);
+					}
+				}
+				Ok(full)
+			})?;
+
+			let expected = expected.rlock()?;
+			let guard = expected.guard();
+
+			if value.len() == (**guard).len() {
+				assert_eq!(std::str::from_utf8(&value)?, (**guard));
+				tx.send(())?;
+				conn_data.clear_through(last_slab)?;
+			}
+			Ok(())
+		})?;
+
+		evh2.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+		evh2.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh2.set_on_panic(move |_thread_context| Ok(()))?;
+		evh2.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh2.start()?;
+
+		let connection = TcpStream::connect(addr.clone())?;
+		connection.set_nonblocking(true)?;
+		#[cfg(unix)]
+		let connection_handle = connection.into_raw_fd();
+		#[cfg(windows)]
+		let connection_handle = connection.into_raw_socket().try_into()?;
+
+		let client = ClientConnection {
+			handle: connection_handle,
+			tls_config: None,
+		};
+		let mut wh = evh2.add_client(client)?;
+
+		let mut bytes = [0u8; 2000];
+		for i in 0..2000 {
+			bytes[i] = 'a' as u8 + i as u8 % 26;
+		}
+
+		for i in 1..1024 {
+			let rand: usize = random();
+			let rand = rand % 26;
+			info!("i={},rand[0]={}", i, bytes[rand])?;
+			let s = std::str::from_utf8(&bytes[rand..i + rand])?.to_string();
+			{
+				let mut expected = expected_clone.wlock()?;
+				let guard = expected.guard();
+				**guard = s;
+				for j in 0..i {
+					let mut b = [0u8; 1];
+					b[0] = bytes[j + rand];
+					wh.write(&b[0..1])?;
+				}
+			}
+
+			rx.recv()?;
 		}
 
 		Ok(())

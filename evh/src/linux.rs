@@ -173,7 +173,7 @@ pub(crate) fn get_events_impl(
 		{
 			let fd = ctx.events_in[i].handle;
 			debug!("add in read fd = {},tid={}", fd, ctx.tid)?;
-			if fd > ctx.filter_set.len().try_into()? {
+			if fd >= ctx.filter_set.len().try_into()? {
 				ctx.filter_set.resize((fd + 100).try_into()?, true);
 			}
 

@@ -44,3 +44,8 @@ args:
         short: s
         takes_value: true
         value_name: slabs
+    - sleep_mod:
+        help: sleep mod (how often to slow down requests) Default 100.
+        long: sleep_mod
+        takes_value: true
+        value_name: sleep_mod
