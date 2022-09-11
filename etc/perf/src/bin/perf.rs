@@ -20,13 +20,15 @@ use bmw_log::*;
 use bmw_util::*;
 use clap::{load_yaml, App, ArgMatches};
 use std::net::TcpStream;
-use std::os::windows::io::IntoRawSocket;
 use std::sync::mpsc::sync_channel;
 use std::thread::{sleep, spawn};
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::os::unix::io::IntoRawFd;
+#[cfg(windows)]
+use std::os::windows::io::IntoRawSocket;
+
 info!();
 
 // include build information
