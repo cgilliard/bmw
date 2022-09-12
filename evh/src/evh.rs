@@ -835,7 +835,6 @@ where
 		mut rw: ReadWriteInfo,
 		ctx: &mut EventHandlerContext,
 	) -> Result<(), Error> {
-		debug!("process read")?;
 		let mut do_close = false;
 		let mut total_len = 0;
 		loop {
@@ -880,7 +879,6 @@ where
 				&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_NEXT_OFFSET],
 			);
 
-			debug!("len={}", len)?;
 			if len == 0 {
 				do_close = true;
 			}
@@ -889,8 +887,25 @@ where
 				if errno().0 != EAGAIN
 					&& errno().0 != ETEMPUNAVAILABLE
 					&& errno().0 != WINNONBLOCKING
+					&& len != -2
+				// windows would block
 				{
 					do_close = true;
+				}
+
+				if len == -2 {
+					#[cfg(target_os = "windows")]
+					{
+						if !ctx.write_set.contains(&rw.handle)? {
+							epoll_ctl_impl(
+								EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+								rw.handle,
+								&mut ctx.filter_set,
+								ctx.selector as *mut c_void,
+								ctx.tid,
+							)?;
+						}
+					}
 				}
 			}
 
@@ -1392,7 +1407,7 @@ mod test {
 	use std::thread::sleep;
 	use std::time::Duration;
 
-	warn!();
+	info!();
 
 	#[test]
 	fn test_wakeup() -> Result<(), Error> {
@@ -2244,7 +2259,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_different_lengths() -> Result<(), Error> {
+	fn test_eventhandler_different_lengths1() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2259,21 +2274,26 @@ mod test {
 		let mut evh = EventHandlerImpl::new(config)?;
 
 		evh.set_on_read(move |conn_data, _thread_context| {
-			debug!("on read slab_offset= {}", conn_data.slab_offset())?;
+			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
 			let slab_offset = conn_data.slab_offset();
+			debug!("firstslab={},last_slab={}", first_slab, last_slab)?;
 			let res = conn_data.borrow_slab_allocator(move |sa| {
 				let mut slab_id = first_slab;
 				let mut ret: Vec<u8> = vec![];
 				loop {
 					let slab = sa.get(slab_id.try_into()?)?;
 					let slab_bytes = slab.get();
-					debug!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
-					if slab_id != last_slab {
-						ret.extend(&slab_bytes[0..READ_SLAB_DATA_SIZE as usize]);
+					let offset = if slab_id == last_slab {
+						slab_offset as usize
 					} else {
-						ret.extend(&slab_bytes[0..slab_offset as usize]);
+						READ_SLAB_DATA_SIZE
+					};
+					debug!("read bytes = {:?}", &slab.get()[0..offset as usize])?;
+					ret.extend(&slab_bytes[0..offset]);
+
+					if slab_id == last_slab {
 						break;
 					}
 					slab_id = u32::from_be_bytes(try_into!(
@@ -2283,8 +2303,8 @@ mod test {
 				Ok(ret)
 			})?;
 			conn_data.clear_through(last_slab)?;
+			debug!("res.len={}", res.len())?;
 			conn_data.write_handle().write(&res)?;
-			debug!("res={:?}", res)?;
 			Ok(())
 		})?;
 
@@ -2323,13 +2343,14 @@ mod test {
 			bytes[i] = 'a' as u8 + i as u8 % 26;
 		}
 
-		for i in 1..10240 {
+		for i in 1..2000 {
 			info!("i={}", i)?;
 			stream.write(&bytes[0..i])?;
 			let mut buf = vec![];
 			buf.resize(i, 0u8);
-			stream.read(&mut buf[0..i])?;
-			assert_eq!(&buf[0..i], &bytes[0..i]);
+			let len = stream.read(&mut buf[0..i])?;
+			assert_eq!(len, i);
+			assert_eq!(&buf[0..len], &bytes[0..len]);
 		}
 
 		Ok(())
@@ -2350,7 +2371,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 		evh.set_on_read(move |conn_data, _thread_context| {
-			debug!("on read slab_offset= {}", conn_data.slab_offset())?;
+			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
 			let slab_offset = conn_data.slab_offset();
