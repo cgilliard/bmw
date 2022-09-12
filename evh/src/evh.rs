@@ -842,7 +842,16 @@ where
 			let mut slabs = ctx.read_slabs.borrow_mut();
 			let mut slab = if rw.last_slab == u32::MAX {
 				debug!("pre allocate")?;
-				let mut slab = slabs.allocate()?;
+				let mut slab = match slabs.allocate() {
+					Ok(slab) => slab,
+					Err(e) => {
+						// we could not allocate slabs. Drop connection.
+						warn!("slabs.allocate generated error: {}", e)?;
+						total_len = 0;
+						do_close = true;
+						break;
+					}
+				};
 				debug!("allocatefirst: {}/tid={}", slab.id(), ctx.tid)?;
 				let slab_id: u32 = slab.id().try_into()?;
 				rw.last_slab = slab_id;
@@ -856,7 +865,16 @@ where
 				let slab_id: u32;
 				{
 					debug!("pre_allocate")?;
-					let mut slab = slabs.allocate()?;
+					let mut slab = match slabs.allocate() {
+						Ok(slab) => slab,
+						Err(e) => {
+							// we could not allocate slabs. Drop connection.
+							warn!("slabs.allocate generated error: {}", e)?;
+							total_len = 0;
+							do_close = true;
+							break;
+						}
+					};
 					slab_id = slab.id().try_into()?;
 					debug!("allocatesecond: {}/tid={}", slab_id, ctx.tid)?;
 					slab.get_mut()[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
@@ -2538,6 +2556,114 @@ mod test {
 
 			rx.recv()?;
 		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_out_of_slabs() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 1,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			debug!("firstslab={},last_slab={}", first_slab, last_slab)?;
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let mut slab_id = first_slab;
+				let mut ret: Vec<u8> = vec![];
+				loop {
+					let slab = sa.get(slab_id.try_into()?)?;
+					let slab_bytes = slab.get();
+					let offset = if slab_id == last_slab {
+						slab_offset as usize
+					} else {
+						READ_SLAB_DATA_SIZE
+					};
+					debug!("read bytes = {:?}", &slab.get()[0..offset as usize])?;
+					ret.extend(&slab_bytes[0..offset]);
+
+					if slab_id == last_slab {
+						break;
+					}
+					slab_id = u32::from_be_bytes(try_into!(
+						slab_bytes[READ_SLAB_DATA_SIZE..READ_SLAB_DATA_SIZE + 4]
+					)?);
+				}
+				Ok(ret)
+			})?;
+			debug!("res.len={}", res.len())?;
+			conn_data.write_handle().write(&res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+
+		// do a normal requests
+		stream.write(b"test")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"test");
+
+		sleep(Duration::from_millis(100));
+		// do a request that uses 2 slabs (with capacity of only one)
+		let mut buf = [10u8; 600];
+		stream.write(&buf)?;
+		assert!(stream.read(&mut buf).is_err());
+
+		sleep(Duration::from_millis(100));
+		// now we should be able to continue with small requests
+
+		let mut stream = TcpStream::connect(addr)?;
+		stream.write(b"posterror")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 9);
+		assert_eq!(&buf[0..len], b"posterror");
 
 		Ok(())
 	}
