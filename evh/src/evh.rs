@@ -1468,7 +1468,6 @@ mod test {
 		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
 		READ_SLAB_DATA_SIZE,
 	};
-	use bmw_deps::lazy_static::lazy_static;
 	use bmw_deps::rand::random;
 	use bmw_err::*;
 	use bmw_log::*;
@@ -1482,13 +1481,8 @@ mod test {
 	#[cfg(windows)]
 	use std::os::windows::io::IntoRawSocket;
 	use std::sync::mpsc::sync_channel;
-	use std::sync::Mutex;
 	use std::thread::{sleep, spawn};
 	use std::time::Duration;
-
-	lazy_static! {
-		static ref LOCK: Mutex<bool> = Mutex::new(true);
-	}
 
 	info!();
 
@@ -1544,7 +1538,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_basic() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("basic Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -1614,7 +1607,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_close() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("close Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -1719,7 +1711,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_server_close() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("server_close Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -1811,7 +1802,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_multi_slab_message() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("multi_slab_message Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -1894,7 +1884,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_client() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("eventhandler client Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2019,8 +2008,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_is_reuse_port() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
-
 		let port = pick_free_port()?;
 		info!("reuse port Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2153,7 +2140,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_stop() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("stop Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2232,7 +2218,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_partial_clear() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("partial clear Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2365,7 +2350,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_different_lengths1() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("different len1 Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2466,7 +2450,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_different_lengths_client() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("lengths client Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2656,7 +2639,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_out_of_slabs() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("out of slabs Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2767,7 +2749,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_user_data() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("user data Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2866,7 +2847,6 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_trigger_on_read() -> Result<(), Error> {
-		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("trigger on_read Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
