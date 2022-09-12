@@ -218,7 +218,9 @@ impl ReadWriteInfo {
 
 impl ThreadContext {
 	fn new() -> Self {
-		Self {}
+		Self {
+			user_data: Box::new(0),
+		}
 	}
 }
 
@@ -2679,7 +2681,7 @@ mod test {
 
 		let mut stream = TcpStream::connect(addr)?;
 
-		// do a normal requests
+		// do a normal request
 		stream.write(b"test")?;
 		let mut buf = vec![];
 		buf.resize(100, 0u8);
@@ -2705,6 +2707,103 @@ mod test {
 		assert_eq!(&buf[0..len], b"posterror");
 
 		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_user_data() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 1,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, thread_context| {
+			assert_eq!(
+				thread_context.user_data.downcast_ref::<String>().unwrap(),
+				&"something".to_string()
+			);
+			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			debug!("firstslab={},last_slab={}", first_slab, last_slab)?;
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let mut slab_id = first_slab;
+				let mut ret: Vec<u8> = vec![];
+				loop {
+					let slab = sa.get(slab_id.try_into()?)?;
+					let slab_bytes = slab.get();
+					let offset = if slab_id == last_slab {
+						slab_offset as usize
+					} else {
+						READ_SLAB_DATA_SIZE
+					};
+					debug!("read bytes = {:?}", &slab.get()[0..offset as usize])?;
+					ret.extend(&slab_bytes[0..offset]);
+
+					if slab_id == last_slab {
+						break;
+					}
+					slab_id = u32::from_be_bytes(try_into!(
+						slab_bytes[READ_SLAB_DATA_SIZE..READ_SLAB_DATA_SIZE + 4]
+					)?);
+				}
+				Ok(ret)
+			})?;
+			debug!("res.len={}", res.len())?;
+			conn_data.write_handle().write(&res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			thread_context.user_data = Box::new("something".to_string());
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+
+		// do a normal request
+		stream.write(b"test")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"test");
 
 		Ok(())
 	}

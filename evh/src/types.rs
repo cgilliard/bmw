@@ -14,6 +14,7 @@
 use bmw_derive::Serializable;
 use bmw_err::*;
 use bmw_util::*;
+use std::any::Any;
 use std::cell::{Ref, RefCell};
 use std::net::TcpStream;
 use std::pin::Pin;
@@ -54,7 +55,9 @@ pub(crate) type Handle = RawFd;
 #[cfg(windows)]
 pub(crate) type Handle = usize;
 
-pub struct ThreadContext {}
+pub struct ThreadContext {
+	pub user_data: Box<dyn Any + Send + Sync>,
+}
 
 pub struct ClientConnection {
 	pub handle: Handle,
