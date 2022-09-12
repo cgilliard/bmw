@@ -1409,6 +1409,7 @@ mod test {
 		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
 		READ_SLAB_DATA_SIZE,
 	};
+	use bmw_deps::lazy_static::lazy_static;
 	use bmw_deps::rand::random;
 	use bmw_err::*;
 	use bmw_log::*;
@@ -1424,6 +1425,12 @@ mod test {
 	use std::sync::mpsc::sync_channel;
 	use std::thread::sleep;
 	use std::time::Duration;
+
+	use std::sync::Mutex;
+
+	lazy_static! {
+		static ref LOCK: Mutex<bool> = Mutex::new(true);
+	}
 
 	info!();
 
@@ -1479,10 +1486,11 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_basic() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -1541,16 +1549,18 @@ mod test {
 		connection.write(b"test2")?;
 		let len = connection.read(&mut buf)?;
 		assert_eq!(&buf[0..len], b"test2");
+		evh.stop()?;
 
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_close() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -1644,16 +1654,18 @@ mod test {
 			assert_eq!((**((close_count_clone.rlock()?).guard())), total + 1);
 			break;
 		}
+		evh.stop()?;
 
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_server_close() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -1734,11 +1746,14 @@ mod test {
 			assert_eq!(**((close_count_clone.rlock()?).guard()), 1);
 		}
 
+		evh.stop()?;
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_multi_slab_message() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -1814,15 +1829,18 @@ mod test {
 			assert_eq!(buf[i], 'a' as u8 + (i % 26) as u8);
 		}
 
+		evh.stop()?;
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_client() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -1935,11 +1953,16 @@ mod test {
 			assert!(**(server_received_abc_clone.rlock()?.guard()));
 			break;
 		}
+
+		evh.stop()?;
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_is_reuse_port() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
+
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2065,15 +2088,18 @@ mod test {
 			assert_ne!(tid1count, 0);
 		}
 
+		evh.stop()?;
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_stop() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2143,15 +2169,18 @@ mod test {
 
 		assert!(res.is_err() || res.unwrap() == 0);
 
+		evh.stop()?;
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_partial_clear() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2273,15 +2302,18 @@ mod test {
 			assert_eq!(buf[i], 'a' as u8 + ((i - 8) % 26) as u8);
 		}
 
+		evh.stop()?;
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_different_lengths1() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2371,15 +2403,18 @@ mod test {
 			assert_eq!(&buf[0..len], &bytes[0..len]);
 		}
 
+		evh.stop()?;
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_different_lengths_client() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2557,11 +2592,15 @@ mod test {
 			rx.recv()?;
 		}
 
+		evh.stop()?;
+		evh2.stop()?;
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_eventhandler_out_of_slabs() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2664,6 +2703,8 @@ mod test {
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 9);
 		assert_eq!(&buf[0..len], b"posterror");
+
+		evh.stop()?;
 
 		Ok(())
 	}
