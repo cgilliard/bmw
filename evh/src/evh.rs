@@ -778,6 +778,7 @@ where
 						ConnectionInfo::ReadWriteInfo(rw) => match ctx.events[i].etype {
 							EventType::Read => self.process_read(rw, ctx)?,
 							EventType::Write => self.process_write(rw, ctx)?,
+							EventType::Error => self.process_error(rw, ctx)?,
 							_ => {}
 						},
 					},
@@ -789,6 +790,20 @@ where
 				)?,
 			}
 		}
+		Ok(())
+	}
+
+	fn process_error(
+		&mut self,
+		mut rw: ReadWriteInfo,
+		ctx: &mut EventHandlerContext,
+	) -> Result<(), Error> {
+		// write back to keep our hashtable consistent
+		let id = rw.id;
+		ctx.connection_hashtable
+			.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
+		self.process_close(ctx, &mut rw)?;
+
 		Ok(())
 	}
 
@@ -1531,7 +1546,7 @@ mod test {
 	fn test_eventhandler_basic() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("basic Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
 		let threads = 2;
 		let config = EventHandlerConfig {
@@ -1601,7 +1616,7 @@ mod test {
 	fn test_eventhandler_close() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("close Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
 		let threads = 2;
 		let config = EventHandlerConfig {
@@ -1706,7 +1721,7 @@ mod test {
 	fn test_eventhandler_server_close() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("server_close Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
 		let threads = 2;
 		let config = EventHandlerConfig {
@@ -1798,9 +1813,9 @@ mod test {
 	fn test_eventhandler_multi_slab_message() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("multi_slab_message Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -1881,9 +1896,9 @@ mod test {
 	fn test_eventhandler_client() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("eventhandler client Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -2007,7 +2022,7 @@ mod test {
 		let _lock = LOCK.lock()?;
 
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("reuse port Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
 		let threads = 2;
 		let config = EventHandlerConfig {
@@ -2140,9 +2155,9 @@ mod test {
 	fn test_eventhandler_stop() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("stop Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2171,7 +2186,7 @@ mod test {
 
 		evh.set_on_accept(move |conn_data, _thread_context| {
 			info!(
-				"accept a connection handle = {}, tid={}",
+				"stop accept a connection handle = {}, tid={}",
 				conn_data.get_handle(),
 				conn_data.tid()
 			)?;
@@ -2212,8 +2227,6 @@ mod test {
 
 		assert!(res.is_err() || res.unwrap() == 0);
 
-		evh.stop()?;
-
 		Ok(())
 	}
 
@@ -2221,9 +2234,9 @@ mod test {
 	fn test_eventhandler_partial_clear() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("partial clear Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2354,9 +2367,9 @@ mod test {
 	fn test_eventhandler_different_lengths1() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("different len1 Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2455,9 +2468,9 @@ mod test {
 	fn test_eventhandler_different_lengths_client() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("lengths client Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2645,9 +2658,9 @@ mod test {
 	fn test_eventhandler_out_of_slabs() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("out of slabs Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2756,9 +2769,9 @@ mod test {
 	fn test_eventhandler_user_data() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("user data Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2855,9 +2868,9 @@ mod test {
 	fn test_eventhandler_trigger_on_read() -> Result<(), Error> {
 		let _lock = LOCK.lock()?;
 		let port = pick_free_port()?;
-		info!("Using port: {}", port)?;
+		info!("trigger on_read Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 1;
+		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,

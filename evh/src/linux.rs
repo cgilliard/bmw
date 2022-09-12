@@ -90,6 +90,8 @@ pub(crate) fn accept_impl(fd: RawFd) -> Result<RawFd, Error> {
 		)
 	};
 
+	debug!("accept handle = {}", handle)?;
+
 	if handle < 0 {
 		if errno().0 == libc::EAGAIN {
 			// would block, return the negative number
@@ -174,7 +176,7 @@ pub(crate) fn get_events_impl(
 			let fd = ctx.events_in[i].handle;
 			debug!("add in read fd = {},tid={}", fd, ctx.tid)?;
 			if fd >= ctx.filter_set.len().try_into()? {
-				ctx.filter_set.resize((fd + 100).try_into()?, true);
+				ctx.filter_set.resize((fd + 100).try_into()?, false);
 			}
 
 			interest |= EpollFlags::EPOLLIN;
@@ -185,12 +187,17 @@ pub(crate) fn get_events_impl(
 			let op = match ctx.filter_set.get(handle_as_usize) {
 				Some(bitref) => {
 					if *bitref {
+						debug!("found {}. using mod", handle_as_usize)?;
 						EpollOp::EpollCtlMod
 					} else {
+						debug!("not found {}. using add", handle_as_usize)?;
 						EpollOp::EpollCtlAdd
 					}
 				}
-				None => EpollOp::EpollCtlAdd,
+				None => {
+					debug!("not found {} (none). using add", handle_as_usize)?;
+					EpollOp::EpollCtlAdd
+				}
 			};
 			ctx.filter_set.replace(handle_as_usize, true);
 			let mut event =
