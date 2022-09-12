@@ -60,6 +60,7 @@ const WRITE_SET_SIZE: usize = 42;
 
 const WRITE_STATE_FLAG_PENDING: u8 = 0x1 << 0;
 const WRITE_STATE_FLAG_CLOSE: u8 = 0x1 << 1;
+const WRITE_STATE_FLAG_TRIGGER_ON_READ: u8 = 0x1 << 2;
 
 const EAGAIN: i32 = 11;
 const ETEMPUNAVAILABLE: i32 = 35;
@@ -411,8 +412,21 @@ impl WriteHandle {
 		}
 		Ok(())
 	}
-	pub fn trigger_on_read(&self) -> Result<(), Error> {
-		todo!()
+	pub fn trigger_on_read(&mut self) -> Result<(), Error> {
+		{
+			debug!("wlock for {}", self.id)?;
+			let mut write_state = self.write_state.wlock()?;
+			let guard = write_state.guard();
+			(**guard).set_flag(WRITE_STATE_FLAG_TRIGGER_ON_READ);
+			debug!("unlockwlock for {}", self.id)?;
+		}
+		{
+			let mut event_handler_data = self.event_handler_data.wlock()?;
+			let guard = event_handler_data.guard();
+			(**guard).write_queue.enqueue(self.id)?;
+		}
+		self.wakeup.wakeup()?;
+		Ok(())
 	}
 
 	pub fn handle(&self) -> Handle {
@@ -784,6 +798,7 @@ where
 		ctx: &mut EventHandlerContext,
 	) -> Result<(), Error> {
 		let mut do_close = false;
+		let mut trigger_on_read = false;
 
 		{
 			debug!("wlock for {}", rw.id)?;
@@ -796,6 +811,10 @@ where
 					if (**guard).is_set(WRITE_STATE_FLAG_CLOSE) {
 						do_close = true;
 					}
+					if (**guard).is_set(WRITE_STATE_FLAG_TRIGGER_ON_READ) {
+						(**guard).unset_flag(WRITE_STATE_FLAG_TRIGGER_ON_READ);
+						trigger_on_read = true;
+					}
 					break;
 				}
 				let wlen = write_bytes(rw.handle, &(**guard).write_buffer);
@@ -804,6 +823,29 @@ where
 					break;
 				}
 				(**guard).write_buffer.drain(0..wlen as usize);
+			}
+		}
+
+		if trigger_on_read {
+			match &mut self.on_read {
+				Some(on_read) => {
+					match on_read(
+						&mut ConnectionData::new(
+							&mut rw,
+							ctx.tid,
+							ctx.read_slabs.clone(),
+							self.wakeup[ctx.tid].clone(),
+							self.data[ctx.tid].clone(),
+						),
+						&mut ctx.callback_context,
+					) {
+						Ok(_) => {}
+						Err(e) => {
+							warn!("Callback on_read generated error: {}", e)?;
+						}
+					}
+				}
+				None => {}
 			}
 		}
 
@@ -1425,10 +1467,9 @@ mod test {
 	#[cfg(windows)]
 	use std::os::windows::io::IntoRawSocket;
 	use std::sync::mpsc::sync_channel;
-	use std::thread::sleep;
-	use std::time::Duration;
-
 	use std::sync::Mutex;
+	use std::thread::{sleep, spawn};
+	use std::time::Duration;
 
 	lazy_static! {
 		static ref LOCK: Mutex<bool> = Mutex::new(true);
@@ -1759,7 +1800,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -1842,7 +1883,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
@@ -2101,7 +2142,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2182,7 +2223,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2315,7 +2356,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2416,7 +2457,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
@@ -2804,6 +2845,91 @@ mod test {
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 4);
 		assert_eq!(&buf[0..len], b"test");
+
+		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_trigger_on_read() -> Result<(), Error> {
+		let _lock = LOCK.lock()?;
+		let port = pick_free_port()?;
+		info!("Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 1,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			conn_data.write_handle().write(b"1234")?;
+			let mut wh = conn_data.write_handle();
+
+			spawn(move || -> Result<(), Error> {
+				info!("new thread")?;
+				sleep(Duration::from_millis(1000));
+				wh.write(b"5678")?;
+				sleep(Duration::from_millis(1000));
+				wh.trigger_on_read()?;
+				Ok(())
+			});
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+
+		// do a normal request
+		stream.write(b"test")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"1234");
+
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"5678");
+
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"1234");
+
+		evh.stop()?;
 
 		Ok(())
 	}

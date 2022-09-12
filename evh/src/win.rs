@@ -106,6 +106,7 @@ pub(crate) fn read_bytes_impl(handle: Handle, buf: &mut [u8]) -> isize {
 }
 
 pub(crate) fn write_bytes_impl(handle: Handle, buf: &[u8]) -> isize {
+	set_errno(Errno(0));
 	let cbuf: *mut i8 = buf as *const _ as *mut i8;
 	match buf.len().try_into() {
 		Ok(len) => unsafe { send(handle, cbuf, len, 0).try_into().unwrap_or(-1) },
