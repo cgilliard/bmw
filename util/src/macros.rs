@@ -1039,9 +1039,10 @@ macro_rules! hashtable_sync {
                     }
                 )*
 
+                let slabs = slab_allocator!(SlabSize(256),SlabCount(256))?;
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &None
+                        &Some(&slabs)
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -1087,9 +1088,10 @@ macro_rules! hashtable_sync_box {
                     }
                 )*
 
+                let slabs = slab_allocator!(SlabSize(256),SlabCount(256))?;
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &None
+                        &Some(&slabs)
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.

@@ -217,7 +217,8 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 		..Default::default()
 	};
 
-	let pool = thread_pool!(MinSize(threads), MaxSize(threads))?;
+	let mut pool = thread_pool!(MinSize(threads), MaxSize(threads))?;
+	pool.set_on_panic(move |_id| Ok(()))?;
 	let mut completions = vec![];
 	let mut state = array!(threads, &lock_box!(ThreadState::new())?)?;
 	let mut state_clone = state.clone();

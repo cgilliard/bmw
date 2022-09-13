@@ -325,9 +325,8 @@ impl ThreadPoolStopper {
 mod test {
 	use crate as bmw_util;
 	use crate::execute;
-	use crate::types::{ThreadPoolImpl, ThreadPoolTestConfig};
+	use crate::types::ThreadPoolImpl;
 	use crate::{lock, Builder, Lock, PoolResult, ThreadPool, ThreadPoolConfig};
-	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
 	use std::thread::sleep;
@@ -589,66 +588,6 @@ mod test {
 
 		sleep(Duration::from_millis(1000));
 		assert_eq!(tp.size()?, 0);
-		Ok(())
-	}
-
-	#[test]
-	fn test_threadpool_drop() -> Result<(), Error> {
-		let state;
-		{
-			let mut tp = ThreadPoolImpl::new(
-				ThreadPoolConfig {
-					min_size: 2,
-					max_size: 4,
-					..Default::default()
-				},
-				None,
-			)?;
-			tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
-			state = clone_box(&*tp.state);
-			tp.start()?;
-			sleep(Duration::from_millis(1000));
-			assert_eq!(tp.size()?, 2);
-			tp.execute(async move { Ok(()) }, 0)?;
-
-			sleep(Duration::from_millis(1000));
-			info!("stopping pool")?;
-			assert_eq!(tp.size()?, 2);
-		}
-		sleep(Duration::from_millis(1000));
-		let state_guard = state.rlock()?;
-		assert_eq!((**state_guard.guard()).cur_size, 0);
-		assert_eq!((**state_guard.guard()).stop, true);
-		let state;
-		{
-			let mut tp = ThreadPoolImpl::new(
-				ThreadPoolConfig {
-					min_size: 2,
-					max_size: 4,
-					..Default::default()
-				},
-				Some(ThreadPoolTestConfig {
-					debug_drop_error: true,
-				}),
-			)?;
-			tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
-			state = clone_box(&*tp.state);
-			tp.start()?;
-			sleep(Duration::from_millis(1000));
-			assert_eq!(tp.size()?, 2);
-			tp.execute(async move { Ok(()) }, 0)?;
-
-			sleep(Duration::from_millis(1000));
-			info!("stopping pool")?;
-			assert_eq!(tp.size()?, 2);
-		}
-		sleep(Duration::from_millis(1000));
-		let state_guard = state.rlock()?;
-
-		// other threads die due to the channel being closed so we get to 0 still.
-		assert_eq!((**state_guard.guard()).cur_size, 0);
-		assert_eq!((**state_guard.guard()).stop, false);
-
 		Ok(())
 	}
 
