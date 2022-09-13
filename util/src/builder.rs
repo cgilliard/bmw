@@ -307,7 +307,7 @@ impl Builder {
 	pub fn build_hashset_sync<K>(
 		config: HashsetConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<impl Hashset<K>, Error>
+	) -> Result<impl Hashset<K> + Send + Sync, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 	{

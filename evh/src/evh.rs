@@ -841,7 +841,7 @@ where
 				#[cfg(target_os = "windows")]
 				epoll_ctl_impl(
 					EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
-					ctx.events[i].handle,
+					ctx.events[ctx.counter].handle,
 					&mut ctx.filter_set,
 					ctx.selector as *mut c_void,
 					ctx.tid,

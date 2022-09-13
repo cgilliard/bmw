@@ -123,7 +123,7 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) handle_hashtable: Box<dyn Hashtable<Handle, u128> + Send + Sync>,
 	pub(crate) read_slabs: Box<dyn SlabAllocator + Send + Sync>,
 	#[cfg(target_os = "windows")]
-	pub(crate) write_set: Box<dyn Hashset<Handle>>,
+	pub(crate) write_set: Box<dyn Hashset<Handle> + Send + Sync>,
 	pub(crate) counter: usize,
 	pub(crate) count: usize,
 	pub(crate) last_process_type: LastProcessType,
