@@ -101,7 +101,6 @@ impl Default for EventHandlerConfig {
 			sync_channel_size: 10,
 			write_queue_size: 100_000,
 			nhandles_queue_size: 1_000,
-			events_per_batch: 100,
 			max_events_in: 1_000,
 			max_events: 100,
 			housekeeping_frequency_millis: 1_000,
@@ -227,32 +226,14 @@ impl ThreadContext {
 impl EventHandlerContext {
 	fn new(
 		tid: usize,
-		events_per_batch: usize,
 		max_events_in: usize,
 		max_events: usize,
 		max_handles_per_thread: usize,
 		read_slab_count: usize,
 	) -> Result<Self, Error> {
-		if max_events > events_per_batch {
-			return Err(err!(
-				ErrKind::Configuration,
-				"max_events must be less than or equal to events_per_batch"
-			));
-		}
-		let events = array!(events_per_batch, &Event::default())?;
-		let events_in = array!(max_events_in, &EventIn::default())?;
-
-		#[cfg(target_os = "macos")]
-		let mut ret_kevs = vec![];
-		#[cfg(target_os = "macos")]
-		for _ in 0..max_events {
-			ret_kevs.push(kevent::new(
-				0,
-				EventFilter::EVFILT_SYSCOUNT,
-				EventFlag::empty(),
-				FilterFlag::empty(),
-			));
-		}
+		let events = array!(max_events * 2, &Event::default())?;
+		let mut events_in = vec![];
+		events_in.resize(max_events_in, EventIn::default());
 
 		#[cfg(target_os = "linux")]
 		let mut filter_set: BitVec = BitVec::with_capacity(max_handles_per_thread + 100);
@@ -289,7 +270,7 @@ impl EventHandlerContext {
 		#[cfg(target_os = "linux")]
 		let epoll_events = {
 			let mut epoll_events = vec![];
-			epoll_events.resize(max_events, EpollEvent::new(EpollFlags::empty(), 0));
+			epoll_events.resize(max_events * 2, EpollEvent::new(EpollFlags::empty(), 0));
 			epoll_events
 		};
 
@@ -305,7 +286,6 @@ impl EventHandlerContext {
 			read_slabs,
 			events,
 			events_in,
-			events_in_count: 0,
 			tid,
 			now: 0,
 			counter: 0,
@@ -351,6 +331,7 @@ impl WriteHandle {
 		wakeup: Wakeup,
 		write_state: Box<dyn LockBox<WriteState>>,
 		event_handler_data: Box<dyn LockBox<EventHandlerData>>,
+		debug_write_queue: bool,
 	) -> Self {
 		Self {
 			handle,
@@ -358,6 +339,7 @@ impl WriteHandle {
 			wakeup,
 			write_state,
 			event_handler_data,
+			debug_write_queue,
 		}
 	}
 	pub fn close(&mut self) -> Result<(), Error> {
@@ -386,10 +368,28 @@ impl WriteHandle {
 			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_PENDING) {
 				0
 			} else {
-				write_bytes(self.handle, data)
+				if self.debug_write_queue {
+					if data_len > 4 {
+						if data[0] == 'a' as u8 {
+							write_bytes(self.handle, &data[0..4])
+						} else if data[0] == 'b' as u8 {
+							write_bytes(self.handle, &data[0..3])
+						} else if data[0] == 'c' as u8 {
+							write_bytes(self.handle, &data[0..2])
+						} else if data[0] == 'd' as u8 {
+							write_bytes(self.handle, &data[0..1])
+						} else {
+							write_bytes(self.handle, data)
+						}
+					} else {
+						write_bytes(self.handle, data)
+					}
+				} else {
+					write_bytes(self.handle, data)
+				}
 			}
 		};
-		if errno().0 != 0 {
+		if errno().0 != 0 || len < 0 {
 			// check for would block
 			if errno().0 != EAGAIN && errno().0 != ETEMPUNAVAILABLE && errno().0 != WINNONBLOCKING {
 				return Err(err!(
@@ -456,6 +456,7 @@ impl<'a> ConnectionData<'a> {
 		slabs: &'a mut Box<dyn SlabAllocator + Send + Sync>,
 		wakeup: Wakeup,
 		event_handler_data: Box<dyn LockBox<EventHandlerData>>,
+		debug_write_queue: bool,
 	) -> Self {
 		Self {
 			rwi,
@@ -463,6 +464,7 @@ impl<'a> ConnectionData<'a> {
 			slabs,
 			wakeup,
 			event_handler_data,
+			debug_write_queue,
 		}
 	}
 
@@ -491,6 +493,7 @@ impl<'a> ConnData for ConnectionData<'a> {
 			self.wakeup.clone(),
 			self.rwi.write_state.clone(),
 			self.event_handler_data.clone(),
+			self.debug_write_queue,
 		)
 	}
 	fn borrow_slab_allocator<F, T>(&self, mut f: F) -> Result<T, Error>
@@ -579,7 +582,13 @@ where
 			data,
 			wakeup,
 			thread_pool_stopper: None,
+			debug_write_queue: false,
 		})
+	}
+
+	#[cfg(test)]
+	fn set_debug_write_queue(&mut self, value: bool) {
+		self.debug_write_queue = value;
 	}
 
 	fn check_config(config: &EventHandlerConfig) -> Result<(), Error> {
@@ -603,14 +612,12 @@ where
 
 		// add wakeup if this is the first start
 		if !is_restart {
-			//info!("x");
 			let handle = wakeup.reader;
 			debug!("wakeup handle is {}", handle)?;
-			ctx.events_in[ctx.events_in_count] = EventIn {
+			ctx.events_in.push(EventIn {
 				handle,
 				etype: EventTypeIn::Read,
-			};
-			ctx.events_in_count += 1;
+			});
 		} else {
 			// we have to do different cleanup for each type.
 			match ctx.last_process_type {
@@ -731,11 +738,10 @@ where
 					Some(ci) => match ci {
 						ConnectionInfo::ReadWriteInfo(ref rwi) => {
 							let handle = rwi.handle;
-							ctx.events_in[ctx.events_in_count] = EventIn {
+							ctx.events_in.push(EventIn {
 								handle,
 								etype: EventTypeIn::Write,
-							};
-							ctx.events_in_count += 1;
+							});
 
 							// we must update the hashtable to keep
 							// things consistent in terms of our
@@ -775,11 +781,10 @@ where
 							let id = random();
 							match Self::insert_hashtables(ctx, id, li.handle, nhandle) {
 								Ok(_) => {
-									ctx.events_in[ctx.events_in_count] = EventIn {
+									ctx.events_in.push(EventIn {
 										handle: li.handle,
 										etype: EventTypeIn::Read,
-									};
-									ctx.events_in_count += 1;
+									});
 								}
 								Err(e) => {
 									warn!("insert_hashtables generated error: {}. Closing.", e)?;
@@ -790,11 +795,10 @@ where
 						ConnectionInfo::ReadWriteInfo(rw) => {
 							match Self::insert_hashtables(ctx, rw.id, rw.handle, nhandle) {
 								Ok(_) => {
-									ctx.events_in[ctx.events_in_count] = EventIn {
+									ctx.events_in.push(EventIn {
 										handle: rw.handle,
 										etype: EventTypeIn::Read,
-									};
-									ctx.events_in_count += 1;
+									});
 								}
 								Err(e) => {
 									warn!("insert_hashtables generated error: {}. Closing.", e)?;
@@ -831,7 +835,6 @@ where
 			if ctx.counter == ctx.count {
 				break;
 			}
-			debug!("event={:?}", ctx.events[ctx.counter])?;
 			if ctx.events[ctx.counter].handle == wakeup.reader {
 				debug!("WAKEUP, handle={}, tid={}", wakeup.reader, ctx.tid)?;
 				read_bytes(ctx.events[ctx.counter].handle, &mut [0u8; 1]);
@@ -942,6 +945,7 @@ where
 							&mut ctx.read_slabs,
 							self.wakeup[ctx.tid].clone(),
 							self.data[ctx.tid].clone(),
+							self.debug_write_queue,
 						),
 						callback_context,
 					) {
@@ -1118,6 +1122,7 @@ where
 							&mut ctx.read_slabs,
 							self.wakeup[ctx.tid].clone(),
 							self.data[ctx.tid].clone(),
+							self.debug_write_queue,
 						),
 						callback_context,
 					) {
@@ -1163,6 +1168,7 @@ where
 						&mut ctx.read_slabs,
 						self.wakeup[ctx.tid].clone(),
 						self.data[ctx.tid].clone(),
+						self.debug_write_queue,
 					),
 					callback_context,
 				) {
@@ -1178,6 +1184,13 @@ where
 		match ctx.connection_hashtable.remove(&rw.id)? {
 			Some(ci) => match ci {
 				ConnectionInfo::ReadWriteInfo(mut rwi) => {
+					// set the close flag to true so if another thread tries to
+					// write there will be an error
+					{
+						let mut state = rwi.write_state.wlock()?;
+						let guard = state.guard();
+						(**guard).set_flag(WRITE_STATE_FLAG_CLOSE);
+					}
 					ctx.handle_hashtable.remove(&rwi.handle)?;
 					rwi.clear_through_impl(rwi.last_slab, &mut ctx.read_slabs)?;
 					close_impl(ctx, rwi.handle)?;
@@ -1257,6 +1270,7 @@ where
 							&mut ctx.read_slabs,
 							self.wakeup[tid].clone(),
 							self.data[tid].clone(),
+							self.debug_write_queue,
 						),
 						callback_context,
 					) {
@@ -1301,6 +1315,7 @@ where
 						&mut ctx.read_slabs,
 						self.wakeup[ctx.tid].clone(),
 						self.data[ctx.tid].clone(),
+						self.debug_write_queue,
 					),
 					callback_context,
 				) {
@@ -1315,11 +1330,10 @@ where
 
 		match Self::insert_hashtables(ctx, id, handle, &ConnectionInfo::ReadWriteInfo(rwi)) {
 			Ok(_) => {
-				ctx.events_in[ctx.events_in_count] = EventIn {
+				ctx.events_in.push(EventIn {
 					handle,
 					etype: EventTypeIn::Read,
-				};
-				ctx.events_in_count += 1;
+				});
 			}
 			Err(e) => {
 				warn!("insert_hashtables generated error: {}. Closing.", e)?;
@@ -1422,7 +1436,6 @@ where
 			let wakeup = self.wakeup.clone();
 			let ctx = EventHandlerContext::new(
 				i,
-				self.config.events_per_batch,
 				self.config.max_events_in,
 				self.config.max_events,
 				self.config.max_handles_per_thread,
@@ -1542,6 +1555,7 @@ where
 			self.wakeup[tid].clone(),
 			write_state.clone(),
 			self.data[tid].clone(),
+			self.debug_write_queue,
 		);
 
 		let rwi = ReadWriteInfo {
@@ -3488,6 +3502,127 @@ mod test {
 		assert_eq!(len, 5);
 		assert_eq!(&buf[0..len], b"12345");
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_write_queue() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("stop Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 20,
+			max_handles_per_thread: 30,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+		evh.set_debug_write_queue(true);
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read fs = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			conn_data.write_handle().write(&res)?;
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			info!(
+				"stop accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			info!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+
+		// do a normal request
+		stream.write(b"12345")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 5);
+		assert_eq!(&buf[0..len], b"12345");
+
+		// this request uses the write queue
+		stream.write(b"a12345")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		sleep(Duration::from_millis(1000));
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 6);
+		assert_eq!(&buf[0..len], b"a12345");
+
+		// this request uses the write queue
+		stream.write(b"b12345")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		sleep(Duration::from_millis(1000));
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 6);
+		assert_eq!(&buf[0..len], b"b12345");
+
+		// this request uses the write queue
+		stream.write(b"c12345")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		sleep(Duration::from_millis(1000));
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 6);
+		assert_eq!(&buf[0..len], b"c12345");
+
+		// this request uses the write queue
+		stream.write(b"d12345")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		sleep(Duration::from_millis(1000));
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 6);
+		assert_eq!(&buf[0..len], b"d12345");
+
+		// this request uses the write queue
+		stream.write(b"e12345")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 6);
+		assert_eq!(&buf[0..len], b"e12345");
 		Ok(())
 	}
 

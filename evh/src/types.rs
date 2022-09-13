@@ -71,6 +71,7 @@ pub struct ConnectionData<'a> {
 	pub(crate) slabs: &'a mut Box<dyn SlabAllocator + Send + Sync>,
 	pub(crate) wakeup: Wakeup,
 	pub(crate) event_handler_data: Box<dyn LockBox<EventHandlerData>>,
+	pub(crate) debug_write_queue: bool,
 }
 
 #[derive(Clone)]
@@ -80,6 +81,7 @@ pub struct WriteHandle {
 	pub(crate) handle: Handle,
 	pub(crate) wakeup: Wakeup,
 	pub(crate) event_handler_data: Box<dyn LockBox<EventHandlerData>>,
+	pub(crate) debug_write_queue: bool,
 }
 
 pub trait ConnData {
@@ -107,8 +109,7 @@ pub(crate) enum LastProcessType {
 #[derive(Clone)]
 pub(crate) struct EventHandlerContext {
 	pub(crate) events: Array<Event>,
-	pub(crate) events_in: Array<EventIn>,
-	pub(crate) events_in_count: usize,
+	pub(crate) events_in: Vec<EventIn>,
 	pub(crate) tid: usize,
 	#[cfg(target_os = "linux")]
 	pub(crate) filter_set: BitVec,
@@ -135,7 +136,6 @@ pub struct EventHandlerConfig {
 	pub sync_channel_size: usize,
 	pub write_queue_size: usize,
 	pub nhandles_queue_size: usize,
-	pub events_per_batch: usize,
 	pub max_events_in: usize,
 	pub max_events: usize,
 	pub housekeeping_frequency_millis: u128,
@@ -214,6 +214,7 @@ where
 	pub(crate) data: Array<Box<dyn LockBox<EventHandlerData>>>,
 	pub(crate) wakeup: Array<Wakeup>,
 	pub(crate) thread_pool_stopper: Option<ThreadPoolStopper>,
+	pub(crate) debug_write_queue: bool,
 }
 
 #[derive(Clone)]

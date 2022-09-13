@@ -312,14 +312,14 @@ pub(crate) fn get_events_impl(
 	} else {
 		for i in 0..results as usize {
 			if epoll_events[i].events & EPOLLOUT != 0 {
-				ctx.events[i] = Event {
+				ctx.events[res_count] = Event {
 					handle: unsafe { epoll_events[i].data.fd } as Handle,
 					etype: EventType::Write,
 				};
 				res_count += 1;
 			}
 			if epoll_events[i].events & EPOLLIN != 0 {
-				ctx.events[i] = Event {
+				ctx.events[res_count] = Event {
 					handle: unsafe { epoll_events[i].data.fd } as Handle,
 					etype: EventType::Read,
 				};

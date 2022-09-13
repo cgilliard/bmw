@@ -167,13 +167,11 @@ pub(crate) fn get_events_impl(
 	ctx: &mut EventHandlerContext,
 	wakeup_requested: bool,
 ) -> Result<usize, Error> {
-	debug!("in get_events_impl in_count={}", ctx.events_in_count)?;
-	for i in 0..ctx.events_in_count {
+	debug!("in get_events_impl in_count={}", ctx.events_in.len())?;
+	for evt in &ctx.events_in {
 		let mut interest = EpollFlags::empty();
-		if ctx.events_in[i].etype == EventTypeIn::Read
-			|| ctx.events_in[i].etype == EventTypeIn::Accept
-		{
-			let fd = ctx.events_in[i].handle;
+		if evt.etype == EventTypeIn::Read || evt.etype == EventTypeIn::Accept {
+			let fd = evt.handle;
 			debug!("add in read fd = {},tid={}", fd, ctx.tid)?;
 			if fd >= ctx.filter_set.len().try_into()? {
 				ctx.filter_set.resize((fd + 100).try_into()?, false);
@@ -200,24 +198,17 @@ pub(crate) fn get_events_impl(
 				}
 			};
 			ctx.filter_set.replace(handle_as_usize, true);
-			let mut event =
-				EpollEvent::new(interest, ctx.events_in[i].handle.try_into().unwrap_or(0));
-			let res = epoll_ctl(ctx.selector, op, ctx.events_in[i].handle, &mut event);
+			let mut event = EpollEvent::new(interest, evt.handle.try_into().unwrap_or(0));
+			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			match res {
 				Ok(_) => {}
-				Err(e) => {
-					ctx.events[i] = Event {
-						handle: fd,
-						etype: EventType::Error,
-					};
-					error!(
-						"Error epoll_ctl2: {}, fd={}, op={:?},tid={}",
-						e, fd, op, ctx.tid
-					)?
-				}
+				Err(e) => error!(
+					"Error epoll_ctl2: {}, fd={}, op={:?},tid={}",
+					e, fd, op, ctx.tid
+				)?,
 			}
-		} else if ctx.events_in[i].etype == EventTypeIn::Write {
-			let fd = ctx.events_in[i].handle;
+		} else if evt.etype == EventTypeIn::Write {
+			let fd = evt.handle;
 			debug!("add in write fd = {},tid={}", fd, ctx.tid)?;
 			if fd > ctx.filter_set.len().try_into()? {
 				ctx.filter_set.resize((fd + 100).try_into()?, true);
@@ -240,25 +231,19 @@ pub(crate) fn get_events_impl(
 			};
 			ctx.filter_set.set(handle_as_usize, true);
 
-			let mut event =
-				EpollEvent::new(interest, ctx.events_in[i].handle.try_into().unwrap_or(0));
-			let res = epoll_ctl(ctx.selector, op, ctx.events_in[i].handle, &mut event);
+			let mut event = EpollEvent::new(interest, evt.handle.try_into().unwrap_or(0));
+			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			match res {
 				Ok(_) => {}
-				Err(e) => {
-					ctx.events[i] = Event {
-						handle: fd,
-						etype: EventType::Error,
-					};
-					error!(
-						"Error epoll_ctl1: {}, fd={}, op={:?},tid={}",
-						e, fd, op, ctx.tid
-					)?
-				}
+				Err(e) => error!(
+					"Error epoll_ctl1: {}, fd={}, op={:?},tid={}",
+					e, fd, op, ctx.tid
+				)?,
 			}
 		}
 	}
-	ctx.events_in_count = 0;
+	ctx.events_in.clear();
+	ctx.events_in.shrink_to(1000);
 
 	let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 	let diff = now - ctx.now;
@@ -280,14 +265,14 @@ pub(crate) fn get_events_impl(
 			if results > 0 {
 				for i in 0..results {
 					if !(ctx.epoll_events[i].events() & EpollFlags::EPOLLOUT).is_empty() {
-						ctx.events[i] = Event {
+						ctx.events[res_count] = Event {
 							handle: ctx.epoll_events[i].data() as Handle,
 							etype: EventType::Write,
 						};
 						res_count += 1;
 					}
 					if !(ctx.epoll_events[i].events() & EpollFlags::EPOLLIN).is_empty() {
-						ctx.events[i] = Event {
+						ctx.events[res_count] = Event {
 							handle: ctx.epoll_events[i].data() as Handle,
 							etype: EventType::Read,
 						};
