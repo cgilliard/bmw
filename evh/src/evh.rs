@@ -389,7 +389,7 @@ impl WriteHandle {
 				write_bytes(self.handle, data)
 			}
 		};
-		if len < 0 {
+		if errno().0 != 0 {
 			// check for would block
 			if errno().0 != EAGAIN && errno().0 != ETEMPUNAVAILABLE && errno().0 != WINNONBLOCKING {
 				return Err(err!(
