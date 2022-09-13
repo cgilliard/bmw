@@ -759,23 +759,34 @@ where
 					match nhandle {
 						ConnectionInfo::ListenerInfo(li) => {
 							let id = random();
-							ctx.events_in[ctx.events_in_count] = EventIn {
-								handle: li.handle,
-								etype: EventTypeIn::Read,
-							};
-							ctx.events_in_count += 1;
-							ctx.connection_hashtable.insert(&id, nhandle)?;
-							ctx.handle_hashtable.insert(&li.handle, &id)?;
+							match Self::insert_hashtables(ctx, id, li.handle, nhandle) {
+								Ok(_) => {
+									ctx.events_in[ctx.events_in_count] = EventIn {
+										handle: li.handle,
+										etype: EventTypeIn::Read,
+									};
+									ctx.events_in_count += 1;
+								}
+								Err(e) => {
+									warn!("insert_hashtables generated error: {}. Closing.", e)?;
+									close_impl(ctx, li.handle)?;
+								}
+							}
 						}
 						ConnectionInfo::ReadWriteInfo(rw) => {
-							let id = rw.id;
-							ctx.events_in[ctx.events_in_count] = EventIn {
-								handle: rw.handle,
-								etype: EventTypeIn::Read,
-							};
-							ctx.events_in_count += 1;
-							ctx.connection_hashtable.insert(&id, nhandle)?;
-							ctx.handle_hashtable.insert(&rw.handle, &id)?;
+							match Self::insert_hashtables(ctx, rw.id, rw.handle, nhandle) {
+								Ok(_) => {
+									ctx.events_in[ctx.events_in_count] = EventIn {
+										handle: rw.handle,
+										etype: EventTypeIn::Read,
+									};
+									ctx.events_in_count += 1;
+								}
+								Err(e) => {
+									warn!("insert_hashtables generated error: {}. Closing.", e)?;
+									close_impl(ctx, rw.handle)?;
+								}
+							}
 						}
 					}
 				}
@@ -783,6 +794,17 @@ where
 			}
 		}
 		Ok(false)
+	}
+
+	fn insert_hashtables(
+		ctx: &mut EventHandlerContext,
+		id: u128,
+		handle: Handle,
+		conn_info: &ConnectionInfo,
+	) -> Result<(), Error> {
+		ctx.connection_hashtable.insert(&id, conn_info)?;
+		ctx.handle_hashtable.insert(&handle, &id)?;
+		Ok(())
 	}
 
 	fn process_events(
@@ -1277,15 +1299,20 @@ where
 			None => {}
 		}
 
-		ctx.events_in[ctx.events_in_count] = EventIn {
-			handle,
-			etype: EventTypeIn::Read,
-		};
-		ctx.events_in_count += 1;
+		match Self::insert_hashtables(ctx, id, handle, &ConnectionInfo::ReadWriteInfo(rwi)) {
+			Ok(_) => {
+				ctx.events_in[ctx.events_in_count] = EventIn {
+					handle,
+					etype: EventTypeIn::Read,
+				};
+				ctx.events_in_count += 1;
+			}
+			Err(e) => {
+				warn!("insert_hashtables generated error: {}. Closing.", e)?;
+				close_impl(ctx, handle)?;
+			}
+		}
 
-		ctx.connection_hashtable
-			.insert(&id, &ConnectionInfo::ReadWriteInfo(rwi))?;
-		ctx.handle_hashtable.insert(&handle, &id)?;
 		Ok(())
 	}
 
@@ -3337,6 +3364,103 @@ mod test {
 		assert_eq!(&buf[0..len], b"c");
 
 		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_too_many_connections() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("thread_panic on_read Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 10,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			let mut wh = conn_data.write_handle();
+
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				let slab_bytes = slab.get();
+				let mut ret = vec![];
+				ret.extend(&slab_bytes[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+
+			wh.write(&res)?;
+			conn_data.clear_through(first_slab)?;
+
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		{
+			let mut stream1 = TcpStream::connect(addr)?;
+
+			// do a normal request on 1
+			stream1.write(b"test")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+			let len = stream1.read(&mut buf)?;
+			assert_eq!(len, 4);
+			assert_eq!(&buf[0..len], b"test");
+
+			// there are already two connections on the single thread (listener/stream).
+			// so another connection will fail
+
+			let mut stream2 = TcpStream::connect(addr)?;
+			assert_eq!(stream2.read(&mut buf)?, 0);
+		}
+		sleep(Duration::from_millis(100));
+		// now that stream1 is dropped we should be able to reconnect
+
+		let mut stream1 = TcpStream::connect(addr)?;
+
+		// do a normal request on 1
+		stream1.write(b"12345")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream1.read(&mut buf)?;
+		assert_eq!(len, 5);
+		assert_eq!(&buf[0..len], b"12345");
 
 		Ok(())
 	}
