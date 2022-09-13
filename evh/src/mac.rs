@@ -135,14 +135,15 @@ pub(crate) fn get_events_impl(
 ) -> Result<usize, Error> {
 	debug!(
 		"get_impl_mac: {}, pushing {} fd",
-		ctx.tid, ctx.events_in_count
+		ctx.tid,
+		ctx.events_in.len()
 	)?;
 	kevs.clear();
-	for i in 0..ctx.events_in_count {
-		match ctx.events_in[i].etype {
+	for evt in &ctx.events_in {
+		match evt.etype {
 			EventTypeIn::Accept => {
 				kevs.push(kevent::new(
-					ctx.events_in[i].handle.try_into()?,
+					evt.handle.try_into()?,
 					EventFilter::EVFILT_READ,
 					EventFlag::EV_ADD | EventFlag::EV_CLEAR,
 					FilterFlag::empty(),
@@ -150,7 +151,7 @@ pub(crate) fn get_events_impl(
 			}
 			EventTypeIn::Read => {
 				kevs.push(kevent::new(
-					ctx.events_in[i].handle.try_into()?,
+					evt.handle.try_into()?,
 					EventFilter::EVFILT_READ,
 					EventFlag::EV_ADD | EventFlag::EV_CLEAR,
 					FilterFlag::empty(),
@@ -158,7 +159,7 @@ pub(crate) fn get_events_impl(
 			}
 			EventTypeIn::Write => {
 				kevs.push(kevent::new(
-					ctx.events_in[i].handle.try_into()?,
+					evt.handle.try_into()?,
 					EventFilter::EVFILT_WRITE,
 					EventFlag::EV_ADD | EventFlag::EV_CLEAR,
 					FilterFlag::empty(),
@@ -166,7 +167,8 @@ pub(crate) fn get_events_impl(
 			}
 		}
 	}
-	ctx.events_in_count = 0;
+	ctx.events_in.clear();
+	ctx.events_in.shrink_to(1000);
 
 	let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 	let diff = now - ctx.now;
