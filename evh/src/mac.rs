@@ -130,16 +130,18 @@ pub(crate) fn get_events_impl(
 	config: &EventHandlerConfig,
 	ctx: &mut EventHandlerContext,
 	wakeup_requested: bool,
+	kevs: &mut Vec<kevent>,
+	ret_kevs: &mut Vec<kevent>,
 ) -> Result<usize, Error> {
 	debug!(
 		"get_impl_mac: {}, pushing {} fd",
 		ctx.tid, ctx.events_in_count
 	)?;
-	ctx.kevs.clear();
+	kevs.clear();
 	for i in 0..ctx.events_in_count {
 		match ctx.events_in[i].etype {
 			EventTypeIn::Accept => {
-				ctx.kevs.push(kevent::new(
+				kevs.push(kevent::new(
 					ctx.events_in[i].handle.try_into()?,
 					EventFilter::EVFILT_READ,
 					EventFlag::EV_ADD | EventFlag::EV_CLEAR,
@@ -147,7 +149,7 @@ pub(crate) fn get_events_impl(
 				));
 			}
 			EventTypeIn::Read => {
-				ctx.kevs.push(kevent::new(
+				kevs.push(kevent::new(
 					ctx.events_in[i].handle.try_into()?,
 					EventFilter::EVFILT_READ,
 					EventFlag::EV_ADD | EventFlag::EV_CLEAR,
@@ -155,7 +157,7 @@ pub(crate) fn get_events_impl(
 				));
 			}
 			EventTypeIn::Write => {
-				ctx.kevs.push(kevent::new(
+				kevs.push(kevent::new(
 					ctx.events_in[i].handle.try_into()?,
 					EventFilter::EVFILT_WRITE,
 					EventFlag::EV_ADD | EventFlag::EV_CLEAR,
@@ -177,10 +179,10 @@ pub(crate) fn get_events_impl(
 	let ret_count = unsafe {
 		kevent(
 			ctx.selector,
-			ctx.kevs.as_ptr(),
-			ctx.kevs.len().try_into()?,
-			ctx.ret_kevs.as_mut_ptr(),
-			ctx.ret_kevs.len().try_into()?,
+			kevs.as_ptr(),
+			kevs.len().try_into()?,
+			ret_kevs.as_mut_ptr(),
+			ret_kevs.len().try_into()?,
 			&duration_to_timespec(Duration::from_millis(sleep as u64)),
 		)
 	};
@@ -195,8 +197,8 @@ pub(crate) fn get_events_impl(
 
 	for i in 0..ret_count as usize {
 		ctx.events[i] = Event {
-			handle: ctx.ret_kevs[i].ident.try_into()?,
-			etype: match ctx.ret_kevs[i].filter {
+			handle: ret_kevs[i].ident.try_into()?,
+			etype: match ret_kevs[i].filter {
 				EventFilter::EVFILT_READ => EventType::Read,
 				EventFilter::EVFILT_WRITE => EventType::Write,
 				_ => {
@@ -204,7 +206,7 @@ pub(crate) fn get_events_impl(
 						ErrKind::IO,
 						format!(
 							"unexpected event type returned by kqueue: {:?}",
-							ctx.ret_kevs[i]
+							ret_kevs[i]
 						)
 					));
 				}

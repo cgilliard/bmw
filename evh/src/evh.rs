@@ -319,10 +319,6 @@ impl EventHandlerContext {
 			#[cfg(target_os = "windows")]
 			write_set,
 			#[cfg(target_os = "macos")]
-			kevs: vec![],
-			#[cfg(target_os = "macos")]
-			ret_kevs,
-			#[cfg(target_os = "macos")]
 			selector: unsafe { kqueue() },
 			#[cfg(target_os = "linux")]
 			selector: epoll_create1(EpollCreateFlags::empty())?,
@@ -665,6 +661,20 @@ where
 			self.process_events(ctx, wakeup, callback_context)?;
 		}
 
+		#[cfg(target_os = "macos")]
+		let mut ret_kevs = vec![];
+		#[cfg(target_os = "macos")]
+		for _ in 0..self.config.max_events {
+			ret_kevs.push(kevent::new(
+				0,
+				EventFilter::EVFILT_SYSCOUNT,
+				EventFlag::empty(),
+				FilterFlag::empty(),
+			));
+		}
+		#[cfg(target_os = "macos")]
+		let mut kevs = vec![];
+
 		loop {
 			debug!("start loop")?;
 			let stop = self.process_new_connections(ctx)?;
@@ -676,7 +686,11 @@ where
 				debug!("calling get_events")?;
 				let count = {
 					let (requested, _lock) = wakeup.pre_block()?;
-					self.get_events(ctx, requested)?
+					#[cfg(target_os = "macos")]
+					let count = self.get_events(ctx, requested, &mut kevs, &mut ret_kevs)?;
+					#[cfg(not(target_os = "macos"))]
+					let count = self.get_events(ctx, requested)?;
+					count
 				};
 				debug!("get_events returned with {} event", count)?;
 				wakeup.post_block()?;
@@ -1316,8 +1330,20 @@ where
 		Ok(())
 	}
 
+	#[cfg(not(target_os = "macos"))]
 	fn get_events(&self, ctx: &mut EventHandlerContext, requested: bool) -> Result<usize, Error> {
 		get_events_impl(&self.config, ctx, requested)
+	}
+
+	#[cfg(target_os = "macos")]
+	fn get_events(
+		&self,
+		ctx: &mut EventHandlerContext,
+		requested: bool,
+		kevs: &mut Vec<kevent>,
+		ret_kevs: &mut Vec<kevent>,
+	) -> Result<usize, Error> {
+		get_events_impl(&self.config, ctx, requested, kevs, ret_kevs)
 	}
 }
 

@@ -22,9 +22,6 @@ use std::sync::Arc;
 #[cfg(unix)]
 use std::os::unix::prelude::RawFd;
 
-#[cfg(target_os = "macos")]
-use bmw_deps::kqueue_sys::kevent;
-
 #[cfg(target_os = "linux")]
 use bmw_deps::bitvec::vec::BitVec;
 #[cfg(target_os = "linux")]
@@ -113,10 +110,6 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) events_in: Array<EventIn>,
 	pub(crate) events_in_count: usize,
 	pub(crate) tid: usize,
-	#[cfg(target_os = "macos")]
-	pub(crate) kevs: Vec<kevent>,
-	#[cfg(target_os = "macos")]
-	pub(crate) ret_kevs: Vec<kevent>,
 	#[cfg(target_os = "linux")]
 	pub(crate) filter_set: BitVec,
 	#[cfg(target_os = "windows")]
