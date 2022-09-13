@@ -232,8 +232,7 @@ impl EventHandlerContext {
 		read_slab_count: usize,
 	) -> Result<Self, Error> {
 		let events = array!(max_events * 2, &Event::default())?;
-		let mut events_in = vec![];
-		events_in.resize(max_events_in, EventIn::default());
+		let events_in = Vec::with_capacity(max_events_in);
 
 		#[cfg(target_os = "linux")]
 		let mut filter_set: BitVec = BitVec::with_capacity(max_handles_per_thread + 100);
