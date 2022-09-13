@@ -15,10 +15,8 @@ use bmw_derive::Serializable;
 use bmw_err::*;
 use bmw_util::*;
 use std::any::Any;
-use std::cell::{Ref, RefCell};
 use std::net::TcpStream;
 use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::Arc;
 
 #[cfg(unix)]
@@ -73,7 +71,7 @@ pub struct ServerConnection {
 pub struct ConnectionData<'a> {
 	pub(crate) rwi: &'a mut ReadWriteInfo,
 	pub(crate) tid: usize,
-	pub(crate) slabs: Rc<RefCell<dyn SlabAllocator>>,
+	pub(crate) slabs: &'a mut Box<dyn SlabAllocator + Send + Sync>,
 	pub(crate) wakeup: Wakeup,
 	pub(crate) event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 }
@@ -95,13 +93,21 @@ pub trait ConnData {
 	fn write_handle(&self) -> WriteHandle;
 	fn borrow_slab_allocator<F, T>(&self, f: F) -> Result<T, Error>
 	where
-		F: FnMut(Ref<dyn SlabAllocator>) -> Result<T, Error>;
+		F: FnMut(&Box<dyn SlabAllocator + Send + Sync>) -> Result<T, Error>;
 	fn slab_offset(&self) -> u16;
 	fn first_slab(&self) -> u32;
 	fn last_slab(&self) -> u32;
 	fn clear_through(&mut self, slab_id: u32) -> Result<(), Error>;
 }
 
+#[derive(Clone)]
+pub(crate) enum LastProcessType {
+	OnRead,
+	OnClose,
+	OnAccept,
+}
+
+#[derive(Clone)]
 pub(crate) struct EventHandlerContext {
 	pub(crate) events: Array<Event>,
 	pub(crate) events_in: Array<EventIn>,
@@ -119,16 +125,15 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) epoll_events: Vec<EpollEvent>,
 	pub(crate) selector: Handle,
 	pub(crate) now: u128,
-	pub(crate) connection_hashtable: Box<dyn Hashtable<u128, ConnectionInfo>>,
-	pub(crate) handle_hashtable: Box<dyn Hashtable<Handle, u128>>,
+	pub(crate) connection_hashtable: Box<dyn Hashtable<u128, ConnectionInfo> + Send + Sync>,
+	pub(crate) handle_hashtable: Box<dyn Hashtable<Handle, u128> + Send + Sync>,
+	pub(crate) read_slabs: Box<dyn SlabAllocator + Send + Sync>,
 	#[cfg(target_os = "windows")]
 	pub(crate) write_set: Box<dyn Hashset<Handle>>,
-	pub(crate) read_slabs: Rc<RefCell<dyn SlabAllocator>>,
-	pub(crate) _connection_slabs: Rc<RefCell<dyn SlabAllocator>>,
-	pub(crate) _handle_slabs: Rc<RefCell<dyn SlabAllocator>>,
-	#[cfg(target_os = "windows")]
-	pub(crate) _write_set_slabs: Rc<RefCell<dyn SlabAllocator>>,
-	pub(crate) callback_context: ThreadContext,
+	pub(crate) counter: usize,
+	pub(crate) count: usize,
+	pub(crate) last_process_type: LastProcessType,
+	pub(crate) last_rw: Option<ReadWriteInfo>,
 }
 
 #[derive(Clone)]

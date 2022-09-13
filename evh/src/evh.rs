@@ -13,7 +13,8 @@
 
 use crate::types::{
 	ConnectionInfo, Event, EventHandlerContext, EventHandlerData, EventHandlerImpl, EventIn,
-	EventType, EventTypeIn, Handle, ListenerInfo, ReadWriteInfo, Wakeup, WriteState,
+	EventType, EventTypeIn, Handle, LastProcessType, ListenerInfo, ReadWriteInfo, Wakeup,
+	WriteState,
 };
 use crate::{
 	ClientConnection, ConnData, ConnectionData, EventHandler, EventHandlerConfig, ServerConnection,
@@ -24,8 +25,7 @@ use bmw_deps::rand::random;
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
-use std::cell::{Ref, RefCell};
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "linux")]
 use crate::linux::*;
@@ -183,10 +183,9 @@ impl ReadWriteInfo {
 	fn clear_through_impl(
 		&mut self,
 		slab_id: u32,
-		slabs: &Rc<RefCell<dyn SlabAllocator>>,
+		slabs: &mut Box<dyn SlabAllocator + Send + Sync>,
 	) -> Result<(), Error> {
 		let mut next = self.first_slab;
-		let mut slabs = slabs.borrow_mut();
 
 		debug!("clear through impl with slab_id = {}", slab_id)?;
 		loop {
@@ -275,23 +274,17 @@ impl EventHandlerContext {
 			filter_set.set(i, false);
 		}
 
-		#[cfg(target_os = "windows")]
-		let _write_set_slabs = slab_allocator!(SlabSize(WRITE_SET_SIZE), SlabCount(2 * MAX_EVENTS))?;
-
-		let _handle_slabs = slab_allocator!(
+		let handle_hashtable = hashtable_sync_box!(
 			SlabSize(HANDLE_SLAB_SIZE),
 			SlabCount(max_handles_per_thread)
 		)?;
-		let _connection_slabs = slab_allocator!(
+		let connection_hashtable = hashtable_sync_box!(
 			SlabSize(CONNECTION_SLAB_SIZE),
 			SlabCount(max_handles_per_thread)
 		)?;
-		let read_slabs = slab_allocator!(SlabSize(READ_SLAB_SIZE), SlabCount(read_slab_count))?;
-		let handle_hashtable = hashtable_box!(Slabs(&_handle_slabs))?;
-		let connection_hashtable = hashtable_box!(Slabs(&_connection_slabs))?;
 
 		#[cfg(target_os = "windows")]
-		let write_set = hashset_box!(Slabs(&_write_set_slabs))?;
+		let write_set = hashset_sync_box!(SlabSize(WRITE_SET_SIZE), SlabCount(2 * MAX_EVENTS))?;
 
 		#[cfg(target_os = "linux")]
 		let epoll_events = {
@@ -300,22 +293,31 @@ impl EventHandlerContext {
 			epoll_events
 		};
 
+		let mut read_slabs = Builder::build_sync_slabs();
+		read_slabs.init(SlabAllocatorConfig {
+			slab_size: READ_SLAB_SIZE,
+			slab_count: read_slab_count,
+		})?;
+
 		Ok(EventHandlerContext {
 			connection_hashtable,
 			handle_hashtable,
+			read_slabs,
 			events,
 			events_in,
 			events_in_count: 0,
 			tid,
 			now: 0,
+			counter: 0,
+			count: 0,
+			last_process_type: LastProcessType::OnRead,
+			last_rw: None,
 			#[cfg(target_os = "linux")]
 			filter_set,
 			#[cfg(target_os = "windows")]
 			filter_set,
 			#[cfg(target_os = "windows")]
 			write_set,
-			#[cfg(target_os = "windows")]
-			_write_set_slabs,
 			#[cfg(target_os = "macos")]
 			kevs: vec![],
 			#[cfg(target_os = "macos")]
@@ -328,10 +330,6 @@ impl EventHandlerContext {
 			epoll_events,
 			#[cfg(windows)]
 			selector: unsafe { epoll_create(1) } as usize,
-			read_slabs,
-			_handle_slabs,
-			_connection_slabs,
-			callback_context: ThreadContext::new(),
 		})
 	}
 }
@@ -459,7 +457,7 @@ impl<'a> ConnectionData<'a> {
 	fn new(
 		rwi: &'a mut ReadWriteInfo,
 		tid: usize,
-		slabs: Rc<RefCell<dyn SlabAllocator>>,
+		slabs: &'a mut Box<dyn SlabAllocator + Send + Sync>,
 		wakeup: Wakeup,
 		event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 	) -> Self {
@@ -473,7 +471,7 @@ impl<'a> ConnectionData<'a> {
 	}
 
 	fn clear_through_impl(&mut self, slab_id: u32) -> Result<(), Error> {
-		self.rwi.clear_through_impl(slab_id, &self.slabs)
+		self.rwi.clear_through_impl(slab_id, &mut self.slabs)
 	}
 }
 
@@ -501,10 +499,9 @@ impl<'a> ConnData for ConnectionData<'a> {
 	}
 	fn borrow_slab_allocator<F, T>(&self, mut f: F) -> Result<T, Error>
 	where
-		F: FnMut(Ref<dyn SlabAllocator>) -> Result<T, Error>,
+		F: FnMut(&Box<dyn SlabAllocator + Send + Sync>) -> Result<T, Error>,
 	{
-		let slabs = self.slabs.borrow();
-		f(slabs)
+		f(&self.slabs)
 	}
 	fn slab_offset(&self) -> u16 {
 		self.rwi.slab_offset
@@ -599,38 +596,87 @@ where
 		Ok(())
 	}
 
-	fn execute_thread(&mut self, tid: usize, wakeup: &mut Wakeup) -> Result<(), Error> {
-		debug!("Executing thread {}", tid)?;
-		let mut ctx = EventHandlerContext::new(
-			tid,
-			self.config.events_per_batch,
-			self.config.max_events_in,
-			self.config.max_events,
-			self.config.max_handles_per_thread,
-			self.config.read_slab_count,
-		)?;
+	fn execute_thread(
+		&mut self,
+		wakeup: &mut Wakeup,
+		ctx: &mut EventHandlerContext,
+		callback_context: &mut ThreadContext,
+		is_restart: bool,
+	) -> Result<(), Error> {
+		debug!("Executing thread {}", ctx.tid)?;
 
-		// add wakeup
-		let handle = wakeup.reader;
-		debug!("wakeup handle is {}", handle)?;
-		ctx.events_in[ctx.events_in_count] = EventIn {
-			handle,
-			etype: EventTypeIn::Read,
-		};
-		ctx.events_in_count += 1;
+		// add wakeup if this is the first start
+		if !is_restart {
+			//info!("x");
+			let handle = wakeup.reader;
+			debug!("wakeup handle is {}", handle)?;
+			ctx.events_in[ctx.events_in_count] = EventIn {
+				handle,
+				etype: EventTypeIn::Read,
+			};
+			ctx.events_in_count += 1;
+		} else {
+			// we have to do different cleanup for each type.
+			match ctx.last_process_type {
+				LastProcessType::OnRead => match ctx.last_rw.clone() {
+					Some(mut rw) => {
+						ctx.connection_hashtable
+							.insert(&rw.id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
+						self.process_close(ctx, &mut rw, callback_context)?;
+					}
+					None => {}
+				},
+				LastProcessType::OnAccept => {
+					close_impl(ctx, ctx.events[ctx.counter].handle)?;
+				}
+				LastProcessType::OnClose => {
+					// remove from hashtables
+					match ctx
+						.handle_hashtable
+						.remove(&ctx.events[ctx.counter].handle)?
+					{
+						Some(id) => {
+							match ctx.connection_hashtable.remove(&id)? {
+								Some(ci) => match ci {
+									ConnectionInfo::ReadWriteInfo(mut rwi) => {
+										ctx.handle_hashtable.remove(&rwi.handle)?;
+										rwi.clear_through_impl(rwi.last_slab, &mut ctx.read_slabs)?;
+										close_impl(ctx, rwi.handle)?;
+									}
+									ConnectionInfo::ListenerInfo(li) => warn!(
+								"Unexpected error: listener info found in process close: {:?}",
+								li
+							)?,
+								},
+								None => {
+									// already closed
+								}
+							}
+						}
+						None => {
+							// already closed
+						}
+					}
+				}
+			}
+
+			// skip over the panicked request and continue processing remaining events
+			ctx.counter += 1;
+			self.process_events(ctx, wakeup, callback_context)?;
+		}
 
 		loop {
 			debug!("start loop")?;
-			let stop = self.process_new_connections(&mut ctx)?;
+			let stop = self.process_new_connections(ctx)?;
 			if stop {
 				break;
 			}
-			self.process_write_queue(&mut ctx)?;
-			let count = {
+			self.process_write_queue(ctx)?;
+			ctx.count = {
 				debug!("calling get_events")?;
 				let count = {
 					let (requested, _lock) = wakeup.pre_block()?;
-					self.get_events(&mut ctx, requested)?
+					self.get_events(ctx, requested)?
 				};
 				debug!("get_events returned with {} event", count)?;
 				wakeup.post_block()?;
@@ -638,10 +684,11 @@ where
 				ctx.write_set.clear()?;
 				count
 			};
-			self.process_events(&mut ctx, count, wakeup)?;
+			ctx.counter = 0;
+			self.process_events(ctx, wakeup, callback_context)?;
 		}
 		debug!("thread {} stop ", ctx.tid)?;
-		self.close_handles(&mut ctx)?;
+		self.close_handles(ctx)?;
 		Ok(())
 	}
 
@@ -741,15 +788,17 @@ where
 	fn process_events(
 		&mut self,
 		ctx: &mut EventHandlerContext,
-		count: usize,
 		wakeup: &Wakeup,
+		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
-		debug!("process {} events", count)?;
-		for i in 0..count {
-			debug!("event={:?}", ctx.events[i])?;
-			if ctx.events[i].handle == wakeup.reader {
+		loop {
+			if ctx.counter == ctx.count {
+				break;
+			}
+			debug!("event={:?}", ctx.events[ctx.counter])?;
+			if ctx.events[ctx.counter].handle == wakeup.reader {
 				debug!("WAKEUP, handle={}, tid={}", wakeup.reader, ctx.tid)?;
-				read_bytes(ctx.events[i].handle, &mut [0u8; 1]);
+				read_bytes(ctx.events[ctx.counter].handle, &mut [0u8; 1]);
 				#[cfg(target_os = "windows")]
 				epoll_ctl_impl(
 					EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
@@ -759,13 +808,14 @@ where
 					ctx.tid,
 				)?;
 
+				ctx.counter += 1;
 				continue;
 			}
-			match ctx.handle_hashtable.get(&ctx.events[i].handle)? {
+			match ctx.handle_hashtable.get(&ctx.events[ctx.counter].handle)? {
 				Some(id) => match ctx.connection_hashtable.get(&id)? {
 					Some(ci) => match ci {
 						ConnectionInfo::ListenerInfo(li) => loop {
-							let handle = self.process_accept(&li, ctx)?;
+							let handle = self.process_accept(&li, ctx, callback_context)?;
 							#[cfg(unix)]
 							if handle <= 0 {
 								break;
@@ -775,10 +825,10 @@ where
 								break;
 							}
 						},
-						ConnectionInfo::ReadWriteInfo(rw) => match ctx.events[i].etype {
-							EventType::Read => self.process_read(rw, ctx)?,
-							EventType::Write => self.process_write(rw, ctx)?,
-							EventType::Error => self.process_error(rw, ctx)?,
+						ConnectionInfo::ReadWriteInfo(rw) => match ctx.events[ctx.counter].etype {
+							EventType::Read => self.process_read(rw, ctx, callback_context)?,
+							EventType::Write => self.process_write(rw, ctx, callback_context)?,
+							EventType::Error => self.process_error(rw, ctx, callback_context)?,
 							_ => {}
 						},
 					},
@@ -786,9 +836,10 @@ where
 				},
 				None => warn!(
 					"Couldn't look up id for handle {}, tid={}",
-					ctx.events[i].handle, ctx.tid
+					ctx.events[ctx.counter].handle, ctx.tid
 				)?,
 			}
+			ctx.counter += 1;
 		}
 		Ok(())
 	}
@@ -797,12 +848,13 @@ where
 		&mut self,
 		mut rw: ReadWriteInfo,
 		ctx: &mut EventHandlerContext,
+		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
 		// write back to keep our hashtable consistent
 		let id = rw.id;
 		ctx.connection_hashtable
 			.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
-		self.process_close(ctx, &mut rw)?;
+		self.process_close(ctx, &mut rw, callback_context)?;
 
 		Ok(())
 	}
@@ -811,6 +863,7 @@ where
 		&mut self,
 		mut rw: ReadWriteInfo,
 		ctx: &mut EventHandlerContext,
+		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
 		let mut do_close = false;
 		let mut trigger_on_read = false;
@@ -844,15 +897,17 @@ where
 		if trigger_on_read {
 			match &mut self.on_read {
 				Some(on_read) => {
+					ctx.last_process_type = LastProcessType::OnRead;
+					ctx.last_rw = Some(rw.clone());
 					match on_read(
 						&mut ConnectionData::new(
 							&mut rw,
 							ctx.tid,
-							ctx.read_slabs.clone(),
+							&mut ctx.read_slabs,
 							self.wakeup[ctx.tid].clone(),
 							self.data[ctx.tid].clone(),
 						),
-						&mut ctx.callback_context,
+						callback_context,
 					) {
 						Ok(_) => {}
 						Err(e) => {
@@ -868,7 +923,7 @@ where
 			let id = rw.id;
 			ctx.connection_hashtable
 				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
-			self.process_close(ctx, &mut rw)?;
+			self.process_close(ctx, &mut rw, callback_context)?;
 		} else {
 			let id = rw.id;
 			let _handle = rw.handle;
@@ -893,12 +948,13 @@ where
 		&mut self,
 		mut rw: ReadWriteInfo,
 		ctx: &mut EventHandlerContext,
+		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
 		let mut do_close = false;
 		let mut total_len = 0;
 		loop {
 			// read as many slabs as we can
-			let mut slabs = ctx.read_slabs.borrow_mut();
+			let slabs = &mut ctx.read_slabs;
 			let mut slab = if rw.last_slab == u32::MAX {
 				debug!("pre allocate")?;
 				let mut slab = match slabs.allocate() {
@@ -911,7 +967,7 @@ where
 						break;
 					}
 				};
-				debug!("allocatefirst: {}/tid={}", slab.id(), ctx.tid)?;
+				debug!("allocate: {}/tid={}", slab.id(), ctx.tid)?;
 				let slab_id: u32 = slab.id().try_into()?;
 				rw.last_slab = slab_id;
 				rw.first_slab = slab_id;
@@ -960,12 +1016,11 @@ where
 				do_close = true;
 			}
 			if len < 0 {
-				// EAGAIN is would block.
+				// EAGAIN is would block. -2 is would block for windows
 				if errno().0 != EAGAIN
 					&& errno().0 != ETEMPUNAVAILABLE
 					&& errno().0 != WINNONBLOCKING
 					&& len != -2
-				// windows would block
 				{
 					do_close = true;
 				}
@@ -1018,15 +1073,17 @@ where
 		if total_len > 0 {
 			match &mut self.on_read {
 				Some(on_read) => {
+					ctx.last_process_type = LastProcessType::OnRead;
+					ctx.last_rw = Some(rw.clone());
 					match on_read(
 						&mut ConnectionData::new(
 							&mut rw,
 							ctx.tid,
-							ctx.read_slabs.clone(),
+							&mut ctx.read_slabs,
 							self.wakeup[ctx.tid].clone(),
 							self.data[ctx.tid].clone(),
 						),
-						&mut ctx.callback_context,
+						callback_context,
 					) {
 						Ok(_) => {}
 						Err(e) => {
@@ -1043,7 +1100,7 @@ where
 			let id = rw.id;
 			ctx.connection_hashtable
 				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
-			self.process_close(ctx, &mut rw)?;
+			self.process_close(ctx, &mut rw, callback_context)?;
 		} else {
 			// just update hashtable
 			let id = rw.id;
@@ -1058,18 +1115,20 @@ where
 		&mut self,
 		ctx: &mut EventHandlerContext,
 		rw: &mut ReadWriteInfo,
+		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
 		match &mut self.on_close {
 			Some(on_close) => {
+				ctx.last_process_type = LastProcessType::OnClose;
 				match on_close(
 					&mut ConnectionData::new(
 						rw,
 						ctx.tid,
-						ctx.read_slabs.clone(),
+						&mut ctx.read_slabs,
 						self.wakeup[ctx.tid].clone(),
 						self.data[ctx.tid].clone(),
 					),
-					&mut ctx.callback_context,
+					callback_context,
 				) {
 					Ok(_) => {}
 					Err(e) => {
@@ -1083,9 +1142,8 @@ where
 		match ctx.connection_hashtable.remove(&rw.id)? {
 			Some(ci) => match ci {
 				ConnectionInfo::ReadWriteInfo(mut rwi) => {
-					ctx.connection_hashtable.remove(&rwi.id)?;
 					ctx.handle_hashtable.remove(&rwi.handle)?;
-					rwi.clear_through_impl(rwi.last_slab, &ctx.read_slabs)?;
+					rwi.clear_through_impl(rwi.last_slab, &mut ctx.read_slabs)?;
 					close_impl(ctx, rwi.handle)?;
 				}
 				ConnectionInfo::ListenerInfo(li) => warn!(
@@ -1105,6 +1163,7 @@ where
 		&mut self,
 		li: &ListenerInfo,
 		ctx: &mut EventHandlerContext,
+		callback_context: &mut ThreadContext,
 	) -> Result<Handle, Error> {
 		set_errno(Errno(0));
 		let handle = accept_impl(li.handle)?;
@@ -1118,7 +1177,7 @@ where
 			return Ok(handle);
 		}
 		debug!(
-			"===================accept handle = {},tid={},reuse_port={}",
+			"accept handle = {},tid={},reuse_port={}",
 			handle, ctx.tid, li.is_reuse_port
 		)?;
 		let id = random();
@@ -1146,23 +1205,24 @@ where
 		)?;
 
 		if li.is_reuse_port {
-			self.process_accepted_connection(ctx, handle, rwi, id)?;
+			self.process_accepted_connection(ctx, handle, rwi, id, callback_context)?;
 			debug!("process acc: {},tid={}", handle, ctx.tid)?;
 		} else {
 			let tid = random::<usize>() % self.config.threads;
 			debug!("tid={},threads={}", tid, self.config.threads)?;
 
+			ctx.last_process_type = LastProcessType::OnAccept;
 			match &mut self.on_accept {
 				Some(on_accept) => {
 					match on_accept(
 						&mut ConnectionData::new(
 							&mut rwi,
 							tid,
-							ctx.read_slabs.clone(),
+							&mut ctx.read_slabs,
 							self.wakeup[tid].clone(),
 							self.data[tid].clone(),
 						),
-						&mut ctx.callback_context,
+						callback_context,
 					) {
 						Ok(_) => {}
 						Err(e) => {
@@ -1193,23 +1253,20 @@ where
 		handle: Handle,
 		mut rwi: ReadWriteInfo,
 		id: u128,
+		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
-		ctx.events_in[ctx.events_in_count] = EventIn {
-			handle,
-			etype: EventTypeIn::Read,
-		};
-		ctx.events_in_count += 1;
+		ctx.last_process_type = LastProcessType::OnAccept;
 		match &mut self.on_accept {
 			Some(on_accept) => {
 				match on_accept(
 					&mut ConnectionData::new(
 						&mut rwi,
 						ctx.tid,
-						ctx.read_slabs.clone(),
+						&mut ctx.read_slabs,
 						self.wakeup[ctx.tid].clone(),
 						self.data[ctx.tid].clone(),
 					),
-					&mut ctx.callback_context,
+					callback_context,
 				) {
 					Ok(_) => {}
 					Err(e) => {
@@ -1219,6 +1276,12 @@ where
 			}
 			None => {}
 		}
+
+		ctx.events_in[ctx.events_in_count] = EventIn {
+			handle,
+			etype: EventTypeIn::Read,
+		};
+		ctx.events_in_count += 1;
 
 		ctx.connection_hashtable
 			.insert(&id, &ConnectionInfo::ReadWriteInfo(rwi))?;
@@ -1291,26 +1354,113 @@ where
 		Ok(())
 	}
 	fn start(&mut self) -> Result<(), Error> {
-		let tid = lock!(0)?;
-		let tp = thread_pool!(
-			MaxSize(self.config.threads),
-			MinSize(self.config.threads),
-			SyncChannelSize(self.config.sync_channel_size)
-		)?;
+		let config = ThreadPoolConfig {
+			max_size: self.config.threads,
+			min_size: self.config.threads,
+			sync_channel_size: self.config.sync_channel_size,
+			..Default::default()
+		};
+		let mut tp = Builder::build_thread_pool(config)?;
 
-		for _ in 0..self.config.threads {
-			let mut tid = tid.clone();
-			let mut evh = self.clone();
-			let mut wakeup = self.wakeup.clone();
-			execute!(tp, {
-				let tid = {
-					let mut l = tid.wlock()?;
-					let guard = l.guard();
-					let tid = **guard;
-					(**guard) += 1;
-					tid
+		let mut v = vec![];
+		let mut v_panic = vec![];
+		for i in 0..self.config.threads {
+			let evh = self.clone();
+			let wakeup = self.wakeup.clone();
+			let ctx = EventHandlerContext::new(
+				i,
+				self.config.events_per_batch,
+				self.config.max_events_in,
+				self.config.max_events,
+				self.config.max_handles_per_thread,
+				self.config.read_slab_count,
+			)?;
+			let ctx = lock_box!(ctx)?;
+			let thread_context = ThreadContext::new();
+			let thread_context = Arc::new(Mutex::new(thread_context));
+			v.push((
+				evh.clone(),
+				wakeup.clone(),
+				ctx.clone(),
+				thread_context.clone(),
+			));
+			v_panic.push((evh, wakeup, ctx, thread_context));
+		}
+
+		let mut executor = lock_box!(tp.executor()?)?;
+		let mut executor_clone = executor.clone();
+
+		tp.set_on_panic(move |id| -> Result<(), Error> {
+			let id: usize = id.try_into()?;
+			let mut evh = v_panic[id].0.clone();
+			let mut wakeup = v_panic[id].1.clone();
+			let mut ctx = v_panic[id].2.clone();
+			let thread_context = v_panic[id].3.clone();
+			let mut executor = executor.wlock()?;
+			let executor = executor.guard();
+			(**executor).execute(
+				async move {
+					let mut ctx = ctx.wlock_ignore_poison()?;
+					let ctx = ctx.guard();
+
+					let mut thread_context = {
+						match thread_context.lock() {
+							Ok(tc) => tc,
+							Err(e) => e.into_inner(),
+						}
+					};
+					match Self::execute_thread(
+						&mut evh,
+						&mut wakeup[id],
+						&mut *ctx,
+						&mut *thread_context,
+						true,
+					) {
+						Ok(_) => {}
+						Err(e) => {
+							fatal!("execute_thread generated error: {}", e)?;
+						}
+					}
+
+					Ok(())
+				},
+				id.try_into()?,
+			)?;
+			Ok(())
+		})?;
+
+		tp.start()?;
+
+		{
+			let mut executor = executor_clone.wlock()?;
+			let guard = executor.guard();
+			(**guard) = tp.executor()?;
+		}
+
+		for i in 0..self.config.threads {
+			let mut evh = v[i].0.clone();
+			let mut wakeup = v[i].1.clone();
+			let mut ctx = v[i].2.clone();
+			let thread_context = v[i].3.clone();
+
+			execute!(tp, i.try_into()?, {
+				let tid = i;
+
+				let mut ctx = ctx.wlock_ignore_poison()?;
+				let ctx = ctx.guard();
+
+				let mut thread_context = match thread_context.lock() {
+					Ok(tc) => tc,
+					Err(e) => e.into_inner(),
 				};
-				match Self::execute_thread(&mut evh, tid, &mut wakeup[tid]) {
+
+				match Self::execute_thread(
+					&mut evh,
+					&mut wakeup[tid],
+					&mut *ctx,
+					&mut *thread_context,
+					false,
+				) {
 					Ok(_) => {}
 					Err(e) => {
 						fatal!("execute_thread generated error: {}", e)?;
@@ -1545,7 +1695,7 @@ mod test {
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
-			read_slab_count: 1,
+			read_slab_count: 2,
 			max_handles_per_thread: 2,
 			..Default::default()
 		};
@@ -1614,7 +1764,7 @@ mod test {
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
-			read_slab_count: 2,
+			read_slab_count: 30,
 			max_handles_per_thread: 3,
 			..Default::default()
 		};
@@ -2921,6 +3071,270 @@ mod test {
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 4);
 		assert_eq!(&buf[0..len], b"1234");
+
+		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_thread_panic() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("thread_panic on_read Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 10,
+			max_handles_per_thread: 10,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			let mut wh = conn_data.write_handle();
+
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				let slab_bytes = slab.get();
+				let mut ret = vec![];
+				ret.extend(&slab_bytes[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+
+			if res[0] == 'a' as u8 {
+				let x: Option<u32> = None;
+				let _y = x.unwrap();
+			} else {
+				wh.write(&res)?;
+			}
+			conn_data.clear_through(first_slab)?;
+
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+
+		// do a normal request
+		stream.write(b"test")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"test");
+
+		// create a thread panic
+		stream.write(b"aaa")?;
+		sleep(Duration::from_millis(5000));
+
+		// read and we should get 0 for close
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 0);
+
+		// connect and send another request
+		let mut stream = TcpStream::connect(addr)?;
+		stream.write(b"test")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"test");
+
+		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_thread_panic_multi() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("thread_panic on_read Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 10,
+			max_handles_per_thread: 10,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		let x = lock_box!(0)?;
+		let mut x_clone = x.clone();
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			let mut wh = conn_data.write_handle();
+
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				let slab_bytes = slab.get();
+				let mut ret = vec![];
+				ret.extend(&slab_bytes[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+
+			if res[0] == 'a' as u8 {
+				let x: Option<u32> = None;
+				let _y = x.unwrap();
+			} else if res[0] == 'b' as u8 {
+				loop {
+					sleep(Duration::from_millis(10));
+					if **(x.rlock()?.guard()) != 0 {
+						break;
+					}
+				}
+				wh.write(&res)?;
+			} else {
+				wh.write(&res)?;
+			}
+			conn_data.clear_through(first_slab)?;
+
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: None,
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		// make 4 connections
+		let mut stream1 = TcpStream::connect(addr)?;
+		let mut stream2 = TcpStream::connect(addr)?;
+		let mut stream3 = TcpStream::connect(addr)?;
+		let mut stream4 = TcpStream::connect(addr)?;
+
+		// do a normal request on 1
+		stream1.write(b"test")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream1.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"test");
+
+		// do a normal request on 2
+		stream2.write(b"test")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream2.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"test");
+
+		// do a normal request on 3
+		stream3.write(b"test")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream3.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"test");
+
+		// pause request
+		stream4.write(b"bbbb")?;
+		sleep(Duration::from_millis(100));
+
+		// normal request
+		stream1.write(b"1")?;
+		sleep(Duration::from_millis(100));
+
+		// create panic
+		stream2.write(b"a")?;
+		sleep(Duration::from_millis(100));
+
+		// normal request
+		stream3.write(b"c")?;
+		sleep(Duration::from_millis(100));
+
+		// unblock with guard
+		**(x_clone.wlock()?.guard()) = 1;
+
+		// read responses
+
+		// normal echo after lock lifted
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream4.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"bbbb");
+
+		//normal echo
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream1.read(&mut buf)?;
+		assert_eq!(len, 1);
+		assert_eq!(&buf[0..len], b"1");
+
+		// panic so close len == 0
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream2.read(&mut buf)?;
+		assert_eq!(len, 0);
+
+		// normal echo
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream3.read(&mut buf)?;
+		assert_eq!(len, 1);
+		assert_eq!(&buf[0..len], b"c");
 
 		evh.stop()?;
 

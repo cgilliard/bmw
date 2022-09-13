@@ -94,7 +94,11 @@ where
 	T: Send + Sync,
 {
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
-		self.do_wlock()
+		self.do_wlock(false)
+	}
+
+	fn wlock_ignore_poison(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
+		self.do_wlock(true)
 	}
 
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
@@ -114,11 +118,15 @@ where
 	T: Send + Sync + Clone,
 {
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
-		self.do_wlock()
+		self.do_wlock(false)
 	}
 
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
 		self.do_rlock()
+	}
+
+	fn wlock_ignore_poison(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
+		self.do_wlock(true)
 	}
 
 	fn danger_to_usize(&self) -> usize {
@@ -135,7 +143,7 @@ impl<T> LockImpl<T> {
 		}
 	}
 
-	fn do_wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
+	fn do_wlock(&mut self, ignore_poison: bool) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
 		let contains = LOCKS.with(|f| -> Result<bool, Error> {
 			let ret = (*f.borrow()).contains(&self.id);
 			(*f.borrow_mut()).insert(self.id);
@@ -145,7 +153,14 @@ impl<T> LockImpl<T> {
 		if contains {
 			Err(err!(ErrKind::Poison, "would deadlock"))
 		} else {
-			let guard = map_err!(self.t.write(), ErrKind::Poison)?;
+			let guard = if ignore_poison {
+				match self.t.write() {
+					Ok(guard) => guard,
+					Err(e) => e.into_inner(),
+				}
+			} else {
+				map_err!(self.t.write(), ErrKind::Poison)?
+			};
 			let id = self.id;
 			let debug_err = false;
 			let ret = RwLockWriteGuardWrapper {

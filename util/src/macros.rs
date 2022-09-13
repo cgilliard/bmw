@@ -1859,7 +1859,10 @@ macro_rules! thread_pool {
 #[macro_export]
 macro_rules! execute {
 	($thread_pool:expr, $program:expr) => {{
-		$thread_pool.execute(async move { $program })
+		$thread_pool.execute(async move { $program }, bmw_deps::rand::random())
+	}};
+	($thread_pool:expr, $id:expr, $program:expr) => {{
+		$thread_pool.execute(async move { $program }, $id)
 	}};
 }
 
@@ -2103,14 +2106,16 @@ mod test {
 
 	#[test]
 	fn test_thread_pool_macro() -> Result<(), bmw_err::Error> {
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
 		let resp = execute!(tp, {
 			info!("in thread pool")?;
 			Ok(123)
 		})?;
 		assert_eq!(block_on!(resp), PoolResult::Ok(123));
 
-		let tp = thread_pool!(MinSize(3))?;
+		let mut tp = thread_pool!(MinSize(3))?;
+		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
 		let resp: Receiver<PoolResult<u32, Error>> = execute!(tp, {
 			info!("thread pool2")?;
 			Err(err!(ErrKind::Test, "test err"))
@@ -2120,7 +2125,8 @@ mod test {
 			PoolResult::Err(err!(ErrKind::Test, "test err"))
 		);
 
-		let tp = thread_pool!(MinSize(3))?;
+		let mut tp = thread_pool!(MinSize(3))?;
+		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
 		let resp: Receiver<PoolResult<u32, Error>> = execute!(tp, {
 			info!("thread pool panic")?;
 			let x: Option<u32> = None;
@@ -2138,7 +2144,8 @@ mod test {
 
 	#[test]
 	fn test_thread_pool_options() -> Result<(), Error> {
-		let tp = thread_pool!(MinSize(4), MaxSize(5), SyncChannelSize(10))?;
+		let mut tp = thread_pool!(MinSize(4), MaxSize(5), SyncChannelSize(10))?;
+		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
 
 		assert_eq!(tp.size()?, 4);
 		sleep(Duration::from_millis(2_000));

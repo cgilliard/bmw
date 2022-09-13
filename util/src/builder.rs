@@ -20,18 +20,25 @@ use crate::{
 	Stack, SuffixTree, ThreadPool, ThreadPoolConfig,
 };
 use bmw_err::Error;
+use bmw_log::*;
 use std::cell::{RefCell, UnsafeCell};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
 
+info!();
+
 /// The [`crate::Builder`] is used to build the data structures in the [`crate`].
 impl Builder {
 	/// Build a [`crate::ThreadPool`] based on the specified [`crate::ThreadPoolConfig`].
 	/// The [`crate::ThreadPool::start`] function must be called before executing tasks.
-	pub fn build_thread_pool<T: 'static + Send + Sync>(
+	pub fn build_thread_pool<T, OnPanic>(
 		config: ThreadPoolConfig,
-	) -> Result<impl ThreadPool<T>, Error> {
+	) -> Result<impl ThreadPool<T, OnPanic>, Error>
+	where
+		OnPanic: FnMut(u128) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+		T: 'static + Send + Sync,
+	{
 		Ok(ThreadPoolImpl::new(config, None)?)
 	}
 
@@ -202,7 +209,7 @@ impl Builder {
 	pub fn build_hashtable_sync<K, V>(
 		config: HashtableConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<impl Hashtable<K, V>, Error>
+	) -> Result<impl Hashtable<K, V> + Send + Sync, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 		V: Serializable + Clone,
@@ -545,6 +552,10 @@ impl Builder {
 
 	/// Build a slab allocator in a Box.
 	pub fn build_slabs() -> Box<dyn SlabAllocator> {
+		Box::new(SlabAllocatorImpl::new())
+	}
+
+	pub fn build_sync_slabs() -> Box<dyn SlabAllocator + Send + Sync> {
 		Box::new(SlabAllocatorImpl::new())
 	}
 

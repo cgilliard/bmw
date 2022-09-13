@@ -426,7 +426,8 @@ mod test {
 
 	#[test]
 	fn test_array_index_out_of_bounds() -> Result<(), Error> {
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
 
 		let handle = execute!(tp, {
 			let mut x = Builder::build_array(10, &0)?;
@@ -454,7 +455,8 @@ mod test {
 
 		assert_eq!(block_on!(handle), PoolResult::Ok(()));
 
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
 
 		let handle = execute!(tp, {
 			let mut x = Builder::build_array(10, &0)?;
@@ -721,7 +723,8 @@ mod test {
 		let mut lock = lock!(array)?;
 		let lock_clone = lock.clone();
 
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
 
 		let handle = execute!(tp, {
 			let mut array = lock.wlock()?;

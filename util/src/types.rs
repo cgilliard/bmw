@@ -67,6 +67,9 @@ where
 	/// obtain a write lock and corresponding [`std::sync::RwLockWriteGuard`] for this
 	/// [`crate::Lock`].
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
+	/// Same as [`crate::Lock::wlock`] except that any poison errors are ignored
+	/// by calling the underlying into_inner() fn.
+	fn wlock_ignore_poison(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
 	/// obtain a read lock and corresponding [`std::sync::RwLockReadGuard`] for this
 	/// [`crate::Lock`].
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
@@ -114,11 +117,14 @@ where
 	T: Send + Sync,
 {
 	/// obtain a write lock and corresponding [`std::sync::RwLockWriteGuard`] for this
-	/// [`crate::Lock`].
+	/// [`crate::LockBox`].
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
 	/// obtain a read lock and corresponding [`std::sync::RwLockReadGuard`] for this
-	/// [`crate::Lock`].
+	/// [`crate::LockBox`].
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
+	/// Same as [`crate::LockBox::wlock`] except that any poison errors are ignored
+	/// by calling the underlying into_inner() fn.
+	fn wlock_ignore_poison(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
 	/// consume the inner Arc and return a usize value. This function is dangerous
 	/// because it potentially leaks memory. The usize must be rebuilt into a lockbox
 	/// that can then be dropped via the [`crate::lock_box_from_usize`] function.
@@ -756,7 +762,8 @@ pub enum PoolResult<T, E> {
 /// info!();
 ///
 /// fn thread_pool() -> Result<(), Error> {
-///     let tp = thread_pool!()?; // create a thread pool using default settings
+///     let mut tp = thread_pool!()?; // create a thread pool using default settings
+///     tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
 ///
 ///     // create a shared variable protected by the [`crate::lock`] macro.
 ///     let mut shared = lock!(0)?; // we use an integer 0, but any struct can be used.
@@ -786,7 +793,8 @@ pub enum PoolResult<T, E> {
 /// fn thread_pool2() -> Result<(), Error> {
 ///     // create a thread pool with the specified max/min size. See [`crate::ThreadPoolConfig`]
 ///     // for further details.
-///     let tp = thread_pool!(MaxSize(10), MinSize(5))?;
+///     let mut tp = thread_pool!(MaxSize(10), MinSize(5))?;
+///     tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
 ///
 ///     // put the thread pool in a [`crate::Lock`].
 ///     let tp = lock!(tp)?;
@@ -815,21 +823,22 @@ pub enum PoolResult<T, E> {
 /// }
 ///
 ///```
-pub trait ThreadPool<T> {
+pub trait ThreadPool<T, OnPanic>
+where
+	OnPanic: FnMut(u128) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+{
 	/// Execute a task in the thread pool. This task will run to completion
 	/// on the first available thread in the pool. The return value is a receiver
 	/// which will be sent a [`crate::PoolResult`] on completion of the task. If
 	/// an error occurs, [`bmw_err::Error`] will be returned.
-	fn execute<F>(&self, f: F) -> Result<Receiver<PoolResult<T, Error>>, Error>
+	fn execute<F>(&self, f: F, id: u128) -> Result<Receiver<PoolResult<T, Error>>, Error>
 	where
 		F: Future<Output = Result<T, Error>> + Send + Sync + 'static;
 
 	/// Start the pool. If macros are used, this call is unnecessary.
 	fn start(&mut self) -> Result<(), Error>;
 
-	/// Stop the thread pool. Note that this function is automatically called by
-	/// the [`std::ops::Drop`] handler, but if needed, it can be explicitly called.
-	/// This function, whether called through drop or directly, will ensure no new
+	/// Stop the thread pool. This function will ensure no new
 	/// tasks are processed in the ThreadPool and that the threads will be stopped once they
 	/// become idle again. It however, does not ensure that any tasks currently running in the thread pool are stopped
 	/// immediately. That is the responsibility of the user.
@@ -839,8 +848,16 @@ pub trait ThreadPool<T> {
 	/// [`crate::ThreadPoolConfig::min_size`] and [`crate::ThreadPoolConfig::max_size`].
 	fn size(&self) -> Result<usize, Error>;
 
-	/// Get the [`crate::ThreadPoolState`] for this thread pool.
+	/// Get the [`crate::ThreadPoolStopper`] for this thread pool.
 	fn stopper(&self) -> Result<ThreadPoolStopper, Error>;
+
+	/// Get the [`crate::ThreadPoolExecutor`] for this thread pool.
+	fn executor(&self) -> Result<ThreadPoolExecutor<T>, Error>
+	where
+		T: Send + Sync;
+
+	/// Set an on panic handler for this thread pool
+	fn set_on_panic(&mut self, on_panic: OnPanic) -> Result<(), Error>;
 }
 
 /// Struct that is used as a mutable reference to data in a slab. See [`crate::SlabAllocator`] for
@@ -1166,6 +1183,17 @@ pub struct ThreadPoolState {
 	pub(crate) stop: bool,
 }
 
+/// Struct that can be used to execute tasks in the thread pool. Mainly needed
+/// for passing the execution functionality to structs/threads.
+#[derive(Debug, Clone)]
+pub struct ThreadPoolExecutor<T>
+where
+	T: 'static + Send + Sync,
+{
+	pub(crate) config: ThreadPoolConfig,
+	pub(crate) tx: Option<SyncSender<FutureWrapper<T>>>,
+}
+
 /// Struct that can be used to stop the thread pool. Note the limitations
 /// in [`crate::ThreadPoolStopper::stop`].
 #[derive(Debug, Clone)]
@@ -1255,14 +1283,20 @@ pub(crate) struct LockImpl<T> {
 pub(crate) struct FutureWrapper<T> {
 	pub(crate) f: Pin<Box<dyn Future<Output = Result<T, Error>> + Send + Sync + 'static>>,
 	pub(crate) tx: SyncSender<PoolResult<T, Error>>,
+	pub(crate) id: u128,
 }
 
-pub(crate) struct ThreadPoolImpl<T: 'static + Send + Sync> {
+pub(crate) struct ThreadPoolImpl<T, OnPanic>
+where
+	T: 'static + Send + Sync,
+	OnPanic: FnMut(u128) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+{
 	pub(crate) config: ThreadPoolConfig,
 	pub(crate) rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
 	pub(crate) tx: Option<SyncSender<FutureWrapper<T>>>,
 	pub(crate) state: Box<dyn LockBox<ThreadPoolState>>,
 	pub(crate) test_config: Option<ThreadPoolTestConfig>,
+	pub(crate) on_panic: Option<Pin<Box<OnPanic>>>,
 }
 
 pub(crate) struct ThreadPoolTestConfig {
