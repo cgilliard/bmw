@@ -36,7 +36,7 @@ use bmw_util::*;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[cfg(target_os = "linux")]
 use crate::linux::*;
@@ -1548,7 +1548,7 @@ where
 			)?;
 			let ctx = lock_box!(ctx)?;
 			let thread_context = ThreadContext::new();
-			let thread_context = Arc::new(Mutex::new(thread_context));
+			let thread_context = lock_box!(thread_context)?;
 			v.push((
 				evh.clone(),
 				wakeup.clone(),
@@ -1566,7 +1566,7 @@ where
 			let mut evh = v_panic[id].0.clone();
 			let mut wakeup = v_panic[id].1.clone();
 			let mut ctx = v_panic[id].2.clone();
-			let thread_context = v_panic[id].3.clone();
+			let mut thread_context = v_panic[id].3.clone();
 			let mut executor = executor.wlock()?;
 			let executor = executor.guard();
 			(**executor).execute(
@@ -1574,12 +1574,9 @@ where
 					let mut ctx = ctx.wlock_ignore_poison()?;
 					let ctx = ctx.guard();
 
-					let mut thread_context = {
-						match thread_context.lock() {
-							Ok(tc) => tc,
-							Err(e) => e.into_inner(),
-						}
-					};
+					let mut thread_context = thread_context.wlock_ignore_poison()?;
+					let thread_context = thread_context.guard();
+
 					match Self::execute_thread(
 						&mut evh,
 						&mut wakeup[id],
@@ -1612,7 +1609,7 @@ where
 			let mut evh = v[i].0.clone();
 			let mut wakeup = v[i].1.clone();
 			let mut ctx = v[i].2.clone();
-			let thread_context = v[i].3.clone();
+			let mut thread_context = v[i].3.clone();
 
 			execute!(tp, i.try_into()?, {
 				let tid = i;
@@ -1620,10 +1617,8 @@ where
 				let mut ctx = ctx.wlock_ignore_poison()?;
 				let ctx = ctx.guard();
 
-				let mut thread_context = match thread_context.lock() {
-					Ok(tc) => tc,
-					Err(e) => e.into_inner(),
-				};
+				let mut thread_context = thread_context.wlock_ignore_poison()?;
+				let thread_context = thread_context.guard();
 
 				match Self::execute_thread(
 					&mut evh,
