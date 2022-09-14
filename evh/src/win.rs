@@ -238,7 +238,7 @@ pub(crate) fn epoll_ctl_impl(
 	let res = unsafe { epoll_ctl(selector as *mut c_void, op as i32, usize!(fd), &mut event) };
 	if res < 0 {
 		let e = errno();
-		error!(
+		warn!(
 			"Error epoll_ctl: {}, fd={}, op={:?}, tid={}",
 			e, fd, op, tid
 		)?
@@ -253,14 +253,13 @@ pub(crate) fn get_events_impl(
 ) -> Result<usize, Error> {
 	debug!(
 		"in get_events_impl in_count={}, tid={}",
-		ctx.events_in_count, ctx.tid
+		ctx.events_in.len(),
+		ctx.tid
 	)?;
-	for i in 0..ctx.events_in_count {
-		debug!("event[{}]={:?}", i, ctx.events_in[i])?;
-		if ctx.events_in[i].etype == EventTypeIn::Read
-			|| ctx.events_in[i].etype == EventTypeIn::Accept
-		{
-			let fd = ctx.events_in[i].handle;
+	for evt in &ctx.events_in {
+		debug!("event={:?}", evt)?;
+		if evt.etype == EventTypeIn::Read || evt.etype == EventTypeIn::Accept {
+			let fd = evt.handle;
 			epoll_ctl_impl(
 				EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
 				fd,
@@ -268,8 +267,8 @@ pub(crate) fn get_events_impl(
 				ctx.selector as *mut c_void,
 				ctx.tid,
 			)?;
-		} else if ctx.events_in[i].etype == EventTypeIn::Write {
-			let fd = ctx.events_in[i].handle;
+		} else if evt.etype == EventTypeIn::Write {
+			let fd = evt.handle;
 			epoll_ctl_impl(
 				EPOLLIN | EPOLLOUT | EPOLLONESHOT | EPOLLRDHUP,
 				fd,
@@ -279,7 +278,8 @@ pub(crate) fn get_events_impl(
 			)?;
 		}
 	}
-	ctx.events_in_count = 0;
+	ctx.events_in.clear();
+	ctx.events_in.shrink_to(config.max_events_in);
 
 	let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 	let diff = now - ctx.now;
@@ -308,7 +308,7 @@ pub(crate) fn get_events_impl(
 
 	let mut res_count = 0;
 	if results < 0 {
-		error!("epoll wait generated error: {}", errno())?;
+		warn!("epoll wait generated error: {}", errno())?;
 	} else {
 		for i in 0..results as usize {
 			if epoll_events[i].events & EPOLLOUT != 0 {

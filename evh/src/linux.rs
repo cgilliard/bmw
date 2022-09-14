@@ -243,7 +243,7 @@ pub(crate) fn get_events_impl(
 		}
 	}
 	ctx.events_in.clear();
-	ctx.events_in.shrink_to(1000);
+	ctx.events_in.shrink_to(config.max_events_in);
 
 	let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 	let diff = now - ctx.now;
