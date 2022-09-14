@@ -87,7 +87,6 @@ where
 ///
 /// use bmw_err::*;
 /// use bmw_util::*;
-/// use bmw_deps::dyn_clone::clone_box;
 ///
 /// struct TestLockBox<T> {
 ///     lock_box: Box<dyn LockBox<T>>,
@@ -95,7 +94,7 @@ where
 ///
 /// fn test_lock_box() -> Result<(), Error> {
 ///     let lock_box = lock_box!(1u32)?;
-///     let mut lock_box2 = clone_box(&*lock_box);
+///     let mut lock_box2 = lock_box.clone();
 ///     let mut tlb = TestLockBox { lock_box };
 ///
 ///     {
@@ -112,7 +111,7 @@ where
 /// }
 ///
 ///```
-pub trait LockBox<T>: Send + Sync + DynClone + Debug
+pub trait LockBox<T>: Send + Sync + Debug
 where
 	T: Send + Sync,
 {
@@ -129,9 +128,11 @@ where
 	/// because it potentially leaks memory. The usize must be rebuilt into a lockbox
 	/// that can then be dropped via the [`crate::lock_box_from_usize`] function.
 	fn danger_to_usize(&self) -> usize;
+	/// return the inner data holder.
+	fn inner(&self) -> Arc<RwLock<T>>;
+	/// return the id for this lockbox.
+	fn id(&self) -> u128;
 }
-
-clone_trait_object!(<T>LockBox<T>);
 
 /// Wrapper around the [`std::sync::RwLockReadGuard`].
 pub struct RwLockReadGuardWrapper<'a, T> {

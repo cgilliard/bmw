@@ -25,6 +25,18 @@ thread_local! {
 	pub static LOCKS: RefCell<HashSet<u128>> = RefCell::new(HashSet::new());
 }
 
+impl<T> Clone for Box<dyn LockBox<T>>
+where
+	T: Send + Sync + 'static,
+{
+	fn clone(&self) -> Self {
+		Box::new(LockImpl {
+			id: self.id(),
+			t: self.inner().clone(),
+		})
+	}
+}
+
 /// Rebuild a [`crate::LockBox`] from te usize which is returned from the
 /// [`crate::LockBox::danger_to_usize`] function.
 pub fn lock_box_from_usize<T>(value: usize) -> Box<dyn LockBox<T> + Send + Sync>
@@ -115,7 +127,7 @@ where
 
 impl<T> LockBox<T> for LockImpl<T>
 where
-	T: Send + Sync + Clone,
+	T: Send + Sync,
 {
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
 		self.do_wlock(false)
@@ -132,6 +144,14 @@ where
 	fn danger_to_usize(&self) -> usize {
 		let ptr = Arc::into_raw(self.t.clone());
 		ptr as usize
+	}
+
+	fn inner(&self) -> Arc<RwLock<T>> {
+		self.t.clone()
+	}
+
+	fn id(&self) -> u128 {
+		self.id
 	}
 }
 
@@ -202,7 +222,6 @@ mod test {
 	use crate::lock::LockBox;
 	use crate::Builder;
 	use crate::{lock, lock_box, RwLockReadGuardWrapper, RwLockWriteGuardWrapper};
-	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::Error;
 	use bmw_log::*;
 	use std::sync::{Arc, RwLock};
@@ -303,7 +322,7 @@ mod test {
 	#[test]
 	fn test_lock_box() -> Result<(), Error> {
 		let lock_box = lock_box!(1u32)?;
-		let mut lock_box2 = clone_box(&*lock_box);
+		let mut lock_box2 = lock_box.clone();
 		let mut tlb = TestLockBox { lock_box };
 		{
 			let mut tlb = tlb.lock_box.wlock()?;

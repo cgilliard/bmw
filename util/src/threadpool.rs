@@ -16,7 +16,6 @@ use crate::{
 	Builder, LockBox, PoolResult, ThreadPool, ThreadPoolConfig, ThreadPoolExecutor,
 	ThreadPoolStopper,
 };
-use bmw_deps::dyn_clone::clone_box;
 use bmw_deps::futures::executor::block_on;
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
@@ -90,7 +89,7 @@ where
 		spawn(move || -> Result<(), Error> {
 			loop {
 				let rx = rx.clone();
-				let mut state_clone = clone_box(&*state);
+				let mut state_clone = state.clone();
 				let on_panic_clone = on_panic.clone();
 				let mut id = Builder::build_lock(0)?;
 				let id_clone = id.clone();
@@ -134,7 +133,7 @@ where
 							debug!("spawning a new thread")?;
 							Self::run_thread(
 								rx.clone(),
-								clone_box(&*state_clone),
+								state_clone.clone(),
 								on_panic_clone.clone(),
 							)?;
 						}
@@ -229,7 +228,7 @@ where
 		self.rx = Some(rx.clone());
 		self.tx = Some(tx.clone());
 		for _ in 0..self.config.min_size {
-			Self::run_thread(rx.clone(), clone_box(&*self.state), self.on_panic.clone())?;
+			Self::run_thread(rx.clone(), self.state.clone(), self.on_panic.clone())?;
 		}
 
 		loop {
