@@ -41,7 +41,7 @@ where
 /// [`crate::LockBox::danger_to_usize`] function.
 pub fn lock_box_from_usize<T>(value: usize) -> Box<dyn LockBox<T> + Send + Sync>
 where
-	T: Send + Sync + Clone + 'static,
+	T: Send + Sync + 'static,
 {
 	let t = unsafe { Arc::from_raw(value as *mut RwLock<T>) };
 	Box::new(LockImpl { id: random(), t })

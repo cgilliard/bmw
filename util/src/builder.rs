@@ -570,7 +570,7 @@ impl Builder {
 	/// Build a [`crate::LockBox`].
 	pub fn build_lock_box<T>(t: T) -> Result<Box<dyn LockBox<T>>, Error>
 	where
-		T: Send + Sync + Clone + 'static,
+		T: Send + Sync + 'static,
 	{
 		Ok(Box::new(LockImpl::new(t)))
 	}

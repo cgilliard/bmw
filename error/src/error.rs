@@ -14,6 +14,8 @@
 
 use bmw_deps::errno::Errno;
 use bmw_deps::failure::{Backtrace, Context, Fail};
+use bmw_deps::rustls::client::InvalidDnsNameError;
+use bmw_deps::rustls::sign::SignError;
 use std::alloc::LayoutError;
 use std::convert::Infallible;
 use std::ffi::OsString;
@@ -302,6 +304,30 @@ impl From<bmw_deps::nix::errno::Errno> for Error {
 	fn from(e: bmw_deps::nix::errno::Errno) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::Errno(format!("Errno system error: {}", e))),
+		}
+	}
+}
+
+impl From<bmw_deps::rustls::Error> for Error {
+	fn from(e: bmw_deps::rustls::Error) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::IO(format!("Rustls error: {}", e))),
+		}
+	}
+}
+
+impl From<SignError> for Error {
+	fn from(e: SignError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::IO(format!("Rustls Signing error: {}", e))),
+		}
+	}
+}
+
+impl From<InvalidDnsNameError> for Error {
+	fn from(e: InvalidDnsNameError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::IO(format!("Rustls Invalid DnsNameError: {}", e))),
 		}
 	}
 }

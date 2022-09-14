@@ -22,9 +22,20 @@ use crate::{
 };
 use bmw_deps::errno::{errno, set_errno, Errno};
 use bmw_deps::rand::random;
+use bmw_deps::rustls::server::{NoClientAuth, ResolvesServerCertUsingSni};
+use bmw_deps::rustls::sign::{any_supported_type, CertifiedKey};
+use bmw_deps::rustls::{
+	Certificate, ClientConfig, ClientConnection as RustlsClientConnection, PrivateKey,
+	RootCertStore, ServerConfig, ServerConnection as RustlsServerConnection, ALL_CIPHER_SUITES,
+	ALL_VERSIONS,
+};
+use bmw_deps::rustls_pemfile::{certs, read_one, Item};
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
+use std::fmt::{Debug, Formatter};
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "linux")]
@@ -110,18 +121,56 @@ impl Default for EventHandlerConfig {
 	}
 }
 
+impl Debug for ListenerInfo {
+	fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+		write!(
+			f,
+			"ListenerInfo[id={},handle={},is_reuse_port={},has_tls_config={}]",
+			self.id,
+			self.handle,
+			self.is_reuse_port,
+			self.tls_config.is_some()
+		)
+	}
+}
+
 // Note about serialization of ConnectionInfo: We serialize the write state
 // which is a LockBox. So we use the danger_to_usize fn. It must be deserialized
 // once per serialization or it will leak and cause other memory related problems.
+// The same applies to the TLS data structures.
 impl Serializable for ConnectionInfo {
 	fn read<R>(reader: &mut R) -> Result<Self, Error>
 	where
 		R: Reader,
 	{
 		match reader.read_u8()? {
-			0 => Ok(ConnectionInfo::ListenerInfo(ListenerInfo::read(reader)?)),
+			0 => {
+				let id = reader.read_u128()?;
+				debug!("listener deser for id = {}", id)?;
+				let handle = Handle::read(reader)?;
+				let is_reuse_port = match reader.read_u8()? {
+					0 => false,
+					_ => true,
+				};
+				let tls_config = match reader.read_u8()? {
+					0 => None,
+					_ => {
+						let tls_config: Arc<ServerConfig> =
+							unsafe { Arc::from_raw(reader.read_usize()? as *mut ServerConfig) };
+						Some(tls_config)
+					}
+				};
+				let ci = ConnectionInfo::ListenerInfo(ListenerInfo {
+					id,
+					handle,
+					is_reuse_port,
+					tls_config,
+				});
+				Ok(ci)
+			}
 			1 => {
 				let id = reader.read_u128()?;
+				debug!("deser for id = {}", id)?;
 				let handle = Handle::read(reader)?;
 				let accept_handle: Option<Handle> = Option::read(reader)?;
 				let write_state: Box<dyn LockBox<WriteState>> =
@@ -130,7 +179,22 @@ impl Serializable for ConnectionInfo {
 				let last_slab = reader.read_u32()?;
 				let slab_offset = reader.read_u16()?;
 				let is_accepted = reader.read_u8()? != 0;
-				debug!("deser for id = {}", id)?;
+				let tls_server = match reader.read_u8()? {
+					0 => None,
+					_ => {
+						let tls_server: Box<dyn LockBox<RustlsServerConnection>> =
+							lock_box_from_usize(reader.read_usize()?);
+						Some(tls_server)
+					}
+				};
+				let tls_client = match reader.read_u8()? {
+					0 => None,
+					_ => {
+						let tls_client: Box<dyn LockBox<RustlsClientConnection>> =
+							lock_box_from_usize(reader.read_usize()?);
+						Some(tls_client)
+					}
+				};
 				Ok(ConnectionInfo::ReadWriteInfo(ReadWriteInfo {
 					id,
 					handle,
@@ -140,6 +204,8 @@ impl Serializable for ConnectionInfo {
 					last_slab,
 					slab_offset,
 					is_accepted,
+					tls_client,
+					tls_server,
 				}))
 			}
 			_ => Err(err!(
@@ -154,8 +220,25 @@ impl Serializable for ConnectionInfo {
 	{
 		match self {
 			ConnectionInfo::ListenerInfo(li) => {
+				debug!("listener ser for id = {}", li.id)?;
 				writer.write_u8(0)?;
-				li.write(writer)?;
+				writer.write_u128(li.id)?;
+				li.handle.write(writer)?;
+				writer.write_u8(match li.is_reuse_port {
+					true => 1,
+					false => 0,
+				})?;
+				match &li.tls_config {
+					Some(tls_config) => {
+						let ptr = Arc::into_raw(tls_config.clone());
+						let ptr_as_usize = ptr as usize;
+						writer.write_u8(1)?;
+						writer.write_usize(ptr_as_usize)?;
+					}
+					None => {
+						writer.write_u8(0)?;
+					}
+				}
 			}
 			ConnectionInfo::ReadWriteInfo(ri) => {
 				debug!("ser for id={}", ri.id)?;
@@ -171,6 +254,20 @@ impl Serializable for ConnectionInfo {
 					true => 1,
 					false => 0,
 				})?;
+				match &ri.tls_server {
+					Some(tls_server) => {
+						writer.write_u8(1)?;
+						writer.write_usize(tls_server.danger_to_usize())?;
+					}
+					None => writer.write_u8(0)?,
+				}
+				match &ri.tls_client {
+					Some(tls_client) => {
+						writer.write_u8(1)?;
+						writer.write_usize(tls_client.danger_to_usize())?;
+					}
+					None => writer.write_u8(0)?,
+				}
 			}
 		}
 
@@ -521,6 +618,7 @@ impl EventHandlerData {
 			handle: 0,
 			id: 0,
 			is_reuse_port: false,
+			tls_config: None,
 		});
 
 		let evhd = EventHandlerData {
@@ -852,17 +950,23 @@ where
 			match ctx.handle_hashtable.get(&ctx.events[ctx.counter].handle)? {
 				Some(id) => match ctx.connection_hashtable.get(&id)? {
 					Some(ci) => match ci {
-						ConnectionInfo::ListenerInfo(li) => loop {
-							let handle = self.process_accept(&li, ctx, callback_context)?;
-							#[cfg(unix)]
-							if handle <= 0 {
-								break;
+						ConnectionInfo::ListenerInfo(li) => {
+							loop {
+								let handle = self.process_accept(&li, ctx, callback_context)?;
+								#[cfg(unix)]
+								if handle <= 0 {
+									break;
+								}
+								#[cfg(windows)]
+								if handle == usize::MAX {
+									break;
+								}
 							}
-							#[cfg(windows)]
-							if handle == usize::MAX {
-								break;
-							}
-						},
+
+							// write back to keep our hashtable consistent
+							ctx.connection_hashtable
+								.insert(&id, &ConnectionInfo::ListenerInfo(li.clone()))?;
+						}
 						ConnectionInfo::ReadWriteInfo(rw) => match ctx.events[ctx.counter].etype {
 							EventType::Read => self.process_read(rw, ctx, callback_context)?,
 							EventType::Write => self.process_write(rw, ctx, callback_context)?,
@@ -1241,6 +1345,8 @@ where
 			last_slab: u32::MAX,
 			slab_offset: 0,
 			is_accepted: true,
+			tls_client: None,
+			tls_server: None,
 		};
 
 		#[cfg(target_os = "windows")]
@@ -1557,6 +1663,19 @@ where
 			self.debug_write_queue,
 		);
 
+		let tls_client = match connection.tls_config {
+			Some(tls_config) => {
+				let server_name: &str = &tls_config.server_name;
+				let config = make_config(tls_config.trusted_cert_full_chain_file)?;
+				let tls_client = Some(lock_box!(RustlsClientConnection::new(
+					config,
+					server_name.try_into()?,
+				)?)?);
+				tls_client
+			}
+			None => None,
+		};
+
 		let rwi = ReadWriteInfo {
 			id,
 			handle,
@@ -1566,6 +1685,8 @@ where
 			last_slab: u32::MAX,
 			slab_offset: 0,
 			is_accepted: false,
+			tls_client,
+			tls_server: None,
 		};
 
 		{
@@ -1581,6 +1702,30 @@ where
 	}
 	fn add_server(&mut self, connection: ServerConnection) -> Result<(), Error> {
 		debug!("add server")?;
+
+		let tls_config = if connection.tls_config.len() == 0 {
+			None
+		} else {
+			let mut cert_resolver = ResolvesServerCertUsingSni::new();
+
+			for tls_config in connection.tls_config {
+				let signingkey =
+					any_supported_type(&load_private_key(&tls_config.private_key_file)?)?;
+				let mut certified_key =
+					CertifiedKey::new(load_certs(&tls_config.certificates_file)?, signingkey);
+				certified_key.ocsp = Some(load_ocsp(&tls_config.ocsp_file)?);
+				cert_resolver.add(&tls_config.sni_host, certified_key)?;
+			}
+			let config = ServerConfig::builder()
+				.with_cipher_suites(&ALL_CIPHER_SUITES.to_vec())
+				.with_safe_default_kx_groups()
+				.with_protocol_versions(&ALL_VERSIONS.to_vec())?
+				.with_client_cert_verifier(NoClientAuth::new())
+				.with_cert_resolver(Arc::new(cert_resolver));
+
+			Some(Arc::new(config))
+		};
+
 		if connection.handles.size() != self.data.size() {
 			return Err(err!(
 				ErrKind::IllegalArgument,
@@ -1605,6 +1750,7 @@ where
 					id: random(),
 					handle,
 					is_reuse_port: connection.is_reuse_port,
+					tls_config: tls_config.clone(),
 				}))?;
 			debug!("add handle: {}", handle)?;
 			wakeup.wakeup()?;
@@ -1673,6 +1819,68 @@ fn write_bytes(handle: Handle, buf: &[u8]) -> isize {
 	set_errno(Errno(0));
 	let _ = debug!("write bytes to handle = {}", handle);
 	write_bytes_impl(handle, buf)
+}
+
+fn make_config(trusted_cert_full_chain_file: Option<String>) -> Result<Arc<ClientConfig>, Error> {
+	let mut root_store = RootCertStore::empty();
+	match trusted_cert_full_chain_file {
+		Some(trusted_cert_full_chain_file) => {
+			let full_chain_certs = load_certs(&trusted_cert_full_chain_file)?;
+			for i in 0..full_chain_certs.len() {
+				map_err!(
+					root_store.add(&full_chain_certs[i]),
+					ErrKind::IllegalArgument,
+					"adding certificate to root store generated error"
+				)?;
+			}
+		}
+		None => {}
+	}
+
+	let config = ClientConfig::builder()
+		.with_safe_default_cipher_suites()
+		.with_safe_default_kx_groups()
+		.with_safe_default_protocol_versions()?
+		.with_root_certificates(root_store)
+		.with_no_client_auth();
+
+	Ok(Arc::new(config))
+}
+
+fn load_certs(filename: &str) -> Result<Vec<Certificate>, Error> {
+	let certfile = File::open(filename)?;
+	let mut reader = BufReader::new(certfile);
+	let certs = certs(&mut reader)?;
+	Ok(certs.iter().map(|v| Certificate(v.clone())).collect())
+}
+
+fn load_ocsp(filename: &Option<String>) -> Result<Vec<u8>, Error> {
+	let mut ret = vec![];
+
+	if let &Some(ref name) = filename {
+		File::open(name)?.read_to_end(&mut ret)?;
+	}
+
+	Ok(ret)
+}
+
+fn load_private_key(filename: &str) -> Result<PrivateKey, Error> {
+	let keyfile = File::open(filename)?;
+	let mut reader = BufReader::new(keyfile);
+
+	loop {
+		match read_one(&mut reader)? {
+			Some(Item::RSAKey(key)) => return Ok(PrivateKey(key)),
+			Some(Item::PKCS8Key(key)) => return Ok(PrivateKey(key)),
+			Some(Item::ECKey(key)) => return Ok(PrivateKey(key)),
+			_ => break,
+		}
+	}
+
+	Err(err!(
+		ErrKind::IllegalArgument,
+		format!("no private keys found in file: {}", filename)
+	))
 }
 
 #[cfg(test)]
@@ -1798,7 +2006,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: false,
 		};
@@ -1876,7 +2084,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: false,
 		};
@@ -1989,7 +2197,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: false,
 		};
@@ -2073,7 +2281,7 @@ mod test {
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: false,
 		};
@@ -2176,7 +2384,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: false,
 		};
@@ -2295,7 +2503,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -2412,7 +2620,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -2516,7 +2724,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -2636,7 +2844,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -2731,7 +2939,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		debug!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -2925,7 +3133,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -3040,7 +3248,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -3114,7 +3322,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -3206,7 +3414,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -3296,7 +3504,7 @@ mod test {
 		})?;
 
 		evh.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
+			info!(
 				"accept a connection handle = {}, tid={}",
 				conn_data.get_handle(),
 				conn_data.tid()
@@ -3318,7 +3526,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -3465,7 +3673,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};
@@ -3563,7 +3771,7 @@ mod test {
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
-			tls_config: None,
+			tls_config: vec![],
 			handles,
 			is_reuse_port: true,
 		};

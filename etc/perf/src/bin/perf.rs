@@ -167,7 +167,7 @@ fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 	let handles = create_listeners(threads, addr, 10)?;
 	debug!("handles.size={},handles={:?}", handles.size(), handles)?;
 	let sc = ServerConnection {
-		tls_config: None,
+		tls_config: vec![],
 		handles,
 		is_reuse_port: true,
 	};

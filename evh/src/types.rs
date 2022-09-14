@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bmw_deps::rustls::client::ClientConnection as RustlsClientConnection;
+use bmw_deps::rustls::server::{ServerConfig, ServerConnection as RustlsServerConnection};
 use bmw_derive::Serializable;
 use bmw_err::*;
 use bmw_util::*;
@@ -38,6 +40,8 @@ pub struct TlsServerConfig {
 	pub certificates_file: String,
 	/// The sni_host to use with the cert/key pair.
 	pub sni_host: String,
+	/// The location of the optional ocsp file.
+	pub ocsp_file: Option<String>,
 }
 
 pub struct TlsClientConfig {
@@ -61,7 +65,7 @@ pub struct ClientConnection {
 
 pub struct ServerConnection {
 	pub handles: Array<Handle>,
-	pub tls_config: Option<TlsServerConfig>,
+	pub tls_config: Vec<TlsServerConfig>,
 	pub is_reuse_port: bool,
 }
 
@@ -236,11 +240,12 @@ pub(crate) enum ConnectionInfo {
 unsafe impl Send for ConnectionInfo {}
 unsafe impl Sync for ConnectionInfo {}
 
-#[derive(Clone, Debug, Serializable)]
+#[derive(Clone)]
 pub(crate) struct ListenerInfo {
 	pub(crate) id: u128,
 	pub(crate) handle: Handle,
 	pub(crate) is_reuse_port: bool,
+	pub(crate) tls_config: Option<Arc<ServerConfig>>,
 }
 
 #[derive(Clone, Debug)]
@@ -253,6 +258,8 @@ pub(crate) struct ReadWriteInfo {
 	pub(crate) last_slab: u32,
 	pub(crate) slab_offset: u16,
 	pub(crate) is_accepted: bool,
+	pub(crate) tls_server: Option<Box<dyn LockBox<RustlsServerConnection>>>,
+	pub(crate) tls_client: Option<Box<dyn LockBox<RustlsClientConnection>>>,
 }
 
 #[derive(Clone, Debug)]
