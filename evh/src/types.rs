@@ -45,7 +45,7 @@ pub struct TlsServerConfig {
 }
 
 pub struct TlsClientConfig {
-	pub server_name: String,
+	pub sni_host: String,
 	pub trusted_cert_full_chain_file: Option<String>,
 }
 
@@ -86,6 +86,8 @@ pub struct WriteHandle {
 	pub(crate) wakeup: Wakeup,
 	pub(crate) event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 	pub(crate) debug_write_queue: bool,
+	pub(crate) tls_server: Option<Box<dyn LockBox<RustlsServerConnection>>>,
+	pub(crate) tls_client: Option<Box<dyn LockBox<RustlsClientConnection>>>,
 }
 
 pub trait ConnData {
@@ -132,6 +134,7 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) count: usize,
 	pub(crate) last_process_type: LastProcessType,
 	pub(crate) last_rw: Option<ReadWriteInfo>,
+	pub(crate) buffer: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -273,6 +276,7 @@ pub(crate) struct EventHandlerData {
 	pub(crate) write_queue: Box<dyn Queue<u128> + Send + Sync>,
 	pub(crate) nhandles: Box<dyn Queue<ConnectionInfo> + Send + Sync>,
 	pub(crate) stop: bool,
+	pub(crate) stopped: bool,
 }
 
 #[derive(Debug, Clone, Serializable, PartialEq)]

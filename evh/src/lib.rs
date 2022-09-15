@@ -24,7 +24,7 @@ mod win;
 
 pub use crate::types::{
 	Builder, ClientConnection, ConnData, ConnectionData, EventHandler, EventHandlerConfig,
-	ServerConnection, ThreadContext, WriteHandle,
+	ServerConnection, ThreadContext, TlsClientConfig, TlsServerConfig, WriteHandle,
 };
 
 pub use crate::evh::{create_listeners, READ_SLAB_DATA_SIZE};
