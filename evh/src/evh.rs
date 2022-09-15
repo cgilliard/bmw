@@ -1264,8 +1264,29 @@ where
 			Some(ref _tls_server) => {
 				let (raw_len, pt_len) = self.do_tls_server_read(rw.clone(), ctx)?;
 				if raw_len <= 0 {
-					// TODO: check for close/wouldblock/etc
-					self.process_close(ctx, rw, callback_context)?;
+					// EAGAIN is would block. -2 is would block for windows
+					if errno().0 != EAGAIN
+						&& errno().0 != ETEMPUNAVAILABLE
+						&& errno().0 != WINNONBLOCKING
+						&& raw_len != -2
+					{
+						self.process_close(ctx, rw, callback_context)?;
+					}
+
+					if raw_len == -2 {
+						#[cfg(target_os = "windows")]
+						{
+							if !ctx.write_set.contains(&rw.handle)? {
+								epoll_ctl_impl(
+									EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+									rw.handle,
+									&mut ctx.filter_set,
+									ctx.selector as *mut c_void,
+									ctx.tid,
+								)?;
+							}
+						}
+					}
 				} else if pt_len > 0 {
 					ctx.buffer.truncate(pt_len);
 					self.process_read_result(rw, ctx, callback_context, true)?;
@@ -1289,8 +1310,29 @@ where
 				Some(ref _tls_client) => {
 					let (raw_len, pt_len) = self.do_tls_client_read(rw.clone(), ctx)?;
 					if raw_len <= 0 {
-						// TODO: check for close/wouldblock/etc
-						self.process_close(ctx, rw, callback_context)?;
+						// EAGAIN is would block. -2 is would block for windows
+						if errno().0 != EAGAIN
+							&& errno().0 != ETEMPUNAVAILABLE
+							&& errno().0 != WINNONBLOCKING
+							&& raw_len != -2
+						{
+							self.process_close(ctx, rw, callback_context)?;
+						}
+
+						if raw_len == -2 {
+							#[cfg(target_os = "windows")]
+							{
+								if !ctx.write_set.contains(&rw.handle)? {
+									epoll_ctl_impl(
+										EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+										rw.handle,
+										&mut ctx.filter_set,
+										ctx.selector as *mut c_void,
+										ctx.tid,
+									)?;
+								}
+							}
+						}
 					} else if pt_len > 0 {
 						ctx.buffer.truncate(pt_len);
 						self.process_read_result(rw, ctx, callback_context, true)?;
@@ -2025,9 +2067,6 @@ where
 	}
 }
 
-// always obtain requested lock before needed, pre_block is only called in one thread so it can
-// only be executing once at most so the read lock is sufficient since both other calls get the
-// write lock as the first action.
 impl Wakeup {
 	fn new() -> Result<Self, Error> {
 		set_errno(Errno(0));
@@ -2217,7 +2256,7 @@ mod test {
 		wakeup.wakeup()?;
 
 		loop {
-			std::thread::sleep(std::time::Duration::from_millis(1));
+			sleep(Duration::from_millis(1));
 			let check = check.rlock()?;
 			if **(check).guard() == 1 {
 				break;
