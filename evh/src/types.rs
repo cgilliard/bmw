@@ -135,6 +135,7 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) last_process_type: LastProcessType,
 	pub(crate) last_rw: Option<ReadWriteInfo>,
 	pub(crate) buffer: Vec<u8>,
+	pub(crate) do_write_back: bool,
 }
 
 #[derive(Clone)]

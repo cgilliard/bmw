@@ -410,6 +410,7 @@ impl EventHandlerContext {
 			#[cfg(windows)]
 			selector: unsafe { epoll_create(1) } as usize,
 			buffer: vec![],
+			do_write_back: true,
 		})
 	}
 }
@@ -455,6 +456,10 @@ impl WriteHandle {
 			debug!("wlock for {}", self.id)?;
 			let mut write_state = self.write_state.wlock()?;
 			let guard = write_state.guard();
+			if (**guard).is_set(WRITE_STATE_FLAG_CLOSE) {
+				// it's already closed no double closes
+				return Ok(());
+			}
 			(**guard).set_flag(WRITE_STATE_FLAG_CLOSE);
 			debug!("unlockwlock for {}", self.id)?;
 		}
@@ -785,8 +790,6 @@ where
 			match ctx.last_process_type {
 				LastProcessType::OnRead => match ctx.last_rw.clone() {
 					Some(mut rw) => {
-						ctx.connection_hashtable
-							.insert(&rw.id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 						self.process_close(ctx, &mut rw, callback_context)?;
 					}
 					None => {}
@@ -794,35 +797,7 @@ where
 				LastProcessType::OnAccept => {
 					close_impl(ctx, ctx.events[ctx.counter].handle)?;
 				}
-				LastProcessType::OnClose => {
-					// remove from hashtables
-					match ctx
-						.handle_hashtable
-						.remove(&ctx.events[ctx.counter].handle)?
-					{
-						Some(id) => {
-							match ctx.connection_hashtable.remove(&id)? {
-								Some(mut ci) => match &mut ci {
-									ConnectionInfo::ReadWriteInfo(ref mut rwi) => {
-										ctx.handle_hashtable.remove(&rwi.handle)?;
-										rwi.clear_through_impl(rwi.last_slab, &mut ctx.read_slabs)?;
-										close_impl(ctx, rwi.handle)?;
-									}
-									ConnectionInfo::ListenerInfo(li) => warn!(
-								"Unexpected error: listener info found in process close: {:?}",
-								li
-							)?,
-								},
-								None => {
-									// already closed
-								}
-							}
-						}
-						None => {
-							// already closed
-						}
-					}
-				}
+				LastProcessType::OnClose => {}
 			}
 
 			// skip over the panicked request and continue processing remaining events
@@ -900,7 +875,7 @@ where
 			let guard = data.guard();
 			match (**guard).write_queue.dequeue() {
 				Some(next) => {
-					debug!("write q connection_hashtable.get({})", next)?;
+					debug!("write q chashtable.get({})", next)?;
 					match ctx.connection_hashtable.get(&next)? {
 						Some(mut ci) => match &mut ci {
 							ConnectionInfo::ReadWriteInfo(ref rwi) => {
@@ -917,6 +892,7 @@ where
 							}
 							ConnectionInfo::ListenerInfo(li) => {
 								warn!("Attempt to write to a listener: {:?}", li.handle)?;
+								ctx.connection_hashtable.insert(&next, &ci)?;
 							}
 						},
 						None => warn!("Couldn't look up conn info for {}", next)?,
@@ -1021,10 +997,6 @@ where
 			}
 			match ctx.handle_hashtable.get(&ctx.events[ctx.counter].handle)? {
 				Some(id) => {
-					debug!(
-						"hashtable get {} for event = {:?}",
-						id, ctx.events[ctx.counter]
-					)?;
 					match ctx.connection_hashtable.get(&id)? {
 						Some(mut ci) => match &mut ci {
 							ConnectionInfo::ListenerInfo(li) => {
@@ -1045,6 +1017,7 @@ where
 								}
 							}
 							ConnectionInfo::ReadWriteInfo(rw) => {
+								ctx.do_write_back = true;
 								match ctx.events[ctx.counter].etype {
 									EventType::Read => {
 										self.process_read(rw, ctx, callback_context)?
@@ -1056,6 +1029,15 @@ where
 										self.process_error(rw, ctx, callback_context)?
 									}
 									_ => {}
+								}
+
+								// unless process close was called
+								// and the entry was removed, we
+								// reinsert the entry to keep the
+								// table consistent
+								if ctx.do_write_back {
+									ctx.connection_hashtable
+										.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 								}
 							}
 						},
@@ -1078,12 +1060,7 @@ where
 		ctx: &mut EventHandlerContext,
 		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
-		// write back to keep our hashtable consistent
-		let id = rw.id;
-		ctx.connection_hashtable
-			.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 		self.process_close(ctx, rw, callback_context)?;
-
 		Ok(())
 	}
 
@@ -1149,15 +1126,8 @@ where
 		}
 
 		if do_close {
-			let id = rw.id;
-			ctx.connection_hashtable
-				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 			self.process_close(ctx, rw, callback_context)?;
 		} else {
-			let id = rw.id;
-			let _handle = rw.handle;
-			ctx.connection_hashtable
-				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 			#[cfg(target_os = "windows")]
 			{
 				epoll_ctl_impl(
@@ -1295,18 +1265,11 @@ where
 				let (raw_len, pt_len) = self.do_tls_server_read(rw.clone(), ctx)?;
 				if raw_len <= 0 {
 					// TODO: check for close/wouldblock/etc
-					let id = rw.id;
-					ctx.connection_hashtable
-						.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 					self.process_close(ctx, rw, callback_context)?;
 				} else if pt_len > 0 {
 					ctx.buffer.truncate(pt_len);
 					self.process_read_result(rw, ctx, callback_context, true)?;
 				} else {
-					// update hashtable for consistency
-					let id = rw.id;
-					ctx.connection_hashtable
-						.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 					#[cfg(target_os = "windows")]
 					{
 						if !ctx.write_set.contains(&rw.handle)? {
@@ -1327,18 +1290,11 @@ where
 					let (raw_len, pt_len) = self.do_tls_client_read(rw.clone(), ctx)?;
 					if raw_len <= 0 {
 						// TODO: check for close/wouldblock/etc
-						let id = rw.id;
-						ctx.connection_hashtable
-							.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 						self.process_close(ctx, rw, callback_context)?;
 					} else if pt_len > 0 {
 						ctx.buffer.truncate(pt_len);
 						self.process_read_result(rw, ctx, callback_context, true)?;
 					} else {
-						// update hashtable for consistency
-						let id = rw.id;
-						ctx.connection_hashtable
-							.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 						#[cfg(target_os = "windows")]
 						{
 							if !ctx.write_set.contains(&rw.handle)? {
@@ -1528,16 +1484,7 @@ where
 		}
 
 		if do_close {
-			// update rw
-			let id = rw.id;
-			ctx.connection_hashtable
-				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 			self.process_close(ctx, rw, callback_context)?;
-		} else {
-			// just update hashtable
-			let id = rw.id;
-			ctx.connection_hashtable
-				.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 		}
 
 		Ok(())
@@ -1549,29 +1496,9 @@ where
 		rw: &mut ReadWriteInfo,
 		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
-		match &mut self.on_close {
-			Some(on_close) => {
-				ctx.last_process_type = LastProcessType::OnClose;
-				match on_close(
-					&mut ConnectionData::new(
-						rw,
-						ctx.tid,
-						&mut ctx.read_slabs,
-						self.wakeup[ctx.tid].clone(),
-						self.data[ctx.tid].clone(),
-						self.debug_write_queue,
-					),
-					callback_context,
-				) {
-					Ok(_) => {}
-					Err(e) => {
-						warn!("Callback on_read generated error: {}", e)?;
-					}
-				}
-			}
-			None => {}
-		}
-
+		// we must do an insert before removing to keep our arc's consistent
+		ctx.connection_hashtable
+			.insert(&rw.id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
 		match ctx.connection_hashtable.remove(&rw.id)? {
 			Some(mut ci) => match &mut ci {
 				ConnectionInfo::ReadWriteInfo(_rwi) => {
@@ -1585,6 +1512,30 @@ where
 					ctx.handle_hashtable.remove(&rw.handle)?;
 					rw.clear_through_impl(rw.last_slab, &mut ctx.read_slabs)?;
 					close_impl(ctx, rw.handle)?;
+					ctx.do_write_back = false;
+
+					match &mut self.on_close {
+						Some(on_close) => {
+							ctx.last_process_type = LastProcessType::OnClose;
+							match on_close(
+								&mut ConnectionData::new(
+									rw,
+									ctx.tid,
+									&mut ctx.read_slabs,
+									self.wakeup[ctx.tid].clone(),
+									self.data[ctx.tid].clone(),
+									self.debug_write_queue,
+								),
+								callback_context,
+							) {
+								Ok(_) => {}
+								Err(e) => {
+									warn!("Callback on_read generated error: {}", e)?;
+								}
+							}
+						}
+						None => {}
+					}
 				}
 				ConnectionInfo::ListenerInfo(li) => warn!(
 					"Unexpected error: listener info found in process close: {:?}",
@@ -2346,142 +2297,146 @@ mod test {
 
 	#[test]
 	fn test_eventhandler_tls_basic() -> Result<(), Error> {
-		let port = pick_free_port()?;
-		info!("eventhandler tls_basic Using port: {}", port)?;
-		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
-		let config = EventHandlerConfig {
-			threads,
-			housekeeping_frequency_millis: 100_000,
-			read_slab_count: 100,
-			max_handles_per_thread: 3,
-			..Default::default()
-		};
-		let mut evh = EventHandlerImpl::new(config)?;
+		{
+			let port = pick_free_port()?;
+			info!("eventhandler tls_basic Using port: {}", port)?;
+			let addr = &format!("127.0.0.1:{}", port)[..];
+			let threads = 2;
+			let config = EventHandlerConfig {
+				threads,
+				housekeeping_frequency_millis: 100_000,
+				read_slab_count: 100,
+				max_handles_per_thread: 3,
+				..Default::default()
+			};
+			let mut evh = EventHandlerImpl::new(config)?;
 
-		let mut client_handle = lock_box!(0)?;
-		let client_handle_clone = client_handle.clone();
+			let mut client_handle = lock_box!(0)?;
+			let client_handle_clone = client_handle.clone();
 
-		let mut client_received_test1 = lock_box!(false)?;
-		let mut server_received_test1 = lock_box!(false)?;
-		let mut server_received_abc = lock_box!(false)?;
-		let client_received_test1_clone = client_received_test1.clone();
-		let server_received_test1_clone = server_received_test1.clone();
-		let server_received_abc_clone = server_received_abc.clone();
+			let mut client_received_test1 = lock_box!(false)?;
+			let mut server_received_test1 = lock_box!(false)?;
+			let mut server_received_abc = lock_box!(false)?;
+			let client_received_test1_clone = client_received_test1.clone();
+			let server_received_test1_clone = server_received_test1.clone();
+			let server_received_abc_clone = server_received_abc.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
-			info!(
-				"on read handle={},id={}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			let first_slab = conn_data.first_slab();
-			let last_slab = conn_data.last_slab();
-			let slab_offset = conn_data.slab_offset();
-			debug!("first_slab={}", first_slab)?;
-			let res = conn_data.borrow_slab_allocator(move |sa| {
-				let slab = sa.get(first_slab.try_into()?)?;
-				assert_eq!(first_slab, last_slab);
-				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
-				let mut ret: Vec<u8> = vec![];
-				ret.extend(&slab.get()[0..slab_offset as usize]);
-				Ok(ret)
-			})?;
-			conn_data.clear_through(first_slab)?;
-			let client_handle = client_handle_clone.rlock()?;
-			let guard = client_handle.guard();
-			if conn_data.get_handle() != **guard {
-				info!("client res = {:?}", res)?;
-				if res[0] == 't' as u8 {
-					conn_data.write_handle().write(&res)?;
+			evh.set_on_read(move |conn_data, _thread_context| {
+				info!(
+					"on read handle={},id={}",
+					conn_data.get_handle(),
+					conn_data.get_connection_id()
+				)?;
+				let first_slab = conn_data.first_slab();
+				let last_slab = conn_data.last_slab();
+				let slab_offset = conn_data.slab_offset();
+				debug!("first_slab={}", first_slab)?;
+				let res = conn_data.borrow_slab_allocator(move |sa| {
+					let slab = sa.get(first_slab.try_into()?)?;
+					assert_eq!(first_slab, last_slab);
+					info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+					let mut ret: Vec<u8> = vec![];
+					ret.extend(&slab.get()[0..slab_offset as usize]);
+					Ok(ret)
+				})?;
+				conn_data.clear_through(first_slab)?;
+				let client_handle = client_handle_clone.rlock()?;
+				let guard = client_handle.guard();
+				if conn_data.get_handle() != **guard {
+					info!("client res = {:?}", res)?;
+					if res[0] == 't' as u8 {
+						conn_data.write_handle().write(&res)?;
+						if res == b"test1".to_vec() {
+							let mut server_received_test1 = server_received_test1.wlock()?;
+							(**server_received_test1.guard()) = true;
+						}
+					}
+					if res == b"abc".to_vec() {
+						let mut server_received_abc = server_received_abc.wlock()?;
+						(**server_received_abc.guard()) = true;
+					}
+				} else {
+					info!("server res = {:?})", res)?;
+					let mut x = vec![];
+					x.extend(b"abc");
+					conn_data.write_handle().write(&x)?;
 					if res == b"test1".to_vec() {
-						let mut server_received_test1 = server_received_test1.wlock()?;
-						(**server_received_test1.guard()) = true;
+						let mut client_received_test1 = client_received_test1.wlock()?;
+						(**client_received_test1.guard()) = true;
 					}
 				}
-				if res == b"abc".to_vec() {
-					let mut server_received_abc = server_received_abc.wlock()?;
-					(**server_received_abc.guard()) = true;
-				}
-			} else {
-				info!("server res = {:?})", res)?;
-				let mut x = vec![];
-				x.extend(b"abc");
-				conn_data.write_handle().write(&x)?;
-				if res == b"test1".to_vec() {
-					let mut client_received_test1 = client_received_test1.wlock()?;
-					(**client_received_test1.guard()) = true;
-				}
-			}
-			info!("res={:?}", res)?;
-			Ok(())
-		})?;
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			info!(
-				"accept a connection handle = {},id={}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
-		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
-		evh.set_housekeeper(move |_thread_context| Ok(()))?;
-		evh.start()?;
+				info!("res={:?}", res)?;
+				Ok(())
+			})?;
+			evh.set_on_accept(move |conn_data, _thread_context| {
+				info!(
+					"accept a connection handle = {},id={}",
+					conn_data.get_handle(),
+					conn_data.get_connection_id()
+				)?;
+				Ok(())
+			})?;
+			evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_panic(move |_thread_context| Ok(()))?;
+			evh.set_housekeeper(move |_thread_context| Ok(()))?;
+			evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10)?;
-		info!("handles.size={},handles={:?}", handles.size(), handles)?;
-		let sc = ServerConnection {
-			tls_config: vec![TlsServerConfig {
-				sni_host: "localhost".to_string(),
-				certificates_file: "./resources/cert.pem".to_string(),
-				private_key_file: "./resources/key.pem".to_string(),
-				ocsp_file: None,
-			}],
-			handles,
-			is_reuse_port: false,
-		};
-		evh.add_server(sc)?;
+			let handles = create_listeners(threads, addr, 10)?;
+			info!("handles.size={},handles={:?}", handles.size(), handles)?;
+			let sc = ServerConnection {
+				tls_config: vec![TlsServerConfig {
+					sni_host: "localhost".to_string(),
+					certificates_file: "./resources/cert.pem".to_string(),
+					private_key_file: "./resources/key.pem".to_string(),
+					ocsp_file: None,
+				}],
+				handles,
+				is_reuse_port: false,
+			};
+			evh.add_server(sc)?;
 
-		let connection = TcpStream::connect(addr)?;
-		#[cfg(unix)]
-		let connection_handle = connection.into_raw_fd();
-		#[cfg(windows)]
-		let connection_handle = connection.into_raw_socket().try_into()?;
-		{
-			let mut client_handle = client_handle.wlock()?;
-			(**client_handle.guard()) = connection_handle;
-		}
-
-		let client = ClientConnection {
-			handle: connection_handle,
-			tls_config: Some(TlsClientConfig {
-				sni_host: "localhost".to_string(),
-				trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
-			}),
-		};
-		let mut wh = evh.add_client(client)?;
-
-		wh.write(b"test1")?;
-		let mut count = 0;
-		loop {
-			sleep(Duration::from_millis(1));
-			if !(**(client_received_test1_clone.rlock()?.guard())
-				&& **(server_received_test1_clone.rlock()?.guard())
-				&& **(server_received_abc_clone.rlock()?.guard()))
+			let connection = TcpStream::connect(addr)?;
+			#[cfg(unix)]
+			let connection_handle = connection.into_raw_fd();
+			#[cfg(windows)]
+			let connection_handle = connection.into_raw_socket().try_into()?;
 			{
-				count += 1;
-				if count < 2_000 {
-					continue;
-				}
+				let mut client_handle = client_handle.wlock()?;
+				(**client_handle.guard()) = connection_handle;
 			}
-			assert!(**(client_received_test1_clone.rlock()?.guard()));
-			assert!(**(server_received_test1_clone.rlock()?.guard()));
-			assert!(**(server_received_abc_clone.rlock()?.guard()));
-			break;
+
+			let client = ClientConnection {
+				handle: connection_handle,
+				tls_config: Some(TlsClientConfig {
+					sni_host: "localhost".to_string(),
+					trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
+				}),
+			};
+			let mut wh = evh.add_client(client)?;
+
+			wh.write(b"test1")?;
+			let mut count = 0;
+			loop {
+				sleep(Duration::from_millis(1));
+				if !(**(client_received_test1_clone.rlock()?.guard())
+					&& **(server_received_test1_clone.rlock()?.guard())
+					&& **(server_received_abc_clone.rlock()?.guard()))
+				{
+					count += 1;
+					if count < 2_000 {
+						continue;
+					}
+				}
+				assert!(**(client_received_test1_clone.rlock()?.guard()));
+				assert!(**(server_received_test1_clone.rlock()?.guard()));
+				assert!(**(server_received_abc_clone.rlock()?.guard()));
+				break;
+			}
+
+			evh.stop()?;
 		}
 
-		evh.stop()?;
+		sleep(Duration::from_millis(2000));
 
 		Ok(())
 	}
@@ -2673,7 +2628,17 @@ mod test {
 			connection.write(b"xabc")?;
 			let len = connection.read(&mut buf)?;
 			assert_eq!(len, 0);
-			assert_eq!(**((close_count_clone.rlock()?).guard()), 1);
+
+			let mut count = 0;
+			loop {
+				count += 1;
+				sleep(Duration::from_millis(1));
+				if **((close_count_clone.rlock()?).guard()) == 0 && count < 2_000 {
+					continue;
+				}
+				assert_eq!(**((close_count_clone.rlock()?).guard()), 1);
+				break;
+			}
 		}
 
 		evh.stop()?;
