@@ -1028,6 +1028,10 @@ where
 					match ctx.connection_hashtable.get(&id)? {
 						Some(mut ci) => match &mut ci {
 							ConnectionInfo::ListenerInfo(li) => {
+								// write back to keep our hashtable consistent
+								ctx.connection_hashtable
+									.insert(&id, &ConnectionInfo::ListenerInfo(li.clone()))?;
+
 								loop {
 									let handle = self.process_accept(&li, ctx, callback_context)?;
 									#[cfg(unix)]
@@ -1039,10 +1043,6 @@ where
 										break;
 									}
 								}
-
-								// write back to keep our hashtable consistent
-								ctx.connection_hashtable
-									.insert(&id, &ConnectionInfo::ListenerInfo(li.clone()))?;
 							}
 							ConnectionInfo::ReadWriteInfo(rw) => {
 								match ctx.events[ctx.counter].etype {
