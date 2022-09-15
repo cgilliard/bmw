@@ -1307,6 +1307,18 @@ where
 					let id = rw.id;
 					ctx.connection_hashtable
 						.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
+					#[cfg(target_os = "windows")]
+					{
+						if !ctx.write_set.contains(&rw.handle)? {
+							epoll_ctl_impl(
+								EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+								rw.handle,
+								&mut ctx.filter_set,
+								ctx.selector as *mut c_void,
+								ctx.tid,
+							)?;
+						}
+					}
 				}
 				Ok(())
 			}
@@ -1327,6 +1339,18 @@ where
 						let id = rw.id;
 						ctx.connection_hashtable
 							.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
+						#[cfg(target_os = "windows")]
+						{
+							if !ctx.write_set.contains(&rw.handle)? {
+								epoll_ctl_impl(
+									EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+									rw.handle,
+									&mut ctx.filter_set,
+									ctx.selector as *mut c_void,
+									ctx.tid,
+								)?;
+							}
+						}
 					}
 					Ok(())
 				}
