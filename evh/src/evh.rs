@@ -391,6 +391,7 @@ impl EventHandlerContext {
 			events_in,
 			tid,
 			now: 0,
+			last_housekeeper: 0,
 			counter: 0,
 			count: 0,
 			last_process_type: LastProcessType::OnRead,
@@ -788,20 +789,26 @@ where
 		} else {
 			// we have to do different cleanup for each type.
 			match ctx.last_process_type {
-				LastProcessType::OnRead => match ctx.last_rw.clone() {
-					Some(mut rw) => {
-						self.process_close(ctx, &mut rw, callback_context)?;
+				LastProcessType::OnRead => {
+					match ctx.last_rw.clone() {
+						Some(mut rw) => {
+							self.process_close(ctx, &mut rw, callback_context)?;
+						}
+						None => {}
 					}
-					None => {}
-				},
+					ctx.counter += 1;
+				}
 				LastProcessType::OnAccept => {
 					close_impl(ctx, ctx.events[ctx.counter].handle)?;
+					ctx.counter += 1;
 				}
-				LastProcessType::OnClose => {}
+				LastProcessType::OnClose => {
+					ctx.counter += 1;
+				}
+				LastProcessType::Housekeeper => {}
 			}
 
 			// skip over the panicked request and continue processing remaining events
-			ctx.counter += 1;
 			self.process_events(ctx, wakeup, callback_context)?;
 		}
 
@@ -842,7 +849,9 @@ where
 				ctx.write_set.clear()?;
 				count
 			};
+
 			ctx.counter = 0;
+			self.process_housekeeper(ctx, callback_context)?;
 			self.process_events(ctx, wakeup, callback_context)?;
 		}
 		debug!("thread {} stop ", ctx.tid)?;
@@ -851,6 +860,32 @@ where
 			let mut data = self.data[ctx.tid].wlock()?;
 			let guard = data.guard();
 			(**guard).stopped = true;
+		}
+		Ok(())
+	}
+
+	fn process_housekeeper(
+		&mut self,
+		ctx: &mut EventHandlerContext,
+		callback_context: &mut ThreadContext,
+	) -> Result<(), Error> {
+		debug!("housekeep")?;
+
+		if ctx.now.saturating_sub(ctx.last_housekeeper) >= self.config.housekeeping_frequency_millis
+		{
+			match &mut self.housekeeper {
+				Some(housekeeper) => {
+					ctx.last_process_type = LastProcessType::Housekeeper;
+					match housekeeper(callback_context) {
+						Ok(_) => {}
+						Err(e) => {
+							warn!("Callback housekeeper generated error: {}", e)?;
+						}
+					}
+				}
+				None => {}
+			}
+			ctx.last_housekeeper = ctx.now;
 		}
 		Ok(())
 	}
@@ -4291,6 +4326,95 @@ mod test {
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 6);
 		assert_eq!(&buf[0..len], b"e12345");
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_housekeeper() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("housekeeper Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100,
+			read_slab_count: 10,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context| Ok(()))?;
+
+		let mut x = lock_box!(0)?;
+		let x_clone = x.clone();
+		evh.set_housekeeper(move |thread_context| {
+			info!("housekeep callback")?;
+			match thread_context.user_data.downcast_mut::<u64>() {
+				Some(value) => {
+					*value += 1;
+					let mut x = x.wlock()?;
+					(**x.guard()) = *value;
+					info!("value={}", *value)?;
+				}
+				None => {
+					thread_context.user_data = Box::new(0u64);
+				}
+			}
+			Ok(())
+		})?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		{
+			let v = **(x_clone.rlock()?.guard());
+			info!("v={}", v)?;
+		}
+
+		let mut count = 0;
+		loop {
+			count += 1;
+			sleep(Duration::from_millis(100));
+			{
+				let v = **(x_clone.rlock()?.guard());
+				info!("v={}", v)?;
+				if v < 10 && count < 10_000 {
+					continue;
+				}
+			}
+
+			assert!((**(x_clone.rlock()?.guard())) >= 10);
+			break;
+		}
+
+		evh.stop()?;
+
 		Ok(())
 	}
 

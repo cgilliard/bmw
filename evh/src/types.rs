@@ -110,6 +110,7 @@ pub(crate) enum LastProcessType {
 	OnRead,
 	OnClose,
 	OnAccept,
+	Housekeeper,
 }
 
 #[derive(Clone)]
@@ -125,6 +126,7 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) epoll_events: Vec<EpollEvent>,
 	pub(crate) selector: Handle,
 	pub(crate) now: u128,
+	pub(crate) last_housekeeper: u128,
 	pub(crate) connection_hashtable: Box<dyn Hashtable<u128, ConnectionInfo> + Send + Sync>,
 	pub(crate) handle_hashtable: Box<dyn Hashtable<Handle, u128> + Send + Sync>,
 	pub(crate) read_slabs: Box<dyn SlabAllocator + Send + Sync>,
