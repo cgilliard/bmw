@@ -170,7 +170,10 @@ pub(crate) fn get_events_impl(
 	debug!("in get_events_impl in_count={}", ctx.events_in.len())?;
 	for evt in &ctx.events_in {
 		let mut interest = EpollFlags::empty();
-		if evt.etype == EventTypeIn::Read || evt.etype == EventTypeIn::Accept {
+		if evt.etype == EventTypeIn::Read
+			|| evt.etype == EventTypeIn::Accept
+			|| evt.etype == EventTypeIn::Resume
+		{
 			let fd = evt.handle;
 			debug!("add in read fd = {},tid={}", fd, ctx.tid)?;
 			if fd >= ctx.filter_set.len().try_into()? {
@@ -240,7 +243,7 @@ pub(crate) fn get_events_impl(
 					e, fd, op, ctx.tid
 				)?,
 			}
-		} else if evt.etype == EventTypeIn::Delete {
+		} else if evt.etype == EventTypeIn::Suspend {
 			let fd = evt.handle;
 			debug!("add in write fd = {},tid={}", fd, ctx.tid)?;
 			if fd > ctx.filter_set.len().try_into()? {
