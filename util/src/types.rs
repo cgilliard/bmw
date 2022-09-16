@@ -16,6 +16,7 @@ use bmw_deps::dyn_clone::{clone_trait_object, DynClone};
 use bmw_derive::Serializable;
 use bmw_err::*;
 use bmw_log::*;
+use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::future::Future;
@@ -826,7 +827,12 @@ pub enum PoolResult<T, E> {
 ///```
 pub trait ThreadPool<T, OnPanic>
 where
-	OnPanic: FnMut(u128) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(u128, Box<dyn Any + Send>) -> Result<(), Error>
+		+ Send
+		+ 'static
+		+ Clone
+		+ Sync
+		+ Unpin,
 {
 	/// Execute a task in the thread pool. This task will run to completion
 	/// on the first available thread in the pool. The return value is a receiver
@@ -834,7 +840,7 @@ where
 	/// an error occurs, [`bmw_err::Error`] will be returned.
 	fn execute<F>(&self, f: F, id: u128) -> Result<Receiver<PoolResult<T, Error>>, Error>
 	where
-		F: Future<Output = Result<T, Error>> + Send + Sync + 'static;
+		F: Future<Output = Result<T, Error>> + Send + 'static;
 
 	/// Start the pool. If macros are used, this call is unnecessary.
 	fn start(&mut self) -> Result<(), Error>;
@@ -1282,7 +1288,7 @@ pub(crate) struct LockImpl<T> {
 }
 
 pub(crate) struct FutureWrapper<T> {
-	pub(crate) f: Pin<Box<dyn Future<Output = Result<T, Error>> + Send + Sync + 'static>>,
+	pub(crate) f: Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>,
 	pub(crate) tx: SyncSender<PoolResult<T, Error>>,
 	pub(crate) id: u128,
 }
@@ -1290,7 +1296,12 @@ pub(crate) struct FutureWrapper<T> {
 pub(crate) struct ThreadPoolImpl<T, OnPanic>
 where
 	T: 'static + Send + Sync,
-	OnPanic: FnMut(u128) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(u128, Box<dyn Any + Send>) -> Result<(), Error>
+		+ Send
+		+ 'static
+		+ Clone
+		+ Sync
+		+ Unpin,
 {
 	pub(crate) config: ThreadPoolConfig,
 	pub(crate) rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,

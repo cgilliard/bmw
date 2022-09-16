@@ -21,6 +21,7 @@ use crate::{
 };
 use bmw_err::Error;
 use bmw_log::*;
+use std::any::Any;
 use std::cell::{RefCell, UnsafeCell};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -36,7 +37,12 @@ impl Builder {
 		config: ThreadPoolConfig,
 	) -> Result<impl ThreadPool<T, OnPanic>, Error>
 	where
-		OnPanic: FnMut(u128) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+		OnPanic: FnMut(u128, Box<dyn Any + Send>) -> Result<(), Error>
+			+ Send
+			+ 'static
+			+ Clone
+			+ Sync
+			+ Unpin,
 		T: 'static + Send + Sync,
 	{
 		Ok(ThreadPoolImpl::new(config, None)?)

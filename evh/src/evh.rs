@@ -33,6 +33,7 @@ use bmw_deps::rustls_pemfile::{certs, read_one, Item};
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
+use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
@@ -724,7 +725,12 @@ where
 		+ Unpin,
 	HouseKeeper:
 		FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
-	OnPanic: FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(&mut ThreadContext, Box<dyn Any + Send>) -> Result<(), Error>
+		+ Send
+		+ 'static
+		+ Clone
+		+ Sync
+		+ Unpin,
 {
 	pub(crate) fn new(config: EventHandlerConfig) -> Result<Self, Error> {
 		Self::check_config(&config)?;
@@ -1818,7 +1824,12 @@ where
 		+ Unpin,
 	HouseKeeper:
 		FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
-	OnPanic: FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(&mut ThreadContext, Box<dyn Any + Send>) -> Result<(), Error>
+		+ Send
+		+ 'static
+		+ Clone
+		+ Sync
+		+ Unpin,
 {
 	fn set_on_read(&mut self, on_read: OnRead) -> Result<(), Error> {
 		self.on_read = Some(Box::pin(on_read));
@@ -1906,14 +1917,38 @@ where
 		let mut executor = lock_box!(tp.executor()?)?;
 		let mut executor_clone = executor.clone();
 
-		tp.set_on_panic(move |id| -> Result<(), Error> {
+		let on_panic = self.on_panic.clone();
+
+		tp.set_on_panic(move |id, e| -> Result<(), Error> {
 			let id: usize = id.try_into()?;
 			let mut evh = v_panic[id].0.clone();
 			let mut wakeup = v_panic[id].1.clone();
 			let mut ctx = v_panic[id].2.clone();
 			let mut thread_context = v_panic[id].3.clone();
+			let mut thread_context_clone = thread_context.clone();
 			let mut executor = executor.wlock()?;
 			let executor = executor.guard();
+			let mut on_panic = on_panic.clone();
+			(**executor).execute(
+				async move {
+					debug!("calling on panic handler: {:?}", e)?;
+					info!("calling on panic handler: {:?}", e)?;
+					let mut thread_context = thread_context_clone.wlock_ignore_poison()?;
+					let thread_context = thread_context.guard();
+					match &mut on_panic {
+						Some(on_panic) => match on_panic(thread_context, e) {
+							Ok(_) => {}
+							Err(e) => {
+								warn!("Callback on_panic generated error: {}", e)?;
+							}
+						},
+						None => {}
+					}
+
+					Ok(())
+				},
+				id.try_into()?,
+			)?;
 			(**executor).execute(
 				async move {
 					let mut ctx = ctx.wlock_ignore_poison()?;
@@ -2339,7 +2374,7 @@ mod test {
 			Ok(())
 		})?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
@@ -2451,7 +2486,7 @@ mod test {
 				Ok(())
 			})?;
 			evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
-			evh.set_on_panic(move |_thread_context| Ok(()))?;
+			evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 			evh.set_housekeeper(move |_thread_context| Ok(()))?;
 			evh.start()?;
 
@@ -2563,7 +2598,7 @@ mod test {
 			(**close_count.guard()) += 1;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
@@ -2675,7 +2710,7 @@ mod test {
 			(**close_count.guard()) += 1;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
@@ -2771,7 +2806,7 @@ mod test {
 			Ok(())
 		})?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
@@ -2873,7 +2908,7 @@ mod test {
 			Ok(())
 		})?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 
@@ -2992,7 +3027,7 @@ mod test {
 			(**close_count.guard()) += 1;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
@@ -3108,7 +3143,7 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
@@ -3212,7 +3247,7 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
@@ -3334,7 +3369,7 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
@@ -3428,7 +3463,7 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
@@ -3510,7 +3545,7 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh2.set_on_panic(move |_thread_context| Ok(()))?;
+		evh2.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh2.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh2.start()?;
 
@@ -3623,7 +3658,7 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
@@ -3738,7 +3773,7 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
@@ -3812,7 +3847,7 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
@@ -3848,7 +3883,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_thread_panic() -> Result<(), Error> {
+	fn test_eventhandler_thread_panic1() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("thread_panic on_read Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3877,8 +3912,7 @@ mod test {
 			})?;
 
 			if res[0] == 'a' as u8 {
-				let x: Option<u32> = None;
-				let _y = x.unwrap();
+				panic!("test panic");
 			} else {
 				wh.write(&res)?;
 			}
@@ -3904,7 +3938,16 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+
+		let mut on_panic_callback = lock_box!(0)?;
+		let on_panic_callback_clone = on_panic_callback.clone();
+		evh.set_on_panic(move |_thread_context, e| {
+			let e = e.downcast_ref::<&str>().unwrap();
+			info!("on panic callback: '{}'", e)?;
+			let mut on_panic_callback = on_panic_callback.wlock()?;
+			**(on_panic_callback.guard()) += 1;
+			Ok(())
+		})?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
@@ -3942,6 +3985,9 @@ mod test {
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 4);
 		assert_eq!(&buf[0..len], b"test");
+
+		// assert that the on_panic callback was called
+		assert_eq!(**on_panic_callback_clone.rlock()?.guard(), 1);
 
 		evh.stop()?;
 
@@ -4016,7 +4062,11 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, e| {
+			let e = e.downcast_ref::<&str>().unwrap();
+			info!("on panic callback: '{}'", e)?;
+			Ok(())
+		})?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
@@ -4163,7 +4213,7 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
@@ -4259,7 +4309,7 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
@@ -4363,7 +4413,7 @@ mod test {
 			)?;
 			Ok(())
 		})?;
-		evh.set_on_panic(move |_thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 
 		let mut x = lock_box!(0)?;
 		let x_clone = x.clone();

@@ -14,6 +14,7 @@
 use crate::types::EventHandlerImpl;
 use crate::{Builder, ConnectionData, EventHandler, EventHandlerConfig, ThreadContext};
 use bmw_err::*;
+use std::any::Any;
 
 impl Builder {
 	pub fn build_evh<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>(
@@ -40,8 +41,12 @@ impl Builder {
 			+ Unpin,
 		HouseKeeper:
 			FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
-		OnPanic:
-			FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+		OnPanic: FnMut(&mut ThreadContext, Box<dyn Any + Send>) -> Result<(), Error>
+			+ Send
+			+ 'static
+			+ Clone
+			+ Sync
+			+ Unpin,
 	{
 		EventHandlerImpl::new(config)
 	}

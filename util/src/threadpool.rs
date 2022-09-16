@@ -19,6 +19,7 @@ use crate::{
 use bmw_deps::futures::executor::block_on;
 use bmw_err::{err, ErrKind, Error};
 use bmw_log::*;
+use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::mpsc::{sync_channel, Receiver};
@@ -43,7 +44,12 @@ impl Default for ThreadPoolConfig {
 
 impl<T, OnPanic> ThreadPoolImpl<T, OnPanic>
 where
-	OnPanic: FnMut(u128) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(u128, Box<dyn Any + Send>) -> Result<(), Error>
+		+ Send
+		+ 'static
+		+ Clone
+		+ Sync
+		+ Unpin,
 	T: 'static + Send + Sync,
 {
 	pub(crate) fn new(
@@ -174,23 +180,20 @@ where
 						debug!("exiting a thread, ncur={}", guard.cur_size)?;
 						break;
 					} // reduce thread count so exit this one
-					Err(e) => {
-						match on_panic.as_mut() {
-							Some(on_panic) => {
-								debug!("found an onpanic")?;
-								let id = id_clone.rlock()?;
-								let guard = id.guard();
-								match on_panic(**guard) {
-									Ok(_) => {}
-									Err(e) => warn!("on_panic handler generated error: {}", e)?,
-								}
-							}
-							None => {
-								debug!("no onpanic")?;
+					Err(e) => match on_panic.as_mut() {
+						Some(on_panic) => {
+							debug!("found an onpanic")?;
+							let id = id_clone.rlock()?;
+							let guard = id.guard();
+							match on_panic(**guard, e) {
+								Ok(_) => {}
+								Err(e) => warn!("on_panic handler generated error: {}", e)?,
 							}
 						}
-						warn!("thread panic: {:?}", e)?;
-					}
+						None => {
+							debug!("no onpanic")?;
+						}
+					},
 				}
 			}
 			Ok(())
@@ -202,11 +205,16 @@ where
 impl<T, OnPanic> ThreadPool<T, OnPanic> for ThreadPoolImpl<T, OnPanic>
 where
 	T: 'static + Send + Sync,
-	OnPanic: FnMut(u128) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(u128, Box<dyn Any + Send>) -> Result<(), Error>
+		+ Send
+		+ 'static
+		+ Clone
+		+ Sync
+		+ Unpin,
 {
 	fn execute<F>(&self, f: F, id: u128) -> Result<Receiver<PoolResult<T, Error>>, Error>
 	where
-		F: Future<Output = Result<T, Error>> + Send + Sync + 'static,
+		F: Future<Output = Result<T, Error>> + Send + 'static,
 	{
 		if self.tx.is_none() {
 			let fmt = "Thread pool has not been initialized";
@@ -285,7 +293,7 @@ where
 {
 	pub fn execute<F>(&self, f: F, id: u128) -> Result<Receiver<PoolResult<T, Error>>, Error>
 	where
-		F: Future<Output = Result<T, Error>> + Send + Sync + 'static,
+		F: Future<Output = Result<T, Error>> + Send + 'static,
 	{
 		if self.tx.is_none() {
 			let fmt = "Thread pool has not been initialized";

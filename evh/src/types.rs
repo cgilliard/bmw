@@ -175,7 +175,12 @@ where
 		+ Unpin,
 	HouseKeeper:
 		FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
-	OnPanic: FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(&mut ThreadContext, Box<dyn Any + Send>) -> Result<(), Error>
+		+ Send
+		+ 'static
+		+ Clone
+		+ Sync
+		+ Unpin,
 {
 	fn set_on_read(&mut self, on_read: OnRead) -> Result<(), Error>;
 	fn set_on_accept(&mut self, on_accept: OnAccept) -> Result<(), Error>;
@@ -213,7 +218,12 @@ where
 		+ Unpin,
 	HouseKeeper:
 		FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
-	OnPanic: FnMut(&mut ThreadContext) -> Result<(), Error> + Send + 'static + Clone + Sync + Unpin,
+	OnPanic: FnMut(&mut ThreadContext, Box<dyn Any + Send>) -> Result<(), Error>
+		+ Send
+		+ 'static
+		+ Clone
+		+ Sync
+		+ Unpin,
 {
 	pub(crate) on_read: Option<Pin<Box<OnRead>>>,
 	pub(crate) on_accept: Option<Pin<Box<OnAccept>>>,
