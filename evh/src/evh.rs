@@ -1173,12 +1173,12 @@ where
 			{
 				epoll_ctl_impl(
 					EPOLLIN | EPOLLOUT | EPOLLONESHOT | EPOLLRDHUP,
-					_handle,
+					rw.handle,
 					&mut ctx.filter_set,
 					ctx.selector as *mut c_void,
 					ctx.tid,
 				)?;
-				ctx.write_set.insert(&_handle)?;
+				ctx.write_set.insert(&rw.handle)?;
 			}
 		}
 		Ok(())
