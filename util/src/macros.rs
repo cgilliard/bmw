@@ -2111,7 +2111,7 @@ mod test {
 	#[test]
 	fn test_thread_pool_macro() -> Result<(), bmw_err::Error> {
 		let mut tp = thread_pool!()?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		let resp = execute!(tp, {
 			info!("in thread pool")?;
 			Ok(123)
@@ -2119,7 +2119,7 @@ mod test {
 		assert_eq!(block_on!(resp), PoolResult::Ok(123));
 
 		let mut tp = thread_pool!(MinSize(3))?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		let resp: Receiver<PoolResult<u32, Error>> = execute!(tp, {
 			info!("thread pool2")?;
 			Err(err!(ErrKind::Test, "test err"))
@@ -2130,7 +2130,7 @@ mod test {
 		);
 
 		let mut tp = thread_pool!(MinSize(3))?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		let resp: Receiver<PoolResult<u32, Error>> = execute!(tp, {
 			info!("thread pool panic")?;
 			let x: Option<u32> = None;
@@ -2149,7 +2149,7 @@ mod test {
 	#[test]
 	fn test_thread_pool_options() -> Result<(), Error> {
 		let mut tp = thread_pool!(MinSize(4), MaxSize(5), SyncChannelSize(10))?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		assert_eq!(tp.size()?, 4);
 		sleep(Duration::from_millis(2_000));

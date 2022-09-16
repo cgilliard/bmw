@@ -348,7 +348,7 @@ mod test {
 			max_size: 10,
 			..Default::default()
 		})?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		tp.start()?;
 
 		// simple execution, return value
@@ -437,7 +437,7 @@ mod test {
 			},
 			None,
 		)?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		tp.start()?;
 		let mut v = vec![];
 
@@ -581,7 +581,7 @@ mod test {
 			max_size: 4,
 			..Default::default()
 		})?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		tp.start()?;
 
 		sleep(Duration::from_millis(1000));
@@ -605,7 +605,7 @@ mod test {
 			max_size: 4,
 			..Default::default()
 		})?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		tp.start()?;
 
 		let tp = lock!(tp)?;

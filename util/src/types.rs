@@ -765,7 +765,7 @@ pub enum PoolResult<T, E> {
 ///
 /// fn thread_pool() -> Result<(), Error> {
 ///     let mut tp = thread_pool!()?; // create a thread pool using default settings
-///     tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+///     tp.set_on_panic(move |_id,_e| -> Result<(), Error> { Ok(()) })?;
 ///
 ///     // create a shared variable protected by the [`crate::lock`] macro.
 ///     let mut shared = lock!(0)?; // we use an integer 0, but any struct can be used.
@@ -796,7 +796,7 @@ pub enum PoolResult<T, E> {
 ///     // create a thread pool with the specified max/min size. See [`crate::ThreadPoolConfig`]
 ///     // for further details.
 ///     let mut tp = thread_pool!(MaxSize(10), MinSize(5))?;
-///     tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+///     tp.set_on_panic(move |_id,_e| -> Result<(), Error> { Ok(()) })?;
 ///
 ///     // put the thread pool in a [`crate::Lock`].
 ///     let tp = lock!(tp)?;

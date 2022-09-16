@@ -1632,7 +1632,7 @@ mod test {
 		let mut h_clone = h.clone();
 
 		let mut tp = thread_pool!()?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		{
 			let h2 = h_clone.rlock()?;
@@ -1698,7 +1698,7 @@ mod test {
 		let h_clone = h.clone();
 
 		let mut tp = thread_pool!()?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		{
 			let h2 = h_clone.rlock()?;
@@ -1740,7 +1740,7 @@ mod test {
 		let mut h_clone3 = h.clone();
 
 		let mut tp = thread_pool!()?;
-		tp.set_on_panic(move |_id| -> Result<(), Error> { Ok(()) })?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		{
 			let h = h_clone.rlock()?;
