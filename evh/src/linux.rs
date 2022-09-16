@@ -198,7 +198,7 @@ pub(crate) fn get_events_impl(
 				}
 			};
 			ctx.filter_set.replace(handle_as_usize, true);
-			let mut event = EpollEvent::new(interest, evt.handle.try_into().unwrap_or(0));
+			let mut event = EpollEvent::new(interest, evt.handle.try_into()?);
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			match res {
 				Ok(_) => {}
@@ -231,7 +231,27 @@ pub(crate) fn get_events_impl(
 			};
 			ctx.filter_set.set(handle_as_usize, true);
 
-			let mut event = EpollEvent::new(interest, evt.handle.try_into().unwrap_or(0));
+			let mut event = EpollEvent::new(interest, evt.handle.try_into()?);
+			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
+			match res {
+				Ok(_) => {}
+				Err(e) => error!(
+					"Error epoll_ctl1: {}, fd={}, op={:?},tid={}",
+					e, fd, op, ctx.tid
+				)?,
+			}
+		} else if evt.etype == EventTypeIn::Delete {
+			let fd = evt.handle;
+			debug!("add in write fd = {},tid={}", fd, ctx.tid)?;
+			if fd > ctx.filter_set.len().try_into()? {
+				ctx.filter_set.resize((fd + 100).try_into()?, true);
+			}
+
+			let handle_as_usize: usize = fd.try_into()?;
+			ctx.filter_set.set(handle_as_usize, false);
+			let op = EpollOp::EpollCtlDel;
+
+			let mut event = EpollEvent::new(interest, evt.handle.try_into()?);
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			match res {
 				Ok(_) => {}

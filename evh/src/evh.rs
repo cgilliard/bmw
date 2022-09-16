@@ -37,6 +37,7 @@ use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
+use std::net::TcpStream;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
@@ -63,6 +64,14 @@ use bmw_deps::bitvec::vec::BitVec;
 #[cfg(target_os = "linux")]
 use bmw_deps::nix::sys::epoll::{epoll_create1, EpollCreateFlags, EpollEvent, EpollFlags};
 
+#[cfg(unix)]
+use bmw_deps::libc::{fcntl, F_SETFL, O_NONBLOCK};
+
+#[cfg(unix)]
+use std::os::unix::io::{FromRawFd, IntoRawFd};
+#[cfg(windows)]
+use std::os::windows::io::{FromRawSocket, IntoRawSocket};
+
 const READ_SLAB_SIZE: usize = 512;
 const READ_SLAB_NEXT_OFFSET: usize = 508;
 pub const READ_SLAB_DATA_SIZE: usize = 508;
@@ -75,6 +84,8 @@ const WRITE_SET_SIZE: usize = 42;
 const WRITE_STATE_FLAG_PENDING: u8 = 0x1 << 0;
 const WRITE_STATE_FLAG_CLOSE: u8 = 0x1 << 1;
 const WRITE_STATE_FLAG_TRIGGER_ON_READ: u8 = 0x1 << 2;
+const WRITE_STATE_FLAG_SUSPEND: u8 = 0x1 << 3;
+const WRITE_STATE_FLAG_RESUME: u8 = 0x1 << 4;
 
 const EAGAIN: i32 = 11;
 const ETEMPUNAVAILABLE: i32 = 35;
@@ -453,6 +464,51 @@ impl WriteHandle {
 			tls_server,
 		}
 	}
+
+	pub fn suspend(&mut self) -> Result<(), Error> {
+		{
+			debug!("wlock for {}", self.id)?;
+			let mut write_state = self.write_state.wlock()?;
+			let guard = write_state.guard();
+			if (**guard).is_set(WRITE_STATE_FLAG_CLOSE) {
+				// it's already closed no need to do anything
+				return Ok(());
+			}
+			(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
+			(**guard).set_flag(WRITE_STATE_FLAG_SUSPEND);
+			debug!("unlockwlock for {}", self.id)?;
+		}
+		{
+			let mut event_handler_data = self.event_handler_data.wlock()?;
+			let guard = event_handler_data.guard();
+			(**guard).write_queue.enqueue(self.id)?;
+		}
+		self.wakeup.wakeup()?;
+		Ok(())
+	}
+
+	pub fn resume(&mut self) -> Result<(), Error> {
+		{
+			debug!("wlock for {}", self.id)?;
+			let mut write_state = self.write_state.wlock()?;
+			let guard = write_state.guard();
+			if (**guard).is_set(WRITE_STATE_FLAG_CLOSE) {
+				// it's already closed no need to do anything
+				return Ok(());
+			}
+			(**guard).set_flag(WRITE_STATE_FLAG_RESUME);
+			(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
+			debug!("unlockwlock for {}", self.id)?;
+		}
+		{
+			let mut event_handler_data = self.event_handler_data.wlock()?;
+			let guard = event_handler_data.guard();
+			(**guard).write_queue.enqueue(self.id)?;
+		}
+		self.wakeup.wakeup()?;
+		Ok(())
+	}
+
 	pub fn close(&mut self) -> Result<(), Error> {
 		{
 			debug!("wlock for {}", self.id)?;
@@ -529,6 +585,9 @@ impl WriteHandle {
 			let write_state = self.write_state.rlock()?;
 			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_CLOSE) {
 				return Err(err!(ErrKind::IO, "write handle closed"));
+			}
+			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_SUSPEND) {
+				return Err(err!(ErrKind::IO, "write handle suspended"));
 			}
 			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_PENDING) {
 				0
@@ -919,12 +978,54 @@ where
 					debug!("write q chashtable.get({})", next)?;
 					match ctx.connection_hashtable.get(&next)? {
 						Some(mut ci) => match &mut ci {
-							ConnectionInfo::ReadWriteInfo(ref rwi) => {
-								let handle = rwi.handle;
-								ctx.events_in.push(EventIn {
-									handle,
-									etype: EventTypeIn::Write,
-								});
+							ConnectionInfo::ReadWriteInfo(ref mut rwi) => {
+								{
+									let mut write_state = rwi.write_state.wlock()?;
+									let guard = write_state.guard();
+									if (**guard).is_set(WRITE_STATE_FLAG_SUSPEND) {
+										ctx.events_in.push(EventIn {
+											handle: rwi.handle,
+											etype: EventTypeIn::Suspend,
+										});
+										(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
+										(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
+										#[cfg(unix)]
+										{
+											let strm =
+												unsafe { TcpStream::from_raw_fd(rwi.handle) };
+											strm.set_nonblocking(false)?;
+											strm.into_raw_fd();
+										}
+										#[cfg(windows)]
+										{
+											let strm =
+												unsafe { TcpStream::from_raw_socket(rwi.handle) };
+											strm.set_nonblocking(false)?;
+											strm.into_raw_socket();
+										}
+									} else if (**guard).is_set(WRITE_STATE_FLAG_RESUME) {
+										ctx.events_in.push(EventIn {
+											handle: rwi.handle,
+											etype: EventTypeIn::Resume,
+										});
+										(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
+										(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
+										#[cfg(unix)]
+										{
+											unsafe { fcntl(rwi.handle, F_SETFL, O_NONBLOCK) };
+										}
+										#[cfg(windows)]
+										{
+											set_windows_socket_options(rwi.handle)?;
+										}
+									} else {
+										let handle = rwi.handle;
+										ctx.events_in.push(EventIn {
+											handle,
+											etype: EventTypeIn::Write,
+										});
+									}
+								}
 
 								// we must update the hashtable to keep
 								// things consistent in terms of our
@@ -1124,10 +1225,43 @@ where
 					(**guard).unset_flag(WRITE_STATE_FLAG_PENDING);
 					if (**guard).is_set(WRITE_STATE_FLAG_CLOSE) {
 						do_close = true;
-					}
-					if (**guard).is_set(WRITE_STATE_FLAG_TRIGGER_ON_READ) {
+					} else if (**guard).is_set(WRITE_STATE_FLAG_TRIGGER_ON_READ) {
 						(**guard).unset_flag(WRITE_STATE_FLAG_TRIGGER_ON_READ);
 						trigger_on_read = true;
+					} else if (**guard).is_set(WRITE_STATE_FLAG_SUSPEND) {
+						ctx.events_in.push(EventIn {
+							handle: rw.handle,
+							etype: EventTypeIn::Suspend,
+						});
+						(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
+						(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
+						#[cfg(unix)]
+						{
+							let strm = unsafe { TcpStream::from_raw_fd(rw.handle) };
+							strm.set_nonblocking(false)?;
+							strm.into_raw_fd();
+						}
+						#[cfg(windows)]
+						{
+							let strm = unsafe { TcpStream::from_raw_socket(rw.handle) };
+							strm.set_nonblocking(false)?;
+							strm.into_raw_socket();
+						}
+					} else if (**guard).is_set(WRITE_STATE_FLAG_RESUME) {
+						ctx.events_in.push(EventIn {
+							handle: rw.handle,
+							etype: EventTypeIn::Resume,
+						});
+						(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
+						(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
+						#[cfg(unix)]
+						{
+							unsafe { fcntl(rw.handle, F_SETFL, O_NONBLOCK) };
+						}
+						#[cfg(windows)]
+						{
+							set_windows_socket_options(rw.handle)?;
+						}
 					}
 					break;
 				}
@@ -1481,7 +1615,13 @@ where
 					&mut slab.get_mut()[usize!(rw.slab_offset)..READ_SLAB_NEXT_OFFSET],
 				)
 			};
-
+			debug!(
+				"len = {},handle={},errno={},e.0={}",
+				len,
+				rw.handle,
+				errno(),
+				errno().0
+			)?;
 			if len == 0 && !tls {
 				do_close = true;
 			}
@@ -1579,6 +1719,7 @@ where
 		rw: &mut ReadWriteInfo,
 		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
+		debug!("proc close {}", rw.handle)?;
 		// we must do an insert before removing to keep our arc's consistent
 		ctx.connection_hashtable
 			.insert(&rw.id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
@@ -1932,7 +2073,6 @@ where
 			(**executor).execute(
 				async move {
 					debug!("calling on panic handler: {:?}", e)?;
-					info!("calling on panic handler: {:?}", e)?;
 					let mut thread_context = thread_context_clone.wlock_ignore_poison()?;
 					let thread_context = thread_context.guard();
 					match &mut on_panic {
@@ -2282,6 +2422,11 @@ mod test {
 	use std::sync::mpsc::sync_channel;
 	use std::thread::{sleep, spawn};
 	use std::time::Duration;
+
+	#[cfg(unix)]
+	use std::os::unix::io::FromRawFd;
+	#[cfg(windows)]
+	use std::os::windows::io::FromRawSocket;
 
 	info!();
 
@@ -4460,6 +4605,160 @@ mod test {
 			}
 
 			assert!((**(x_clone.rlock()?.guard())) >= 10);
+			break;
+		}
+
+		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_suspend_resume() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("suspend/resume Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100,
+			read_slab_count: 10,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+		let complete = lock_box!(0)?;
+		let complete_clone = complete.clone();
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			debug!("on read fs = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			debug!("first_slab={}", first_slab)?;
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				assert_eq!(first_slab, last_slab);
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+
+			let mut wh = conn_data.write_handle();
+			let mut complete_clone = complete_clone.clone();
+
+			if res[0] == 't' as u8 {
+				spawn(move || -> Result<(), Error> {
+					wh.write(b"test")?;
+					let handle = wh.handle();
+					wh.suspend()?;
+
+					#[cfg(unix)]
+					let mut strm = unsafe { TcpStream::from_raw_fd(handle) };
+					#[cfg(windows)]
+					let mut strm = unsafe { TcpStream::from_raw_socket(handle) };
+
+					let mut count = 0;
+					loop {
+						strm.write(b"ok")?;
+						sleep(Duration::from_millis(1_000));
+						if count > 3 {
+							break;
+						}
+						count += 1;
+					}
+
+					let mut buf = vec![];
+					buf.resize(100, 0u8);
+					let len = strm.read(&mut buf)?;
+					info!("read = {}", std::str::from_utf8(&buf[0..len]).unwrap())?;
+					assert_eq!(std::str::from_utf8(&buf[0..len]).unwrap(), "next");
+
+					wh.resume()?;
+					info!("resume complete")?;
+
+					#[cfg(unix)]
+					strm.into_raw_fd();
+					#[cfg(windows)]
+					strm.into_raw_socket();
+
+					let mut complete = complete_clone.wlock()?;
+					**complete.guard() = 1;
+
+					Ok(())
+				});
+			} else {
+				wh.write(&res)?;
+			}
+
+			let response = std::str::from_utf8(&res)?;
+			info!("res={:?}", response)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			debug!(
+				"accept a connection handle = {}, tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
+			Ok(())
+		})?;
+
+		evh.set_on_close(move |conn_data, _thread_context| {
+			debug!(
+				"on close: {}/{}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut connection = TcpStream::connect(addr)?;
+		connection.write(b"test")?;
+
+		sleep(Duration::from_millis(10_000));
+		connection.write(b"next")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = connection.read(&mut buf)?;
+
+		let response = std::str::from_utf8(&buf[0..len])?;
+		info!("buf={:?}", response)?;
+		assert_eq!(response, "testokokokokok");
+
+		sleep(Duration::from_millis(1_000));
+		connection.write(b"resume")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = connection.read(&mut buf)?;
+		let response = std::str::from_utf8(&buf[0..len])?;
+		info!("final={:?}", response)?;
+		assert_eq!(response, "resume");
+
+		let mut count = 0;
+		loop {
+			count += 1;
+			sleep(Duration::from_millis(1));
+			if **(complete.rlock()?.guard()) != 1 && count < 2_000 {
+				continue;
+			}
+
+			assert_eq!(**(complete.rlock()?.guard()), 1);
 			break;
 		}
 

@@ -305,6 +305,8 @@ pub(crate) enum EventTypeIn {
 	Accept,
 	Read,
 	Write,
+	Suspend,
+	Resume,
 }
 
 #[derive(Debug, Clone, Serializable, PartialEq)]

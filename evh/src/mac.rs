@@ -165,6 +165,22 @@ pub(crate) fn get_events_impl(
 					FilterFlag::empty(),
 				));
 			}
+			EventTypeIn::Suspend => {
+				kevs.push(kevent::new(
+					evt.handle.try_into()?,
+					EventFilter::EVFILT_READ,
+					EventFlag::EV_DISABLE,
+					FilterFlag::empty(),
+				));
+			}
+			EventTypeIn::Resume => {
+				kevs.push(kevent::new(
+					evt.handle.try_into()?,
+					EventFilter::EVFILT_READ,
+					EventFlag::EV_ENABLE,
+					FilterFlag::empty(),
+				));
+			}
 		}
 	}
 	ctx.events_in.clear();
