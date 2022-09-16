@@ -258,7 +258,10 @@ pub(crate) fn get_events_impl(
 	)?;
 	for evt in &ctx.events_in {
 		debug!("event={:?}", evt)?;
-		if evt.etype == EventTypeIn::Read || evt.etype == EventTypeIn::Accept {
+		if evt.etype == EventTypeIn::Read
+			|| evt.etype == EventTypeIn::Accept
+			|| evt.etype == EventTypeIn::Resume
+		{
 			let fd = evt.handle;
 			epoll_ctl_impl(
 				EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
@@ -276,6 +279,39 @@ pub(crate) fn get_events_impl(
 				ctx.selector as *mut c_void,
 				ctx.tid,
 			)?;
+		} else if evt.etype == EventTypeIn::Suspend {
+			let fd = evt.handle;
+			let data = epoll_data_t { fd: fd.try_into()? };
+			let mut event = epoll_event { events: 0, data };
+
+			set_errno(Errno(0));
+
+			let res = unsafe {
+				epoll_ctl(
+					ctx.selector as *mut c_void,
+					EPOLL_CTL_DEL as i32,
+					usize!(fd),
+					&mut event,
+				)
+			};
+			if res < 0 {
+				let e = errno();
+				warn!(
+					"Error epoll_ctl: {}, fd={}, op={:?}, tid={}",
+					e, fd, EPOLL_CTL_DEL, ctx.tid
+				)?
+			}
+			let handle_as_usize: usize = fd.try_into()?;
+			if handle_as_usize >= ctx.filter_set.len().try_into()? {
+				debug!(
+					"filter set resize prev size = {}, new = {}",
+					ctx.filter_set.len(),
+					handle_as_usize + 100
+				)?;
+				ctx.filter_set
+					.resize((handle_as_usize + 100).try_into()?, false);
+			}
+			ctx.filter_set.replace(handle_as_usize, false);
 		}
 	}
 	ctx.events_in.clear();

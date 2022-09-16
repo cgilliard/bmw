@@ -998,8 +998,9 @@ where
 										}
 										#[cfg(windows)]
 										{
-											let strm =
-												unsafe { TcpStream::from_raw_socket(rwi.handle) };
+											let strm = unsafe {
+												TcpStream::from_raw_socket(u64!(rwi.handle))
+											};
 											strm.set_nonblocking(false)?;
 											strm.into_raw_socket();
 										}
@@ -1243,7 +1244,7 @@ where
 						}
 						#[cfg(windows)]
 						{
-							let strm = unsafe { TcpStream::from_raw_socket(rw.handle) };
+							let strm = unsafe { TcpStream::from_raw_socket(u64!(rw.handle)) };
 							strm.set_nonblocking(false)?;
 							strm.into_raw_socket();
 						}
@@ -4658,7 +4659,7 @@ mod test {
 					#[cfg(unix)]
 					let mut strm = unsafe { TcpStream::from_raw_fd(handle) };
 					#[cfg(windows)]
-					let mut strm = unsafe { TcpStream::from_raw_socket(handle) };
+					let mut strm = unsafe { TcpStream::from_raw_socket(u64!(handle)) };
 
 					let mut count = 0;
 					loop {
