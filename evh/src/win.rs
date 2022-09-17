@@ -140,30 +140,6 @@ pub(crate) fn get_reader_writer() -> Result<
 }
 
 pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
-	let data = epoll_data_t {
-		fd: handle.try_into()?,
-	};
-	let mut event = epoll_event {
-		events: EPOLLIN | EPOLLOUT | EPOLLRDHUP,
-		data,
-	};
-
-	let res = unsafe {
-		epoll_ctl(
-			ctx.selector as *mut c_void,
-			EPOLL_CTL_DEL as i32,
-			usize!(handle),
-			&mut event,
-		)
-	};
-	if res < 0 {
-		let e = errno();
-		error!(
-			"Error epoll_ctl: {}, fd={}, op={:?}, tid={}",
-			e, handle, "DELETE", ctx.tid
-		)?
-	}
-
 	let handle_as_usize: usize = handle.try_into()?;
 	ctx.filter_set.replace(handle_as_usize, false);
 	debug!("closesocket={},tid={}", handle_as_usize, ctx.tid)?;
