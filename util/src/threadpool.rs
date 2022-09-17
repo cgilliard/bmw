@@ -688,14 +688,7 @@ mod test {
 
 		// test that unstarted pool returns err
 		let executor = tp.executor()?;
-		assert!(executor
-			.execute(
-				async move {
-					panic!("err");
-				},
-				0,
-			)
-			.is_err());
+		assert!(executor.execute(async move { Ok(0) }, 0,).is_err());
 
 		tp.start()?;
 
