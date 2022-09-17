@@ -20,12 +20,6 @@ use std::cell::UnsafeCell;
 
 info!();
 
-#[cfg(not(tarpaulin_include))]
-thread_local! {
-	#[doc(hidden)]
-	pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> = Builder::build_slabs_unsafe();
-}
-
 impl Default for SlabAllocatorConfig {
 	fn default() -> Self {
 		Self {
@@ -33,6 +27,11 @@ impl Default for SlabAllocatorConfig {
 			slab_count: 40 * 1024,
 		}
 	}
+}
+
+thread_local! {
+		#[doc(hidden)]
+		pub static GLOBAL_SLAB_ALLOCATOR: UnsafeCell<Box<dyn SlabAllocator>> = Builder::build_slabs_unsafe();
 }
 
 impl<'a> SlabMut<'a> {

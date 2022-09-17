@@ -20,11 +20,6 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-#[cfg(not(tarpaulin_include))]
-thread_local! {
-	pub static LOCKS: RefCell<HashSet<u128>> = RefCell::new(HashSet::new());
-}
-
 impl<T> Clone for Box<dyn LockBox<T>>
 where
 	T: Send + Sync + 'static,
@@ -35,6 +30,10 @@ where
 			t: self.inner().clone(),
 		})
 	}
+}
+
+thread_local! {
+		pub static LOCKS: RefCell<HashSet<u128>> = RefCell::new(HashSet::new());
 }
 
 /// Rebuild a [`crate::LockBox`] from te usize which is returned from the
