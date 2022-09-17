@@ -160,7 +160,7 @@ fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 		)?;
 		Ok(())
 	})?;
-	evh.set_on_panic(move |_thread_context| Ok(()))?;
+	evh.set_on_panic(move |_, _| Ok(()))?;
 	evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 	evh.start()?;
@@ -218,7 +218,7 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 	};
 
 	let mut pool = thread_pool!(MinSize(threads), MaxSize(threads))?;
-	pool.set_on_panic(move |_id| Ok(()))?;
+	pool.set_on_panic(move |_, _| Ok(()))?;
 	let mut completions = vec![];
 	let mut state = array!(threads, &lock_box!(ThreadState::new())?)?;
 	let mut state_clone = state.clone();
@@ -412,7 +412,7 @@ fn run_thread(
 		)?;
 		Ok(())
 	})?;
-	evh.set_on_panic(move |_thread_context| Ok(()))?;
+	evh.set_on_panic(move |_, _| Ok(()))?;
 	evh.set_housekeeper(move |_thread_context| Ok(()))?;
 	evh.start()?;
 
