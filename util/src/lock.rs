@@ -109,10 +109,6 @@ where
 		self.do_wlock(false)
 	}
 
-	fn wlock_ignore_poison(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
-		self.do_wlock(true)
-	}
-
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
 		self.do_rlock()
 	}
@@ -142,8 +138,7 @@ where
 	}
 
 	fn danger_to_usize(&self) -> usize {
-		let ptr = Arc::into_raw(self.t.clone());
-		ptr as usize
+		Arc::into_raw(self.t.clone()) as usize
 	}
 
 	fn inner(&self) -> Arc<RwLock<T>> {

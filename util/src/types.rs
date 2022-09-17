@@ -68,9 +68,6 @@ where
 	/// obtain a write lock and corresponding [`std::sync::RwLockWriteGuard`] for this
 	/// [`crate::Lock`].
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
-	/// Same as [`crate::Lock::wlock`] except that any poison errors are ignored
-	/// by calling the underlying into_inner() fn.
-	fn wlock_ignore_poison(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error>;
 	/// obtain a read lock and corresponding [`std::sync::RwLockReadGuard`] for this
 	/// [`crate::Lock`].
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error>;
@@ -1315,7 +1312,7 @@ where
 }
 
 pub(crate) struct ThreadPoolTestConfig {
-	pub(crate) debug_drop_error: bool,
+	pub(crate) debug_send_error: bool,
 }
 
 #[cfg(test)]

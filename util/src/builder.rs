@@ -694,6 +694,18 @@ mod test {
 				50,
 			)?,
 		};
+		let array_list_sync = Builder::build_array_list_sync(10, &0)?;
+		let mut array_list_sync = lock_box!(array_list_sync)?;
+		let queue_sync = Builder::build_queue_sync(10, &0)?;
+		let mut queue_sync = lock_box!(queue_sync)?;
+		let stack_sync = Builder::build_stack_sync(10, &0)?;
+		let mut stack_sync = lock_box!(stack_sync)?;
+
+		let mut stack_box = Builder::build_stack_box(10, &0)?;
+		stack_box.push(50)?;
+		assert_eq!(stack_box.pop(), Some(&50));
+		assert_eq!(stack_box.pop(), None);
+
 		assert_eq!(test_obj.array[0], 0);
 		assert_eq!(test_obj.array_list.iter().next().is_none(), true);
 		assert_eq!(test_obj.queue.peek().is_none(), true);
@@ -705,17 +717,36 @@ mod test {
 		let test_obj_clone = test_obj.clone();
 
 		execute!(tp, {
-			let mut test_obj = test_obj.wlock()?;
-			let guard = test_obj.guard();
-			(**guard).array[0] = 1;
-			(**guard).array_list.push(1)?;
-			(**guard).queue.enqueue(1)?;
-			(**guard).stack.push(1)?;
-			(**guard).hashtable.insert(&0, &0)?;
-			(**guard).hashset.insert(&0)?;
-			(**guard).list.push(0)?;
-			let mut matches = [Builder::build_match_default(); 10];
-			(**guard).suffix_tree.tmatch(b"test", &mut matches)?;
+			{
+				let mut test_obj = test_obj.wlock()?;
+				let guard = test_obj.guard();
+				(**guard).array[0] = 1;
+				(**guard).array_list.push(1)?;
+				(**guard).queue.enqueue(1)?;
+				(**guard).stack.push(1)?;
+				(**guard).hashtable.insert(&0, &0)?;
+				(**guard).hashset.insert(&0)?;
+				(**guard).list.push(0)?;
+				let mut matches = [Builder::build_match_default(); 10];
+				(**guard).suffix_tree.tmatch(b"test", &mut matches)?;
+			}
+			{
+				let mut array_list_sync = array_list_sync.wlock()?;
+				let guard = array_list_sync.guard();
+				(**guard).push(0)?;
+			}
+
+			{
+				let mut queue_sync = queue_sync.wlock()?;
+				let guard = queue_sync.guard();
+				(**guard).enqueue(0)?;
+			}
+
+			{
+				let mut stack_sync = stack_sync.wlock()?;
+				let guard = stack_sync.guard();
+				(**guard).push(0)?;
+			}
 
 			Ok(())
 		})?;
