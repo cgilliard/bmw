@@ -734,6 +734,7 @@ clone_trait_object!(<V>Hashset<V>);
 clone_trait_object!(<K, V>Hashtable<K, V>);
 clone_trait_object!(<V>List<V>);
 clone_trait_object!(<V>SortableList<V>);
+clone_trait_object!(SuffixTree);
 
 /// The result returned from a call to [`crate::ThreadPool::execute`]. This is
 /// similar to [`std::result::Result`] except that it implements [`std::marker::Send`]
@@ -1122,7 +1123,7 @@ pub struct Match {
 }
 
 /// The suffix tree data structure. See [`crate::suffix_tree!`].
-pub trait SuffixTree {
+pub trait SuffixTree: DynClone {
 	/// return matches associated with the supplied `text` for this
 	/// [`crate::SuffixTree`]. Matches are returned in the `matches`
 	/// array supplied by the caller. The result is the number of
@@ -1220,17 +1221,19 @@ pub(crate) struct Node {
 	pub(crate) is_multi_line: bool,
 }
 
+#[derive(Clone)]
 pub(crate) struct Dictionary {
 	pub(crate) nodes: Vec<Node>,
 	pub(crate) next: u32,
 }
 
+#[derive(Clone)]
 pub(crate) struct SuffixTreeImpl {
 	pub(crate) dictionary_case_insensitive: Dictionary,
 	pub(crate) dictionary_case_sensitive: Dictionary,
 	pub(crate) termination_length: usize,
 	pub(crate) max_wildcard_length: usize,
-	pub(crate) branch_stack: Box<dyn Stack<(usize, usize)>>,
+	pub(crate) branch_stack: Box<dyn Stack<(usize, usize)> + Send + Sync>,
 }
 
 #[derive(Clone)]

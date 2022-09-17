@@ -190,7 +190,7 @@ impl SuffixTreeImpl {
 		let mut dictionary_case_insensitive = Dictionary::new()?;
 		let mut dictionary_case_sensitive = Dictionary::new()?;
 
-		let branch_stack = Builder::build_stack_box(patterns.size(), &(0, 0))?;
+		let branch_stack = Builder::build_stack_sync_box(patterns.size(), &(0, 0))?;
 
 		for pattern in patterns.iter() {
 			if pattern.is_case_sensitive {
@@ -219,7 +219,7 @@ impl SuffixTreeImpl {
 		dictionary: &Dictionary,
 		case_sensitive: bool,
 		max_wildcard_length: usize,
-		branch_stack: &mut Box<dyn Stack<(usize, usize)>>,
+		branch_stack: &mut Box<dyn Stack<(usize, usize)> + Send + Sync>,
 		termination_length: usize,
 	) -> Result<usize, Error> {
 		let mut itt = 0;
