@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::{FutureWrapper, Lock, ThreadPoolImpl, ThreadPoolState, ThreadPoolTestConfig};
+use crate::types::{FutureWrapper, Lock, ThreadPoolImpl, ThreadPoolState};
 use crate::{
 	Builder, LockBox, PoolResult, ThreadPool, ThreadPoolConfig, ThreadPoolExecutor,
 	ThreadPoolStopper,
@@ -52,19 +52,16 @@ where
 		+ Unpin,
 	T: 'static + Send + Sync,
 {
+	#[cfg(test)]
 	pub(crate) fn new_with_on_panic_and_t(
 		config: ThreadPoolConfig,
-		test_config: Option<ThreadPoolTestConfig>,
 		_on_panic: OnPanic,
 		_t: T,
 	) -> Result<Self, Error> {
-		Self::new(config, test_config)
+		Self::new(config)
 	}
 
-	pub(crate) fn new(
-		config: ThreadPoolConfig,
-		test_config: Option<ThreadPoolTestConfig>,
-	) -> Result<Self, Error> {
+	pub(crate) fn new(config: ThreadPoolConfig) -> Result<Self, Error> {
 		if config.min_size == 0 || config.min_size > config.max_size {
 			let fmt = "min_size must be > 0 and < max_size";
 			return Err(err!(ErrKind::Configuration, fmt));
@@ -90,7 +87,6 @@ where
 			tx,
 			rx,
 			state,
-			test_config,
 			on_panic: None,
 		};
 		Ok(ret)
@@ -338,8 +334,6 @@ mod test {
 	use crate::{lock, lock_box, Builder, Lock, PoolResult, ThreadPool, ThreadPoolConfig};
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
-	use std::any::Any;
-	use std::sync::Arc;
 	use std::thread::sleep;
 	use std::time::Duration;
 
@@ -433,14 +427,11 @@ mod test {
 
 	#[test]
 	fn test_sizing() -> Result<(), Error> {
-		let mut tp = ThreadPoolImpl::new(
-			ThreadPoolConfig {
-				min_size: 2,
-				max_size: 4,
-				..Default::default()
-			},
-			None,
-		)?;
+		let mut tp = ThreadPoolImpl::new(ThreadPoolConfig {
+			min_size: 2,
+			max_size: 4,
+			..Default::default()
+		})?;
 		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		tp.start()?;
 		let mut v = vec![];
@@ -635,7 +626,6 @@ mod test {
 				max_size: 4,
 				..Default::default()
 			},
-			None,
 			move |_, _| -> Result<(), Error> { Ok(()) },
 			0u32
 		)
@@ -647,7 +637,6 @@ mod test {
 				max_size: 4,
 				..Default::default()
 			},
-			None,
 			move |_, _| -> Result<(), Error> { Ok(()) },
 			0u32
 		)

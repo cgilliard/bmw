@@ -45,7 +45,7 @@ impl Builder {
 			+ Unpin,
 		T: 'static + Send + Sync,
 	{
-		Ok(ThreadPoolImpl::new(config, None)?)
+		Ok(ThreadPoolImpl::new(config)?)
 	}
 
 	/// Build a [`crate::Array`]. `size` is the size of the array and `default` is the
@@ -563,7 +563,7 @@ impl Builder {
 		patterns: impl SortableList<Pattern>,
 		termination_length: usize,
 		max_wildcard_length: usize,
-	) -> Result<impl SuffixTree, Error> {
+	) -> Result<impl SuffixTree + Send + Sync, Error> {
 		SuffixTreeImpl::new(patterns, termination_length, max_wildcard_length)
 	}
 

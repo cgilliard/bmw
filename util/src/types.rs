@@ -1307,12 +1307,7 @@ where
 	pub(crate) rx: Option<Arc<Mutex<Receiver<FutureWrapper<T>>>>>,
 	pub(crate) tx: Option<SyncSender<FutureWrapper<T>>>,
 	pub(crate) state: Box<dyn LockBox<ThreadPoolState>>,
-	pub(crate) test_config: Option<ThreadPoolTestConfig>,
 	pub(crate) on_panic: Option<Pin<Box<OnPanic>>>,
-}
-
-pub(crate) struct ThreadPoolTestConfig {
-	pub(crate) debug_send_error: bool,
 }
 
 #[cfg(test)]

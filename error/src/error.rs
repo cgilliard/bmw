@@ -339,12 +339,8 @@ mod test {
 	use crate::{err, ErrKind, Error, ErrorKind};
 	use bmw_deps::rustls::client::InvalidDnsNameError;
 	use bmw_deps::rustls::sign::{any_supported_type, SignError, SigningKey};
-	use bmw_deps::rustls::{
-		Certificate, ClientConfig, ClientConnection as RustlsClientConnection, PrivateKey,
-		RootCertStore, ServerConfig, ServerConnection as RustlsServerConnection, ServerName,
-		ALL_CIPHER_SUITES, ALL_VERSIONS,
-	};
-	use bmw_deps::rustls_pemfile::{certs, read_one, Item};
+	use bmw_deps::rustls::{PrivateKey, ServerConfig, ServerName, ALL_CIPHER_SUITES};
+	use bmw_deps::rustls_pemfile::{read_one, Item};
 	use bmw_deps::substring::Substring;
 	use std::alloc::Layout;
 	use std::convert::TryInto;

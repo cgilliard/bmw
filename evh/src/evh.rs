@@ -2409,7 +2409,6 @@ mod test {
 		TlsClientConfig, TlsServerConfig, READ_SLAB_DATA_SIZE,
 	};
 	use bmw_deps::rand::random;
-	use bmw_deps::rustls::sign::SignError;
 	use bmw_err::*;
 	use bmw_log::*;
 	use bmw_test::port::pick_free_port;

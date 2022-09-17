@@ -373,14 +373,14 @@ macro_rules! pattern {
 ///
 /// fn main() -> Result<(), Error> {
 ///         // build a suffix tree with three patterns
-///         let mut suffix_tree = Builder::build_suffix_tree(
+///         let mut suffix_tree = suffix_tree!(
 ///                 list![
 ///                         pattern!(Regex("p1"), Id(0))?,
 ///                         pattern!(Regex("p2"), Id(1))?,
 ///                         pattern!(Regex("p3"), Id(2))?
 ///                 ],
-///                 1_000,
-///                 100,
+///                 TerminationLength(1_000),
+///                 MaxWildcardLength(100)
 ///         )?;
 ///
 ///         // create a matches array for the suffix tree to return matches in
@@ -415,14 +415,14 @@ macro_rules! pattern {
 ///
 /// fn main() -> Result<(), Error> {
 ///         // build a suffix tree with a wild card
-///         let mut suffix_tree = Builder::build_suffix_tree(
+///         let mut suffix_tree = suffix_tree!(
 ///                 list![
 ///                         pattern!(Regex("p1"), Id(0))?,
 ///                         pattern!(Regex("p2.*test"), Id(1))?,
 ///                         pattern!(Regex("p3"), Id(2))?
 ///                 ],
-///                 1_000,
-///                 100,   
+///                 TerminationLength(1_000),
+///                 MaxWildcardLength(100)
 ///         )?;
 ///
 ///         // create a matches array for the suffix tree to return matches in
@@ -452,14 +452,14 @@ macro_rules! pattern {
 ///
 /// fn main() -> Result<(), Error> {
 ///         // build a suffix tree with a wild card
-///         let mut suffix_tree = Builder::build_suffix_tree(
+///         let mut suffix_tree = suffix_tree!(
 ///                 list![
 ///                         pattern!(Regex("p1"), Id(0))?,
 ///                         pattern!(Regex("p2.test"), Id(1))?,
 ///                         pattern!(Regex("p3"), Id(2))?
 ///                 ],
-///                 1_000,
-///                 100,
+///                 TerminationLength(1_000),
+///                 MaxWildcardLength(100)
 ///         )?;
 ///
 ///         // create a matches array for the suffix tree to return matches in
@@ -493,13 +493,13 @@ macro_rules! pattern {
 ///
 /// fn main() -> Result<(), Error> {      
 ///         // build a suffix tree with a wild card
-///         let mut suffix_tree = Builder::build_suffix_tree(
+///         let mut suffix_tree = suffix_tree!(
 ///                 list![
 ///                         pattern!(Regex("p1"), Id(0))?,
 ///                         pattern!(Regex("^p2"), Id(2))?
 ///                 ],
-///                 1_000,
-///                 100,
+///                 TerminationLength(1_000),
+///                 MaxWildcardLength(100)
 ///         )?;
 ///
 ///         // create a matches array for the suffix tree to return matches in
@@ -1632,6 +1632,20 @@ macro_rules! array_list_box {
 	}};
 }
 
+#[macro_export]
+macro_rules! array_list_sync {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_array_list_sync($size, $default)
+	}};
+}
+
+#[macro_export]
+macro_rules! array_list_sync_box {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_array_list_sync_box($size, $default)
+	}};
+}
+
 /// This macro creates a [`crate::Queue`]. The parameters are
 /// * size (required) - the size of the underlying array
 /// * default (required) - a reference to the value to initialize the array with
@@ -1743,6 +1757,20 @@ macro_rules! stack {
 macro_rules! stack_box {
 	( $size:expr, $default:expr ) => {{
 		bmw_util::Builder::build_stack_box($size, $default)
+	}};
+}
+
+#[macro_export]
+macro_rules! stack_sync {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_stack_sync($size, $default)
+	}};
+}
+
+#[macro_export]
+macro_rules! stack_sync_box {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_stack_sync_box($size, $default)
 	}};
 }
 
@@ -1890,7 +1918,7 @@ mod test {
 	use crate::PatternParam::*;
 	use crate::{
 		lock, lock_box, thread_pool, Builder, Hashset, Hashtable, List, Lock, LockBox, PoolResult,
-		SortableList, SuffixTree, ThreadPool,
+		Queue, SortableList, Stack, SuffixTree, ThreadPool,
 	};
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
@@ -2074,6 +2102,44 @@ mod test {
 		assert_eq!(hashtable.size(), 1);
 		hashtable.insert(&"something".to_string(), &2)?;
 		info!("hashtable={:?}", hashtable)?;
+
+		let mut hashtable = hashtable_sync!()?;
+		hashtable.insert(&1, &2)?;
+		assert_eq!(hashtable.get(&1).unwrap().unwrap(), 2);
+		let mut hashtable = hashtable_sync!(
+			MaxEntries(100),
+			MaxLoadFactor(0.9),
+			SlabSize(100),
+			SlabCount(100)
+		)?;
+		hashtable.insert(&"test".to_string(), &1)?;
+		assert_eq!(hashtable.size(), 1);
+		hashtable.insert(&"something".to_string(), &2)?;
+		info!("hashtable={:?}", hashtable)?;
+
+		let mut hashtable = hashtable_box!()?;
+		hashtable.insert(&1, &2)?;
+		assert_eq!(hashtable.get(&1).unwrap().unwrap(), 2);
+		let mut hashtable = hashtable_box!(MaxEntries(100), MaxLoadFactor(0.9))?;
+		hashtable.insert(&"test".to_string(), &1)?;
+		assert_eq!(hashtable.size(), 1);
+		hashtable.insert(&"something".to_string(), &2)?;
+		info!("hashtable={:?}", hashtable)?;
+
+		let mut hashtable = hashtable_sync_box!()?;
+		hashtable.insert(&1, &2)?;
+		assert_eq!(hashtable.get(&1).unwrap().unwrap(), 2);
+		let mut hashtable = hashtable_sync_box!(
+			MaxEntries(100),
+			MaxLoadFactor(0.9),
+			SlabSize(100),
+			SlabCount(100)
+		)?;
+		hashtable.insert(&"test".to_string(), &1)?;
+		assert_eq!(hashtable.size(), 1);
+		hashtable.insert(&"something".to_string(), &2)?;
+		info!("hashtable={:?}", hashtable)?;
+
 		Ok(())
 	}
 
@@ -2091,6 +2157,56 @@ mod test {
 		hashset.insert(&"another item".to_string())?;
 		hashset.insert(&"third item".to_string())?;
 		info!("hashset={:?}", hashset)?;
+
+		let mut hashset = hashset_sync!()?;
+		hashset.insert(&1)?;
+		assert_eq!(hashset.contains(&1).unwrap(), true);
+		assert_eq!(hashset.contains(&2).unwrap(), false);
+		let mut hashset = hashset_sync!(
+			MaxEntries(100),
+			MaxLoadFactor(0.9),
+			SlabSize(100),
+			SlabCount(100)
+		)?;
+		hashset.insert(&"test".to_string())?;
+		assert_eq!(hashset.size(), 1);
+		assert!(hashset.contains(&"test".to_string())?);
+		info!("hashset={:?}", hashset)?;
+		hashset.insert(&"another item".to_string())?;
+		hashset.insert(&"third item".to_string())?;
+		info!("hashset={:?}", hashset)?;
+
+		let mut hashset = hashset_box!()?;
+		hashset.insert(&1)?;
+		assert_eq!(hashset.contains(&1).unwrap(), true);
+		assert_eq!(hashset.contains(&2).unwrap(), false);
+		let mut hashset = hashset_box!(MaxEntries(100), MaxLoadFactor(0.9))?;
+		hashset.insert(&"test".to_string())?;
+		assert_eq!(hashset.size(), 1);
+		assert!(hashset.contains(&"test".to_string())?);
+		info!("hashset={:?}", hashset)?;
+		hashset.insert(&"another item".to_string())?;
+		hashset.insert(&"third item".to_string())?;
+		info!("hashset={:?}", hashset)?;
+
+		let mut hashset = hashset_sync_box!()?;
+		hashset.insert(&1)?;
+		assert_eq!(hashset.contains(&1).unwrap(), true);
+		assert_eq!(hashset.contains(&2).unwrap(), false);
+		let mut hashset = hashset_sync_box!(
+			MaxEntries(100),
+			MaxLoadFactor(0.9),
+			SlabSize(100),
+			SlabCount(100)
+		)?;
+		hashset.insert(&"test".to_string())?;
+		assert_eq!(hashset.size(), 1);
+		assert!(hashset.contains(&"test".to_string())?);
+		info!("hashset={:?}", hashset)?;
+		hashset.insert(&"another item".to_string())?;
+		hashset.insert(&"third item".to_string())?;
+		info!("hashset={:?}", hashset)?;
+
 		Ok(())
 	}
 
@@ -2105,6 +2221,16 @@ mod test {
 
 		let list3 = list![1, 2, 3, 4, 5];
 		info!("list={:?}", list3)?;
+
+		let list4 = list_box![1, 2, 3, 4, 5];
+		let mut list5 = list_sync!()?;
+		let mut list6 = list_sync_box!()?;
+		list_append!(list5, list4);
+		list_append!(list6, list4);
+		assert!(list_eq!(list4, list3));
+		assert!(list_eq!(list4, list5));
+		assert!(list_eq!(list4, list6));
+
 		Ok(())
 	}
 
@@ -2191,6 +2317,51 @@ mod test {
 		let mut array = array!(10, &0)?;
 		array[1] = 2;
 		assert_eq!(array[1], 2);
+
+		let mut a = array_list_box!(10, &0)?;
+		a.push(1)?;
+		assert_eq!(a.size(), 1);
+
+		let mut a = array_list_sync!(10, &0)?;
+		a.push(1)?;
+		assert_eq!(a.size(), 1);
+
+		let mut a = array_list_sync!(10, &0)?;
+		a.push(1)?;
+		assert_eq!(a.size(), 1);
+
+		let mut q = queue!(10, &0)?;
+		q.enqueue(1)?;
+		assert_eq!(q.peek(), Some(&1));
+
+		let mut q = queue_sync!(10, &0)?;
+		q.enqueue(1)?;
+		assert_eq!(q.peek(), Some(&1));
+
+		let mut q = queue_box!(10, &0)?;
+		q.enqueue(1)?;
+		assert_eq!(q.peek(), Some(&1));
+
+		let mut q = queue_sync_box!(10, &0)?;
+		q.enqueue(1)?;
+		assert_eq!(q.peek(), Some(&1));
+
+		let mut s = stack!(10, &0)?;
+		s.push(1)?;
+		assert_eq!(s.peek(), Some(&1));
+
+		let mut s = stack_box!(10, &0)?;
+		s.push(1)?;
+		assert_eq!(s.peek(), Some(&1));
+
+		let mut s = stack_sync!(10, &0)?;
+		s.push(1)?;
+		assert_eq!(s.peek(), Some(&1));
+
+		let mut s = stack_sync_box!(10, &0)?;
+		s.push(1)?;
+		assert_eq!(s.peek(), Some(&1));
+
 		Ok(())
 	}
 

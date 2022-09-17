@@ -362,8 +362,8 @@ where
 mod test {
 	use crate as bmw_util;
 	use crate::{
-		block_on, execute, list, list_eq, lock, thread_pool, Array, ArrayList, Builder, List, Lock,
-		PoolResult, Queue, Stack, ThreadPool,
+		array, block_on, execute, list, list_eq, lock, queue_box, thread_pool, Array, ArrayList,
+		Builder, List, Lock, PoolResult, Queue, SortableList, Stack, ThreadPool,
 	};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_deps::rand::random;
@@ -773,7 +773,6 @@ mod test {
 
 	#[test]
 	fn test_sort() -> Result<(), Error> {
-		use crate::SortableList;
 		let mut list = Builder::build_array_list(10, &0)?;
 
 		list.push(1)?;
@@ -789,6 +788,25 @@ mod test {
 		let other_list = list![1, 2, 3];
 		info!("list={:?}", list)?;
 		assert!(list_eq!(list, other_list));
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_array_of_queues() -> Result<(), Error> {
+		let mut queues = array!(10, &queue_box!(10, &0)?)?;
+
+		for i in 0..10 {
+			queues[i].enqueue(i)?;
+		}
+
+		for i in 0..10 {
+			assert_eq!(queues[i].dequeue(), Some(&i));
+		}
+
+		for i in 0..10 {
+			assert_eq!(queues[i].dequeue(), None);
+		}
 
 		Ok(())
 	}
