@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmw_deps::errno::Errno;
 use bmw_deps::failure::{Backtrace, Context, Fail};
 use bmw_deps::rustls::client::InvalidDnsNameError;
 use bmw_deps::rustls::sign::SignError;
@@ -102,6 +101,9 @@ pub enum ErrorKind {
 	/// Errno system error
 	#[fail(display = "errno error: {}", _0)]
 	Errno(String),
+	/// Rustls Error
+	#[fail(display = "rustls error: {}", _0)]
+	Rustls(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
@@ -148,6 +150,8 @@ pub enum ErrKind {
 	SystemTime,
 	/// Errno system error
 	Errno,
+	/// Rustls error
+	Rustls,
 }
 
 impl Display for Error {
@@ -283,14 +287,8 @@ impl From<SystemTimeError> for Error {
 	}
 }
 
-impl From<Errno> for Error {
-	fn from(e: Errno) -> Error {
-		Error {
-			inner: Context::new(ErrorKind::Errno(format!("Errno system error: {}", e))),
-		}
-	}
-}
-
+// infallible cannot happen
+#[cfg(not(tarpaulin_include))]
 impl From<Infallible> for Error {
 	fn from(e: Infallible) -> Error {
 		Error {
@@ -311,7 +309,7 @@ impl From<bmw_deps::nix::errno::Errno> for Error {
 impl From<bmw_deps::rustls::Error> for Error {
 	fn from(e: bmw_deps::rustls::Error) -> Error {
 		Error {
-			inner: Context::new(ErrorKind::IO(format!("Rustls error: {}", e))),
+			inner: Context::new(ErrorKind::Rustls(format!("Rustls error: {}", e))),
 		}
 	}
 }
@@ -319,7 +317,7 @@ impl From<bmw_deps::rustls::Error> for Error {
 impl From<SignError> for Error {
 	fn from(e: SignError) -> Error {
 		Error {
-			inner: Context::new(ErrorKind::IO(format!("Rustls Signing error: {}", e))),
+			inner: Context::new(ErrorKind::Rustls(format!("Rustls Signing error: {}", e))),
 		}
 	}
 }
@@ -327,7 +325,10 @@ impl From<SignError> for Error {
 impl From<InvalidDnsNameError> for Error {
 	fn from(e: InvalidDnsNameError) -> Error {
 		Error {
-			inner: Context::new(ErrorKind::IO(format!("Rustls Invalid DnsNameError: {}", e))),
+			inner: Context::new(ErrorKind::Rustls(format!(
+				"Rustls Invalid DnsNameError: {}",
+				e
+			))),
 		}
 	}
 }
@@ -336,12 +337,28 @@ impl From<InvalidDnsNameError> for Error {
 mod test {
 	use crate as bmw_err;
 	use crate::{err, ErrKind, Error, ErrorKind};
+	use bmw_deps::rustls::client::InvalidDnsNameError;
+	use bmw_deps::rustls::sign::{any_supported_type, SignError, SigningKey};
+	use bmw_deps::rustls::{
+		Certificate, ClientConfig, ClientConnection as RustlsClientConnection, PrivateKey,
+		RootCertStore, ServerConfig, ServerConnection as RustlsServerConnection, ServerName,
+		ALL_CIPHER_SUITES, ALL_VERSIONS,
+	};
+	use bmw_deps::rustls_pemfile::{certs, read_one, Item};
 	use bmw_deps::substring::Substring;
 	use std::alloc::Layout;
 	use std::convert::TryInto;
 	use std::ffi::OsString;
+	use std::fs::File;
+	use std::io::BufReader;
 	use std::sync::mpsc::channel;
 	use std::sync::{Arc, Mutex, RwLock};
+	use std::time::{Duration, SystemTime, SystemTimeError};
+
+	#[cfg(target_os = "linux")]
+	use bmw_deps::nix::errno::Errno;
+	#[cfg(target_os = "linux")]
+	use bmw_deps::nix::sys::epoll::{epoll_ctl, EpollEvent, EpollFlags, EpollOp};
 
 	fn get_os_string() -> Result<(), Error> {
 		Err(OsString::new().into())
@@ -397,6 +414,17 @@ mod test {
 		check_error(get_utf8(), ErrorKind::Utf8(format!("Utf8 Error..")).into())?;
 
 		Ok(())
+	}
+
+	fn load_private_key(filename: &str) -> Result<PrivateKey, Error> {
+		let keyfile = File::open(filename)?;
+		let mut reader = BufReader::new(keyfile);
+
+		let x = read_one(&mut reader)?.unwrap();
+		match x {
+			Item::PKCS8Key(key) => Ok(PrivateKey(key)),
+			_ => todo!(),
+		}
 	}
 
 	#[test]
@@ -460,6 +488,39 @@ mod test {
 		let err = Layout::from_size_align(7, 7);
 		check_error(err, ErrorKind::Alloc(format!("LayoutError..")).into())?;
 
+		let now = SystemTime::now();
+		let err: Result<Duration, SystemTimeError> = now
+			.checked_add(Duration::from_millis(1_000_000))
+			.unwrap()
+			.duration_since(now.checked_add(Duration::from_millis(2_000_000)).unwrap());
+		check_error(
+			err,
+			ErrorKind::SystemTime("System time error".into()).into(),
+		)?;
+
+		#[cfg(target_os = "linux")]
+		{
+			let mut event = EpollEvent::new(EpollFlags::empty(), u64::MAX);
+			let err: Result<(), Errno> =
+				epoll_ctl(i32::MAX, EpollOp::EpollCtlAdd, i32::MAX, &mut event);
+			check_error(err, ErrorKind::Errno("Errno error: ".to_string()).into())?;
+		}
+
+		let err = ServerConfig::builder()
+			.with_cipher_suites(&ALL_CIPHER_SUITES.to_vec())
+			.with_safe_default_kx_groups()
+			.with_protocol_versions(&vec![]);
+
+		check_error(err, ErrorKind::Rustls("rustls error: ".to_string()).into())?;
+
+		let err: Result<ServerName, InvalidDnsNameError> = "a*$&@@!aa".try_into();
+		assert!(err.is_err());
+		check_error(err, ErrorKind::Rustls("rustls error: ".to_string()).into())?;
+
+		let err: Result<Arc<dyn SigningKey>, SignError> =
+			any_supported_type(&load_private_key("./resources/badkey.pem")?);
+		assert!(err.is_err());
+		check_error(err, ErrorKind::Rustls("rustls error: ".to_string()).into())?;
 		Ok(())
 	}
 }
