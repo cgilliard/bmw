@@ -187,6 +187,13 @@ impl SuffixTreeImpl {
 		termination_length: usize,
 		max_wildcard_length: usize,
 	) -> Result<Self, Error> {
+		if patterns.size() == 0 {
+			return Err(err!(
+				ErrKind::Configuration,
+				"suffix tree must have at least one pattern"
+			));
+		}
+
 		let mut dictionary_case_insensitive = Dictionary::new()?;
 		let mut dictionary_case_sensitive = Dictionary::new()?;
 
@@ -201,7 +208,7 @@ impl SuffixTreeImpl {
 		}
 		// no additional memory is needed. Shrink to the maximum possible
 		dictionary_case_insensitive.nodes.shrink_to(0);
-		dictionary_case_insensitive.nodes.shrink_to(0);
+		dictionary_case_sensitive.nodes.shrink_to(0);
 
 		Ok(Self {
 			dictionary_case_insensitive,
@@ -441,7 +448,7 @@ impl Serializable for Pattern {
 mod test {
 	use crate as bmw_util;
 	use crate::PatternParam::*;
-	use crate::{list, pattern, suffix_tree, Builder, Pattern, SuffixTree};
+	use crate::{list, pattern, suffix_tree, Builder, ListConfig, Pattern, SuffixTree};
 	use bmw_err::*;
 	use bmw_log::*;
 
@@ -721,6 +728,14 @@ mod test {
 			100
 		)
 		.is_err());
+
+		assert!(Builder::build_suffix_tree(
+			Builder::build_list(ListConfig::default(), &None)?,
+			100,
+			100
+		)
+		.is_err());
+
 		Ok(())
 	}
 
