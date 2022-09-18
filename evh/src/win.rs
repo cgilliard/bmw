@@ -145,6 +145,16 @@ pub(crate) fn close_impl(
 	partial: bool,
 ) -> Result<(), Error> {
 	let handle_as_usize: usize = handle.try_into()?;
+	if handle_as_usize >= ctx.filter_set.len().try_into()? {
+		debug!(
+			"filter set resize prev size = {}, new = {}",
+			ctx.filter_set.len(),
+			handle_as_usize + 100
+		)?;
+		ctx.filter_set
+			.resize((handle_as_usize + 100).try_into()?, false);
+	}
+
 	ctx.filter_set.replace(handle_as_usize, false);
 	info!("closesocket={},tid={}", handle_as_usize, ctx.tid)?;
 	if !partial {
