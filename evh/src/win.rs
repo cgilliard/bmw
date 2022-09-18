@@ -139,29 +139,35 @@ pub(crate) fn get_reader_writer() -> Result<
 	))
 }
 
-pub(crate) fn close_impl(ctx: &mut EventHandlerContext, handle: Handle) -> Result<(), Error> {
+pub(crate) fn close_impl(
+	ctx: &mut EventHandlerContext,
+	handle: Handle,
+	partial: bool,
+) -> Result<(), Error> {
 	let handle_as_usize: usize = handle.try_into()?;
 	ctx.filter_set.replace(handle_as_usize, false);
 	info!("closesocket={},tid={}", handle_as_usize, ctx.tid)?;
-	let data = epoll_data_t {
-		fd: handle.try_into()?,
-	};
-	let mut event = epoll_event { events: 0, data };
+	if !partial {
+		let data = epoll_data_t {
+			fd: handle.try_into()?,
+		};
+		let mut event = epoll_event { events: 0, data };
 
-	let res = unsafe {
-		epoll_ctl(
-			ctx.selector as *mut c_void,
-			EPOLL_CTL_DEL as i32,
-			handle_as_usize,
-			&mut event,
-		)
-	};
-	if res < 0 {
-		let e = errno();
-		warn!(
-			"Error epoll_ctl del: {}, fd={}, op={:?}, tid={}",
-			e, handle, EPOLL_CTL_DEL, ctx.tid
-		)?
+		let res = unsafe {
+			epoll_ctl(
+				ctx.selector as *mut c_void,
+				EPOLL_CTL_DEL as i32,
+				handle_as_usize,
+				&mut event,
+			)
+		};
+		if res < 0 {
+			let e = errno();
+			warn!(
+				"Error epoll_ctl del: {}, fd={}, op={:?}, tid={}",
+				e, handle, EPOLL_CTL_DEL, ctx.tid
+			)?
+		}
 	}
 
 	unsafe {

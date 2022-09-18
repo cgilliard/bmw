@@ -864,7 +864,7 @@ where
 					ctx.counter += 1;
 				}
 				LastProcessType::OnAccept => {
-					close_impl(ctx, ctx.events[ctx.counter].handle)?;
+					close_impl(ctx, ctx.events[ctx.counter].handle, false)?;
 					ctx.counter += 1;
 				}
 				LastProcessType::OnClose => {
@@ -1078,7 +1078,7 @@ where
 										"insert_hashtables listener generated error: {}. Closing.",
 										e
 									)?;
-									close_impl(ctx, li.handle)?;
+									close_impl(ctx, li.handle, true)?;
 								}
 							}
 						}
@@ -1092,7 +1092,7 @@ where
 								}
 								Err(e) => {
 									warn!("insert_hashtables rw generated error: {}. Closing.", e)?;
-									close_impl(ctx, rw.handle)?;
+									close_impl(ctx, rw.handle, true)?;
 								}
 							}
 						}
@@ -1739,7 +1739,7 @@ where
 					}
 					ctx.handle_hashtable.remove(&rw.handle)?;
 					rw.clear_through_impl(rw.last_slab, &mut ctx.read_slabs)?;
-					close_impl(ctx, rw.handle)?;
+					close_impl(ctx, rw.handle, false)?;
 					ctx.do_write_back = false;
 
 					match &mut self.on_close {
@@ -1921,7 +1921,7 @@ where
 			}
 			Err(e) => {
 				warn!("insert_hashtables generated error1: {}. Closing.", e)?;
-				close_impl(ctx, handle)?;
+				close_impl(ctx, handle, true)?;
 			}
 		}
 
