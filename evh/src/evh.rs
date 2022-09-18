@@ -337,7 +337,7 @@ impl ThreadContext {
 }
 
 impl EventHandlerContext {
-	fn new(
+	pub(crate) fn new(
 		tid: usize,
 		max_events_in: usize,
 		max_events: usize,
@@ -1933,7 +1933,7 @@ where
 
 	#[cfg(not(target_os = "macos"))]
 	fn get_events(&self, ctx: &mut EventHandlerContext, requested: bool) -> Result<usize, Error> {
-		get_events_impl(&self.config, ctx, requested)
+		get_events_impl(&self.config, ctx, requested, false)
 	}
 
 	#[cfg(target_os = "macos")]
@@ -4519,6 +4519,7 @@ mod test {
 		buf.resize(100, 0u8);
 		sleep(Duration::from_millis(1000));
 		let len = stream.read(&mut buf)?;
+		info!("read = {:?}", &buf[0..len])?;
 		assert_eq!(len, 6);
 		assert_eq!(&buf[0..len], b"b12345");
 

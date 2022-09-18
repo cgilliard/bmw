@@ -173,6 +173,7 @@ pub(crate) fn get_events_impl(
 	config: &EventHandlerConfig,
 	ctx: &mut EventHandlerContext,
 	wakeup_requested: bool,
+	debug_err: bool,
 ) -> Result<usize, Error> {
 	debug!("in get_events_impl in_count={}", ctx.events_in.len())?;
 	for evt in &ctx.events_in {
@@ -192,36 +193,32 @@ pub(crate) fn get_events_impl(
 			interest |= EpollFlags::EPOLLRDHUP;
 
 			let handle_as_usize: usize = fd.try_into()?;
-			let op = match ctx.filter_set.get(handle_as_usize) {
-				Some(bitref) => {
-					if *bitref {
-						debug!("found {}. using mod", handle_as_usize)?;
-						EpollOp::EpollCtlMod
-					} else {
-						debug!("not found {}. using add", handle_as_usize)?;
-						EpollOp::EpollCtlAdd
-					}
-				}
-				None => {
-					debug!("not found {} (none). using add", handle_as_usize)?;
-					EpollOp::EpollCtlAdd
-				}
+			// unwrap is ok because we resize above
+			let op = if *ctx.filter_set.get(handle_as_usize).unwrap() {
+				debug!("found {}. using mod", handle_as_usize)?;
+				EpollOp::EpollCtlMod
+			} else {
+				debug!("not found {}. using add", handle_as_usize)?;
+				EpollOp::EpollCtlAdd
 			};
 			ctx.filter_set.replace(handle_as_usize, true);
 			let mut event = EpollEvent::new(interest, evt.handle.try_into()?);
+			debug!(
+				"epoll_ctl selector={},op={:?},handle={}",
+				ctx.selector, op, evt.handle
+			)?;
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
-			match res {
-				Ok(_) => {}
-				Err(e) => error!(
-					"Error epoll_ctl2: {}, fd={}, op={:?},tid={}",
-					e, fd, op, ctx.tid
-				)?,
+			if res.is_err() || debug_err {
+				error!(
+					"Error epoll_ctl1: {:?}, fd={}, op={:?},tid={}",
+					res, fd, op, ctx.tid
+				)?
 			}
 		} else if evt.etype == EventTypeIn::Write {
 			let fd = evt.handle;
 			debug!("add in write fd = {},tid={}", fd, ctx.tid)?;
 			if fd > ctx.filter_set.len().try_into()? {
-				ctx.filter_set.resize((fd + 100).try_into()?, true);
+				ctx.filter_set.resize((fd + 100).try_into()?, false);
 			}
 			interest |= EpollFlags::EPOLLOUT;
 			interest |= EpollFlags::EPOLLIN;
@@ -229,46 +226,40 @@ pub(crate) fn get_events_impl(
 			interest |= EpollFlags::EPOLLET;
 
 			let handle_as_usize: usize = fd.try_into()?;
-			let op = match ctx.filter_set.get(handle_as_usize) {
-				Some(bitref) => {
-					if *bitref {
-						EpollOp::EpollCtlMod
-					} else {
-						EpollOp::EpollCtlAdd
-					}
-				}
-				None => EpollOp::EpollCtlAdd,
+			// unwrap is ok because we resize above
+			let op = if *ctx.filter_set.get(handle_as_usize).unwrap() {
+				EpollOp::EpollCtlMod
+			} else {
+				EpollOp::EpollCtlAdd
 			};
-			ctx.filter_set.set(handle_as_usize, true);
+			ctx.filter_set.replace(handle_as_usize, true);
 
 			let mut event = EpollEvent::new(interest, evt.handle.try_into()?);
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
-			match res {
-				Ok(_) => {}
-				Err(e) => error!(
-					"Error epoll_ctl1: {}, fd={}, op={:?},tid={}",
-					e, fd, op, ctx.tid
-				)?,
+			if res.is_err() || debug_err {
+				error!(
+					"Error epoll_ctl2: {:?}, fd={}, op={:?},tid={}",
+					res, fd, op, ctx.tid
+				)?
 			}
 		} else if evt.etype == EventTypeIn::Suspend {
 			let fd = evt.handle;
 			debug!("add in write fd = {},tid={}", fd, ctx.tid)?;
 			if fd > ctx.filter_set.len().try_into()? {
-				ctx.filter_set.resize((fd + 100).try_into()?, true);
+				ctx.filter_set.resize((fd + 100).try_into()?, false);
 			}
 
 			let handle_as_usize: usize = fd.try_into()?;
-			ctx.filter_set.set(handle_as_usize, false);
+			ctx.filter_set.replace(handle_as_usize, false);
 			let op = EpollOp::EpollCtlDel;
 
 			let mut event = EpollEvent::new(interest, evt.handle.try_into()?);
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
-			match res {
-				Ok(_) => {}
-				Err(e) => error!(
-					"Error epoll_ctl1: {}, fd={}, op={:?},tid={}",
-					e, fd, op, ctx.tid
-				)?,
+			if res.is_err() || debug_err {
+				error!(
+					"Error epoll_ctl3: {:?}, fd={}, op={:?},tid={}",
+					res, fd, op, ctx.tid
+				)?
 			}
 		}
 	}
@@ -290,31 +281,84 @@ pub(crate) fn get_events_impl(
 	ctx.now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 
 	let mut res_count = 0;
-	match results {
-		Ok(results) => {
-			if results > 0 {
-				for i in 0..results {
-					if !(ctx.epoll_events[i].events() & EpollFlags::EPOLLOUT).is_empty() {
-						ctx.events[res_count] = Event {
-							handle: ctx.epoll_events[i].data() as Handle,
-							etype: EventType::Write,
-						};
-						res_count += 1;
-					}
-					if !(ctx.epoll_events[i].events() & EpollFlags::EPOLLIN).is_empty() {
-						ctx.events[res_count] = Event {
-							handle: ctx.epoll_events[i].data() as Handle,
-							etype: EventType::Read,
-						};
-						res_count += 1;
-					}
+	if results.is_ok() && !debug_err {
+		let results = results.unwrap();
+		if results > 0 {
+			for i in 0..results {
+				if !(ctx.epoll_events[i].events() & EpollFlags::EPOLLOUT).is_empty() {
+					ctx.events[res_count] = Event {
+						handle: ctx.epoll_events[i].data() as Handle,
+						etype: EventType::Write,
+					};
+					res_count += 1;
+				}
+				if !(ctx.epoll_events[i].events() & EpollFlags::EPOLLIN).is_empty() {
+					ctx.events[res_count] = Event {
+						handle: ctx.epoll_events[i].data() as Handle,
+						etype: EventType::Read,
+					};
+					res_count += 1;
 				}
 			}
 		}
-		Err(e) => {
-			error!("epoll wait generated error: {}", e.to_string())?;
-		}
+	} else {
+		error!("epoll wait generated error: {:?}", results)?;
 	}
 
 	Ok(res_count)
+}
+
+#[cfg(test)]
+mod test {
+	use crate::linux::*;
+	use crate::types::{EventHandlerContext, EventIn};
+	use bmw_test::port::pick_free_port;
+
+	#[test]
+	fn test_evh_linux() -> Result<(), Error> {
+		let mut ctx = EventHandlerContext::new(0, 10, 10, 10, 10)?;
+		ctx.tid = 100;
+		let handle = get_socket()?;
+		assert!(accept_impl(handle).is_err());
+		ctx.filter_set.resize(1, false);
+		assert_eq!(ctx.filter_set.len(), 1);
+		close_impl(&mut ctx, handle, false)?;
+		assert_eq!(ctx.filter_set.len(), 100 + handle as usize);
+		ctx.filter_set.resize(10_100, false);
+		let addr = &format!("127.0.0.1:{}", pick_free_port()?)[..];
+		let ret = create_listeners_impl(1, addr, 10)?;
+		ctx.filter_set.resize(1, false);
+		ctx.events_in.push(EventIn {
+			handle: ret[0],
+			etype: EventTypeIn::Write,
+		});
+
+		assert_eq!(
+			get_events_impl(&EventHandlerConfig::default(), &mut ctx, false, true)?,
+			0
+		);
+		assert_eq!(ctx.filter_set.len(), 100 + ret[0] as usize);
+		ctx.filter_set.replace(ret[0] as usize, true);
+		ctx.events_in.push(EventIn {
+			handle: ret[0],
+			etype: EventTypeIn::Read,
+		});
+		assert_eq!(
+			get_events_impl(&EventHandlerConfig::default(), &mut ctx, false, true)?,
+			0
+		);
+		ctx.filter_set.resize(1, false);
+		ctx.events_in.push(EventIn {
+			handle: ret[0],
+			etype: EventTypeIn::Suspend,
+		});
+		assert_eq!(
+			get_events_impl(&EventHandlerConfig::default(), &mut ctx, false, true)?,
+			0
+		);
+
+		assert_eq!(ctx.filter_set.len(), 100 + ret[0] as usize);
+
+		Ok(())
+	}
 }

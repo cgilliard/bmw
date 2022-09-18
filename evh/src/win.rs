@@ -264,6 +264,7 @@ pub(crate) fn get_events_impl(
 	config: &EventHandlerConfig,
 	ctx: &mut EventHandlerContext,
 	wakeup_requested: bool,
+	_debug_err: bool,
 ) -> Result<usize, Error> {
 	debug!(
 		"in get_events_impl in_count={}, tid={}",
