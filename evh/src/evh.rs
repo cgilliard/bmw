@@ -1786,7 +1786,10 @@ where
 			Ok(handle) => handle,
 			Err(e) => {
 				warn!("Error accepting handle: {}", e)?;
+				#[cfg(unix)]
 				return Ok(-1);
+				#[cfg(windows)]
+				return Ok(usize::MAX);
 			}
 		};
 		// this is a would block and means no more accepts to process
