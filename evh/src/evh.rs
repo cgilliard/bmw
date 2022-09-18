@@ -162,7 +162,7 @@ impl Serializable for ConnectionInfo {
 		match reader.read_u8()? {
 			0 => {
 				let id = reader.read_u128()?;
-				debug!("------------------listener deser for id = {}", id)?;
+				debug!("listener deser for id = {}", id)?;
 				let handle = Handle::read(reader)?;
 				let is_reuse_port = match reader.read_u8()? {
 					0 => false,
@@ -236,10 +236,7 @@ impl Serializable for ConnectionInfo {
 	{
 		match self {
 			ConnectionInfo::ListenerInfo(li) => {
-				debug!(
-					"-----------------------------listener ser for id = {}",
-					li.id
-				)?;
+				debug!("listener ser for id = {}", li.id)?;
 				writer.write_u8(0)?;
 				writer.write_u128(li.id)?;
 				li.handle.write(writer)?;
@@ -1785,7 +1782,13 @@ where
 		callback_context: &mut ThreadContext,
 	) -> Result<Handle, Error> {
 		set_errno(Errno(0));
-		let handle = accept_impl(li.handle)?;
+		let handle = match accept_impl(li.handle) {
+			Ok(handle) => handle,
+			Err(e) => {
+				warn!("Error accepting handle: {}", e)?;
+				return Ok(-1);
+			}
+		};
 		// this is a would block and means no more accepts to process
 		#[cfg(unix)]
 		if handle < 0 {
