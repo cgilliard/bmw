@@ -25,9 +25,8 @@ use bmw_deps::rand::random;
 use bmw_deps::rustls::server::{NoClientAuth, ResolvesServerCertUsingSni};
 use bmw_deps::rustls::sign::{any_supported_type, CertifiedKey};
 use bmw_deps::rustls::{
-	Certificate, ClientConfig, ClientConnection as RustlsClientConnection, PrivateKey,
-	RootCertStore, ServerConfig, ServerConnection as RustlsServerConnection, ALL_CIPHER_SUITES,
-	ALL_VERSIONS,
+	Certificate, ClientConfig, ClientConnection as RCConn, PrivateKey, RootCertStore, ServerConfig,
+	ServerConnection as RSConn, ALL_CIPHER_SUITES, ALL_VERSIONS,
 };
 use bmw_deps::rustls_pemfile::{certs, read_one, Item};
 use bmw_err::*;
@@ -112,15 +111,6 @@ impl Default for Event {
 	}
 }
 
-impl Default for EventIn {
-	fn default() -> Self {
-		Self {
-			handle: 0,
-			etype: EventTypeIn::Read,
-		}
-	}
-}
-
 impl Default for EventHandlerConfig {
 	fn default() -> Self {
 		Self {
@@ -154,80 +144,80 @@ impl Debug for ListenerInfo {
 // which is a LockBox. So we use the danger_to_usize fn. It must be deserialized
 // once per serialization or it will leak and cause other memory related problems.
 // The same applies to the TLS data structures.
+
 impl Serializable for ConnectionInfo {
 	fn read<R>(reader: &mut R) -> Result<Self, Error>
 	where
 		R: Reader,
 	{
-		match reader.read_u8()? {
-			0 => {
-				let id = reader.read_u128()?;
-				debug!("listener deser for id = {}", id)?;
-				let handle = Handle::read(reader)?;
-				let is_reuse_port = match reader.read_u8()? {
-					0 => false,
-					_ => true,
-				};
-				let tls_config = match reader.read_u8()? {
-					0 => None,
-					_ => {
-						let tls_config: Arc<ServerConfig> =
-							unsafe { Arc::from_raw(reader.read_usize()? as *mut ServerConfig) };
-						Some(tls_config)
-					}
-				};
-				let ci = ConnectionInfo::ListenerInfo(ListenerInfo {
-					id,
-					handle,
-					is_reuse_port,
-					tls_config,
-				});
-				Ok(ci)
-			}
-			1 => {
-				let id = reader.read_u128()?;
-				debug!("deserrw for id = {}", id)?;
-				let handle = Handle::read(reader)?;
-				let accept_handle: Option<Handle> = Option::read(reader)?;
-				let write_state: Box<dyn LockBox<WriteState>> =
-					lock_box_from_usize(reader.read_usize()?);
-				let first_slab = reader.read_u32()?;
-				let last_slab = reader.read_u32()?;
-				let slab_offset = reader.read_u16()?;
-				let is_accepted = reader.read_u8()? != 0;
-				let tls_server = match reader.read_u8()? {
-					0 => None,
-					_ => {
-						let tls_server: Box<dyn LockBox<RustlsServerConnection>> =
-							lock_box_from_usize(reader.read_usize()?);
-						Some(tls_server)
-					}
-				};
-				let tls_client = match reader.read_u8()? {
-					0 => None,
-					_ => {
-						let tls_client: Box<dyn LockBox<RustlsClientConnection>> =
-							lock_box_from_usize(reader.read_usize()?);
-						Some(tls_client)
-					}
-				};
-				Ok(ConnectionInfo::ReadWriteInfo(ReadWriteInfo {
-					id,
-					handle,
-					accept_handle,
-					write_state,
-					first_slab,
-					last_slab,
-					slab_offset,
-					is_accepted,
-					tls_client,
-					tls_server,
-				}))
-			}
-			_ => Err(err!(
-				ErrKind::CorruptedData,
-				"Unexpected type in ConnectionInfo"
-			)),
+		let r = reader.read_u8()?;
+		if r == 0 {
+			let id = reader.read_u128()?;
+			debug!("listener deser for id = {}", id)?;
+			let handle = Handle::read(reader)?;
+			let is_reuse_port = match reader.read_u8()? {
+				0 => false,
+				_ => true,
+			};
+			let r = reader.read_u8()?;
+			let tls_config = if r == 0 {
+				None
+			} else {
+				let r = reader.read_usize()? as *mut ServerConfig;
+				let tls_config: Arc<ServerConfig> = unsafe { Arc::from_raw(r) };
+				Some(tls_config)
+			};
+			let li = ListenerInfo {
+				id,
+				handle,
+				is_reuse_port,
+				tls_config,
+			};
+			let ci = ConnectionInfo::ListenerInfo(li);
+			Ok(ci)
+		} else if r == 1 {
+			let id = reader.read_u128()?;
+			debug!("deserrw for id = {}", id)?;
+			let handle = Handle::read(reader)?;
+			let accept_handle: Option<Handle> = Option::read(reader)?;
+			let v = reader.read_usize()?;
+			let write_state: Box<dyn LockBox<WriteState>> = lock_box_from_usize(v);
+			let first_slab = reader.read_u32()?;
+			let last_slab = reader.read_u32()?;
+			let slab_offset = reader.read_u16()?;
+			let is_accepted = reader.read_u8()? != 0;
+			let r = reader.read_u8()?;
+			let tls_server = if r == 0 {
+				None
+			} else {
+				let v = reader.read_usize()?;
+				let tls_server: Box<dyn LockBox<RSConn>> = lock_box_from_usize(v);
+				Some(tls_server)
+			};
+			let r = reader.read_u8()?;
+			let tls_client = if r == 0 {
+				None
+			} else {
+				let v = reader.read_usize()?;
+				let tls_client: Box<dyn LockBox<RCConn>> = lock_box_from_usize(v);
+				Some(tls_client)
+			};
+			let rwi = ReadWriteInfo {
+				id,
+				handle,
+				accept_handle,
+				write_state,
+				first_slab,
+				last_slab,
+				slab_offset,
+				is_accepted,
+				tls_client,
+				tls_server,
+			};
+			Ok(ConnectionInfo::ReadWriteInfo(rwi))
+		} else {
+			let err = err!(ErrKind::CorruptedData, "Unexpected type in ConnectionInfo");
+			Err(err)
 		}
 	}
 	fn write<W>(&self, writer: &mut W) -> Result<(), Error>
@@ -447,8 +437,8 @@ impl WriteHandle {
 		write_state: Box<dyn LockBox<WriteState>>,
 		event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 		debug_write_queue: bool,
-		tls_server: Option<Box<dyn LockBox<RustlsServerConnection>>>,
-		tls_client: Option<Box<dyn LockBox<RustlsClientConnection>>>,
+		tls_server: Option<Box<dyn LockBox<RSConn>>>,
+		tls_client: Option<Box<dyn LockBox<RCConn>>>,
 	) -> Self {
 		Self {
 			handle,
@@ -649,6 +639,7 @@ impl WriteHandle {
 	}
 
 	fn queue_data(&mut self, data: &[u8]) -> Result<(), Error> {
+		debug!("queue data = {:?}", data)?;
 		let was_pending = {
 			debug!("wlock for {}", self.id)?;
 			let mut write_state = self.write_state.wlock()?;
@@ -967,6 +958,7 @@ where
 	}
 
 	fn process_write_queue(&mut self, ctx: &mut EventHandlerContext) -> Result<(), Error> {
+		debug!("process write queue")?;
 		let mut data = self.data[ctx.tid].wlock()?;
 		loop {
 			let guard = data.guard();
@@ -1017,6 +1009,7 @@ where
 											set_windows_socket_options(rwi.handle)?;
 										}
 									} else {
+										debug!("pushing a write event for handle={}", rwi.handle)?;
 										let handle = rwi.handle;
 										ctx.events_in.push(EventIn {
 											handle,
@@ -1166,6 +1159,7 @@ where
 										self.process_read(rw, ctx, callback_context)?
 									}
 									EventType::Write => {
+										debug!("write event {:?}", ctx.events[ctx.counter])?;
 										self.process_write(rw, ctx, callback_context)?
 									}
 									EventType::Error => {
@@ -1267,6 +1261,12 @@ where
 					break;
 				}
 				let wlen = write_bytes(rw.handle, &(**guard).write_buffer);
+				debug!(
+					"write handle = {} bytes = {}, buf={}",
+					rw.handle,
+					wlen,
+					&(**guard).write_buffer.len()
+				)?;
 				if wlen < 0 {
 					do_close = true;
 					break;
@@ -1807,7 +1807,7 @@ where
 		)?;
 
 		let tls_server = match &li.tls_config {
-			Some(tls_config) => match RustlsServerConnection::new(tls_config.clone()) {
+			Some(tls_config) => match RSConn::new(tls_config.clone()) {
 				Ok(tls_conn) => Some(lock_box!(tls_conn)?),
 				Err(e) => {
 					error!("Error building tls_connection: {}", e.to_string())?;
@@ -2184,10 +2184,7 @@ where
 			Some(tls_config) => {
 				let server_name: &str = &tls_config.sni_host;
 				let config = make_config(tls_config.trusted_cert_full_chain_file)?;
-				let tls_client = Some(lock_box!(RustlsClientConnection::new(
-					config,
-					server_name.try_into()?,
-				)?)?);
+				let tls_client = Some(lock_box!(RCConn::new(config, server_name.try_into()?,)?)?);
 				tls_client
 			}
 			None => None,
@@ -2412,7 +2409,7 @@ fn load_private_key(filename: &str) -> Result<PrivateKey, Error> {
 mod test {
 	use crate::evh::{create_listeners, errno, read_bytes};
 	use crate::evh::{READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
-	use crate::types::{EventHandlerImpl, Wakeup};
+	use crate::types::{ConnectionInfo, EventHandlerImpl, ListenerInfo, Wakeup};
 	use crate::{
 		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
 		TlsClientConfig, TlsServerConfig, READ_SLAB_DATA_SIZE,
@@ -2851,6 +2848,9 @@ mod test {
 				conn_data.write_handle().write(&res)?;
 			} else {
 				conn_data.write_handle().close()?;
+				assert!(conn_data.write_handle().suspend().is_ok());
+				assert!(conn_data.write_handle().resume().is_ok());
+				assert!(conn_data.write_handle().close().is_ok());
 			}
 			info!("res={:?}", res)?;
 			Ok(())
@@ -4467,7 +4467,7 @@ mod test {
 
 		evh.set_on_accept(move |conn_data, _thread_context| {
 			info!(
-				"stop accept a connection handle = {}, tid={}",
+				"write q accept a connection handle = {}, tid={}",
 				conn_data.get_handle(),
 				conn_data.tid()
 			)?;
@@ -4520,17 +4520,18 @@ mod test {
 		stream.write(b"b12345")?;
 		let mut buf = vec![];
 		buf.resize(100, 0u8);
-		sleep(Duration::from_millis(1000));
+		sleep(Duration::from_millis(3_000));
 		let len = stream.read(&mut buf)?;
 		info!("read = {:?}", &buf[0..len])?;
 		assert_eq!(len, 6);
 		assert_eq!(&buf[0..len], b"b12345");
 
 		// this request uses the write queue
+		info!("write second time to write queue")?;
 		stream.write(b"c12345")?;
 		let mut buf = vec![];
 		buf.resize(100, 0u8);
-		sleep(Duration::from_millis(1000));
+		sleep(Duration::from_millis(3_000));
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 6);
 		assert_eq!(&buf[0..len], b"c12345");
@@ -4539,7 +4540,7 @@ mod test {
 		stream.write(b"d12345")?;
 		let mut buf = vec![];
 		buf.resize(100, 0u8);
-		sleep(Duration::from_millis(1000));
+		sleep(Duration::from_millis(3_000));
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 6);
 		assert_eq!(&buf[0..len], b"d12345");
@@ -4808,6 +4809,80 @@ mod test {
 		let ptr_ret = unsafe { Arc::from_raw(ptr_as_usize as *mut u32) };
 		info!("ptr_val={:?}", ptr_ret)?;
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_debug_listener_info() -> Result<(), Error> {
+		let li = ListenerInfo {
+			id: 0,
+			handle: 0,
+			is_reuse_port: false,
+			tls_config: None,
+		};
+		info!("li={:?}", li)?;
+		assert_eq!(li.id, 0);
+		Ok(())
+	}
+
+	fn compare_ci(ci1: ConnectionInfo, ci2: ConnectionInfo) -> Result<(), Error> {
+		match ci1 {
+			ConnectionInfo::ListenerInfo(li1) => match ci2 {
+				ConnectionInfo::ListenerInfo(li2) => {
+					assert_eq!(li1.id, li2.id);
+					assert_eq!(li1.handle, li2.handle);
+					assert_eq!(li1.is_reuse_port, li2.is_reuse_port);
+				}
+				ConnectionInfo::ReadWriteInfo(_rwi) => assert!(false),
+			},
+			ConnectionInfo::ReadWriteInfo(rwi1) => match ci2 {
+				ConnectionInfo::ListenerInfo(_li) => {
+					assert!(false);
+				}
+				ConnectionInfo::ReadWriteInfo(rwi2) => {
+					assert_eq!(rwi1.id, rwi2.id);
+					assert_eq!(rwi1.handle, rwi2.handle);
+					assert_eq!(rwi1.accept_handle, rwi2.accept_handle);
+					assert_eq!(rwi1.first_slab, rwi2.first_slab);
+					assert_eq!(rwi1.last_slab, rwi2.last_slab);
+					assert_eq!(rwi1.slab_offset, rwi2.slab_offset);
+					assert_eq!(rwi1.is_accepted, rwi2.is_accepted);
+				}
+			},
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn test_connection_info_serialization() -> Result<(), Error> {
+		let mut hashtable = hashtable!()?;
+		let ci = ConnectionInfo::ListenerInfo(ListenerInfo {
+			id: 7,
+			handle: 8,
+			is_reuse_port: false,
+			tls_config: None,
+		});
+		hashtable.insert(&0, &ci)?;
+		let v = hashtable.get(&0)?.unwrap();
+		compare_ci(v, ci)?;
+
+		let ser_out = ConnectionInfo::ListenerInfo(ListenerInfo {
+			id: 10,
+			handle: 80,
+			is_reuse_port: true,
+			tls_config: None,
+		});
+		let mut v: Vec<u8> = vec![];
+		serialize(&mut v, &ser_out)?;
+		v[0] = 2; // corrupt data
+		let ser_in: Result<ConnectionInfo, Error> = deserialize(&mut &v[..]);
+		assert!(ser_in.is_err());
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_tls_multi_chunk() -> Result<(), Error> {
 		Ok(())
 	}
 }

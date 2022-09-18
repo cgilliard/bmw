@@ -207,6 +207,7 @@ pub(crate) fn get_events_impl(
 				"epoll_ctl selector={},op={:?},handle={}",
 				ctx.selector, op, evt.handle
 			)?;
+			debug!("fd={},op={:?},ctx.tid={}", fd, op, ctx.tid)?;
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			if res.is_err() || debug_err {
 				error!(
@@ -235,6 +236,7 @@ pub(crate) fn get_events_impl(
 			ctx.filter_set.replace(handle_as_usize, true);
 
 			let mut event = EpollEvent::new(interest, evt.handle.try_into()?);
+			debug!("fd={},op={:?},ctx.tid={}", fd, op, ctx.tid)?;
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			if res.is_err() || debug_err {
 				error!(
@@ -332,30 +334,28 @@ mod test {
 			handle: ret[0],
 			etype: EventTypeIn::Write,
 		});
-
-		assert_eq!(
-			get_events_impl(&EventHandlerConfig::default(), &mut ctx, false, true)?,
-			0
-		);
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 20,
+			max_handles_per_thread: 30,
+			..Default::default()
+		};
+		assert_eq!(get_events_impl(&config, &mut ctx, false, true)?, 0);
 		assert_eq!(ctx.filter_set.len(), 100 + ret[0] as usize);
 		ctx.filter_set.replace(ret[0] as usize, true);
 		ctx.events_in.push(EventIn {
 			handle: ret[0],
 			etype: EventTypeIn::Read,
 		});
-		assert_eq!(
-			get_events_impl(&EventHandlerConfig::default(), &mut ctx, false, true)?,
-			0
-		);
+		assert_eq!(get_events_impl(&config, &mut ctx, false, true)?, 0);
 		ctx.filter_set.resize(1, false);
 		ctx.events_in.push(EventIn {
 			handle: ret[0],
 			etype: EventTypeIn::Suspend,
 		});
-		assert_eq!(
-			get_events_impl(&EventHandlerConfig::default(), &mut ctx, false, true)?,
-			0
-		);
+		assert_eq!(get_events_impl(&config, &mut ctx, false, true)?, 0);
 
 		assert_eq!(ctx.filter_set.len(), 100 + ret[0] as usize);
 

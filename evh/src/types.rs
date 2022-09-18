@@ -32,7 +32,7 @@ use bmw_deps::nix::sys::epoll::EpollEvent;
 #[cfg(target_os = "windows")]
 use bmw_deps::bitvec::vec::BitVec;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TlsServerConfig {
 	/// The location of the private_key file (privkey.pem).
 	pub private_key_file: String,
@@ -44,6 +44,7 @@ pub struct TlsServerConfig {
 	pub ocsp_file: Option<String>,
 }
 
+#[derive(PartialEq)]
 pub struct TlsClientConfig {
 	pub sni_host: String,
 	pub trusted_cert_full_chain_file: Option<String>,
