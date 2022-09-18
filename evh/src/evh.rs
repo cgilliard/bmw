@@ -1074,7 +1074,10 @@ where
 									});
 								}
 								Err(e) => {
-									warn!("insert_hashtables generated error: {}. Closing.", e)?;
+									warn!(
+										"insert_hashtables listener generated error: {}. Closing.",
+										e
+									)?;
 									close_impl(ctx, li.handle)?;
 								}
 							}
@@ -1088,7 +1091,7 @@ where
 									});
 								}
 								Err(e) => {
-									warn!("insert_hashtables generated error: {}. Closing.", e)?;
+									warn!("insert_hashtables rw generated error: {}. Closing.", e)?;
 									close_impl(ctx, rw.handle)?;
 								}
 							}
@@ -1917,7 +1920,7 @@ where
 				});
 			}
 			Err(e) => {
-				warn!("insert_hashtables generated error: {}. Closing.", e)?;
+				warn!("insert_hashtables generated error1: {}. Closing.", e)?;
 				close_impl(ctx, handle)?;
 			}
 		}
@@ -2731,7 +2734,11 @@ mod test {
 			Ok(())
 		})?;
 		evh.set_on_accept(move |conn_data, _thread_context| {
-			info!("accept a connection handle = {}", conn_data.get_handle())?;
+			info!(
+				"accept a connection handle = {},tid={}",
+				conn_data.get_handle(),
+				conn_data.tid()
+			)?;
 			Ok(())
 		})?;
 		evh.set_on_close(move |conn_data, _thread_context| {
@@ -2769,7 +2776,7 @@ mod test {
 			assert_eq!(&buf[0..len], b"test2");
 		}
 
-		let total = 1000;
+		let total = 1_000;
 		for _ in 0..total {
 			let mut connection = TcpStream::connect(addr)?;
 			connection.write(b"test1")?;
@@ -4310,7 +4317,7 @@ mod test {
 	#[test]
 	fn test_eventhandler_too_many_connections() -> Result<(), Error> {
 		let port = pick_free_port()?;
-		info!("thread_panic on_read Using port: {}", port)?;
+		info!("too many connections on_read Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
 		let threads = 1;
 		let config = EventHandlerConfig {
@@ -4351,12 +4358,16 @@ mod test {
 			Ok(())
 		})?;
 
+		let mut close_count = lock_box!(0)?;
+		let close_count_clone = close_count.clone();
 		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
+			info!(
 				"on close: {}/{}",
 				conn_data.get_handle(),
 				conn_data.get_connection_id()
 			)?;
+			let mut close_count = close_count.wlock()?;
+			**close_count.guard() += 1;
 			Ok(())
 		})?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -4388,7 +4399,18 @@ mod test {
 			let mut stream2 = TcpStream::connect(addr)?;
 			assert_eq!(stream2.read(&mut buf)?, 0);
 		}
-		sleep(Duration::from_millis(100));
+
+		let mut count = 0;
+		loop {
+			count += 1;
+			sleep(Duration::from_millis(1));
+			if **(close_count_clone.rlock()?.guard()) == 0 && count < 2_000 {
+				continue;
+			}
+			assert_eq!(**(close_count_clone.rlock()?.guard()), 1);
+			break;
+		}
+		info!("sleep complete")?;
 		// now that stream1 is dropped we should be able to reconnect
 
 		let mut stream1 = TcpStream::connect(addr)?;
