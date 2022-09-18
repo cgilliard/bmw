@@ -71,8 +71,7 @@ pub(crate) fn close_impl(
 	let handle_as_usize = handle.try_into()?;
 	debug!("filter set remove {}, tid={}", handle_as_usize, ctx.tid)?;
 	if handle_as_usize >= ctx.filter_set.len().try_into()? {
-		ctx.filter_set
-			.resize((handle_as_usize + 100).try_into()?, false);
+		ctx.filter_set.resize(handle_as_usize + 100, false);
 	}
 	ctx.filter_set.replace(handle_as_usize, false);
 	unsafe {

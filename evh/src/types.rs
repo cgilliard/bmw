@@ -106,41 +106,6 @@ pub trait ConnData {
 }
 
 #[derive(Clone)]
-pub(crate) enum LastProcessType {
-	OnRead,
-	OnClose,
-	OnAccept,
-	Housekeeper,
-}
-
-#[derive(Clone)]
-pub(crate) struct EventHandlerContext {
-	pub(crate) events: Array<Event>,
-	pub(crate) events_in: Vec<EventIn>,
-	pub(crate) tid: usize,
-	#[cfg(target_os = "linux")]
-	pub(crate) filter_set: BitVec,
-	#[cfg(target_os = "windows")]
-	pub(crate) filter_set: BitVec,
-	#[cfg(target_os = "linux")]
-	pub(crate) epoll_events: Vec<EpollEvent>,
-	pub(crate) selector: Handle,
-	pub(crate) now: u128,
-	pub(crate) last_housekeeper: u128,
-	pub(crate) connection_hashtable: Box<dyn Hashtable<u128, ConnectionInfo> + Send + Sync>,
-	pub(crate) handle_hashtable: Box<dyn Hashtable<Handle, u128> + Send + Sync>,
-	pub(crate) read_slabs: Box<dyn SlabAllocator + Send + Sync>,
-	#[cfg(target_os = "windows")]
-	pub(crate) write_set: Box<dyn Hashset<Handle> + Send + Sync>,
-	pub(crate) counter: usize,
-	pub(crate) count: usize,
-	pub(crate) last_process_type: LastProcessType,
-	pub(crate) last_rw: Option<ReadWriteInfo>,
-	pub(crate) buffer: Vec<u8>,
-	pub(crate) do_write_back: bool,
-}
-
-#[derive(Clone)]
 pub struct EventHandlerConfig {
 	pub threads: usize,
 	pub sync_channel_size: usize,
@@ -194,6 +159,43 @@ where
 }
 
 pub struct Builder {}
+
+// pub(crate) types
+
+#[derive(Clone)]
+pub(crate) enum LastProcessType {
+	OnRead,
+	OnClose,
+	OnAccept,
+	Housekeeper,
+}
+
+#[derive(Clone)]
+pub(crate) struct EventHandlerContext {
+	pub(crate) events: Array<Event>,
+	pub(crate) events_in: Vec<EventIn>,
+	pub(crate) tid: usize,
+	#[cfg(target_os = "linux")]
+	pub(crate) filter_set: BitVec,
+	#[cfg(target_os = "windows")]
+	pub(crate) filter_set: BitVec,
+	#[cfg(target_os = "linux")]
+	pub(crate) epoll_events: Vec<EpollEvent>,
+	pub(crate) selector: Handle,
+	pub(crate) now: u128,
+	pub(crate) last_housekeeper: u128,
+	pub(crate) connection_hashtable: Box<dyn Hashtable<u128, ConnectionInfo> + Send + Sync>,
+	pub(crate) handle_hashtable: Box<dyn Hashtable<Handle, u128> + Send + Sync>,
+	pub(crate) read_slabs: Box<dyn SlabAllocator + Send + Sync>,
+	#[cfg(target_os = "windows")]
+	pub(crate) write_set: Box<dyn Hashset<Handle> + Send + Sync>,
+	pub(crate) counter: usize,
+	pub(crate) count: usize,
+	pub(crate) last_process_type: LastProcessType,
+	pub(crate) last_rw: Option<ReadWriteInfo>,
+	pub(crate) buffer: Vec<u8>,
+	pub(crate) do_write_back: bool,
+}
 
 #[derive(Clone)]
 pub(crate) struct EventHandlerImpl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
