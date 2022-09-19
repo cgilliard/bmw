@@ -77,6 +77,7 @@ pub struct ConnectionData<'a> {
 	pub(crate) wakeup: Wakeup,
 	pub(crate) event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 	pub(crate) debug_write_queue: bool,
+	pub(crate) debug_pending: bool,
 }
 
 #[derive(Clone)]
@@ -87,6 +88,7 @@ pub struct WriteHandle {
 	pub(crate) wakeup: Wakeup,
 	pub(crate) event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 	pub(crate) debug_write_queue: bool,
+	pub(crate) debug_pending: bool,
 	pub(crate) tls_server: Option<Box<dyn LockBox<RustlsServerConnection>>>,
 	pub(crate) tls_client: Option<Box<dyn LockBox<RustlsClientConnection>>>,
 }
@@ -238,6 +240,7 @@ where
 	pub(crate) wakeup: Array<Wakeup>,
 	pub(crate) thread_pool_stopper: Option<ThreadPoolStopper>,
 	pub(crate) debug_write_queue: bool,
+	pub(crate) debug_pending: bool,
 }
 
 #[derive(Clone)]

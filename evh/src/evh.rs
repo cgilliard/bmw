@@ -437,6 +437,7 @@ impl WriteHandle {
 		write_state: Box<dyn LockBox<WriteState>>,
 		event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 		debug_write_queue: bool,
+		debug_pending: bool,
 		tls_server: Option<Box<dyn LockBox<RSConn>>>,
 		tls_client: Option<Box<dyn LockBox<RCConn>>>,
 	) -> Self {
@@ -447,6 +448,7 @@ impl WriteHandle {
 			write_state,
 			event_handler_data,
 			debug_write_queue,
+			debug_pending,
 			tls_client,
 			tls_server,
 		}
@@ -576,22 +578,18 @@ impl WriteHandle {
 			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_SUSPEND) {
 				return Err(err!(ErrKind::IO, "write handle suspended"));
 			}
-			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_PENDING) {
+			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_PENDING) || self.debug_pending {
 				0
 			} else {
 				if self.debug_write_queue {
-					if data_len > 4 {
-						if data[0] == 'a' as u8 {
-							write_bytes(self.handle, &data[0..4])
-						} else if data[0] == 'b' as u8 {
-							write_bytes(self.handle, &data[0..3])
-						} else if data[0] == 'c' as u8 {
-							write_bytes(self.handle, &data[0..2])
-						} else if data[0] == 'd' as u8 {
-							write_bytes(self.handle, &data[0..1])
-						} else {
-							write_bytes(self.handle, data)
-						}
+					if data[0] == 'a' as u8 {
+						write_bytes(self.handle, &data[0..4])
+					} else if data[0] == 'b' as u8 {
+						write_bytes(self.handle, &data[0..3])
+					} else if data[0] == 'c' as u8 {
+						write_bytes(self.handle, &data[0..2])
+					} else if data[0] == 'd' as u8 {
+						write_bytes(self.handle, &data[0..1])
 					} else {
 						write_bytes(self.handle, data)
 					}
@@ -600,9 +598,13 @@ impl WriteHandle {
 				}
 			}
 		};
-		if errno().0 != 0 || len < 0 {
+		if errno().0 != 0 || len < 0 || self.debug_pending {
 			// check for would block
-			if errno().0 != EAGAIN && errno().0 != ETEMPUNAVAILABLE && errno().0 != WINNONBLOCKING {
+			if errno().0 != EAGAIN
+				&& errno().0 != ETEMPUNAVAILABLE
+				&& errno().0 != WINNONBLOCKING
+				&& !self.debug_pending
+			{
 				return Err(err!(
 					ErrKind::IO,
 					format!("writing generated error: {}", errno())
@@ -669,6 +671,7 @@ impl<'a> ConnectionData<'a> {
 		wakeup: Wakeup,
 		event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 		debug_write_queue: bool,
+		debug_pending: bool,
 	) -> Self {
 		Self {
 			rwi,
@@ -677,6 +680,7 @@ impl<'a> ConnectionData<'a> {
 			wakeup,
 			event_handler_data,
 			debug_write_queue,
+			debug_pending,
 		}
 	}
 
@@ -706,6 +710,7 @@ impl<'a> ConnData for ConnectionData<'a> {
 			self.rwi.write_state.clone(),
 			self.event_handler_data.clone(),
 			self.debug_write_queue,
+			self.debug_pending,
 			self.rwi.tls_server.clone(),
 			self.rwi.tls_client.clone(),
 		)
@@ -793,7 +798,7 @@ where
 			wakeup[i] = Wakeup::new()?;
 		}
 
-		Ok(Self {
+		let ret = Self {
 			on_read: None,
 			on_accept: None,
 			on_close: None,
@@ -804,7 +809,9 @@ where
 			wakeup,
 			thread_pool_stopper: None,
 			debug_write_queue: false,
-		})
+			debug_pending: false,
+		};
+		Ok(ret)
 	}
 
 	#[cfg(test)]
@@ -812,12 +819,16 @@ where
 		self.debug_write_queue = value;
 	}
 
+	#[cfg(test)]
+	fn set_debug_pending(&mut self, value: bool) {
+		self.debug_pending = value;
+	}
+
 	fn check_config(config: &EventHandlerConfig) -> Result<(), Error> {
 		if config.read_slab_count >= u32::MAX.try_into()? {
-			return Err(err!(
-				ErrKind::Configuration,
-				"read_slab_count must be smaller than u32::MAX"
-			));
+			let fmt = "read_slab_count must be smaller than u32::MAX";
+			let err = err!(ErrKind::Configuration, fmt);
+			return Err(err);
 		}
 		Ok(())
 	}
@@ -835,20 +846,18 @@ where
 		if !is_restart {
 			let handle = wakeup.reader;
 			debug!("wakeup handle is {}", handle)?;
-			ctx.events_in.push(EventIn {
+			let e = EventIn {
 				handle,
 				etype: EventTypeIn::Read,
-			});
+			};
+			ctx.events_in.push(e);
 		} else {
 			// we have to do different cleanup for each type.
 			match ctx.last_process_type {
 				LastProcessType::OnRead => {
-					match ctx.last_rw.clone() {
-						Some(mut rw) => {
-							self.process_close(ctx, &mut rw, callback_context)?;
-						}
-						None => {}
-					}
+					// unwrap is ok because last_rw always set before on_read
+					let mut rw = ctx.last_rw.clone().unwrap();
+					self.process_close(ctx, &mut rw, callback_context)?;
 					ctx.counter += 1;
 				}
 				LastProcessType::OnAccept => {
@@ -1288,6 +1297,7 @@ where
 							self.wakeup[ctx.tid].clone(),
 							self.data[ctx.tid].clone(),
 							self.debug_write_queue,
+							self.debug_pending,
 						),
 						callback_context,
 					) {
@@ -1367,6 +1377,7 @@ where
 				self.wakeup[ctx.tid].clone(),
 				self.data[ctx.tid].clone(),
 				self.debug_write_queue,
+				self.debug_pending,
 			);
 			connection_data.write_handle().do_write(&wbuf)?;
 		}
@@ -1423,6 +1434,7 @@ where
 				self.wakeup[ctx.tid].clone(),
 				self.data[ctx.tid].clone(),
 				self.debug_write_queue,
+				self.debug_pending,
 			);
 			connection_data.write_handle().do_write(&wbuf)?;
 		}
@@ -1703,6 +1715,7 @@ where
 							self.wakeup[ctx.tid].clone(),
 							self.data[ctx.tid].clone(),
 							self.debug_write_queue,
+							self.debug_pending,
 						),
 						callback_context,
 					) {
@@ -1759,6 +1772,7 @@ where
 									self.wakeup[ctx.tid].clone(),
 									self.data[ctx.tid].clone(),
 									self.debug_write_queue,
+									self.debug_pending,
 								),
 								callback_context,
 							) {
@@ -1870,6 +1884,7 @@ where
 							self.wakeup[tid].clone(),
 							self.data[tid].clone(),
 							self.debug_write_queue,
+							self.debug_pending,
 						),
 						callback_context,
 					) {
@@ -1915,6 +1930,7 @@ where
 						self.wakeup[ctx.tid].clone(),
 						self.data[ctx.tid].clone(),
 						self.debug_write_queue,
+						self.debug_pending,
 					),
 					callback_context,
 				) {
@@ -2205,6 +2221,7 @@ where
 			write_state.clone(),
 			self.data[tid].clone(),
 			self.debug_write_queue,
+			self.debug_pending,
 			None,
 			tls_client.clone(),
 		);
@@ -2418,7 +2435,9 @@ fn load_private_key(filename: &str) -> Result<PrivateKey, Error> {
 mod test {
 	use crate::evh::{create_listeners, errno, read_bytes};
 	use crate::evh::{READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
-	use crate::types::{ConnectionInfo, EventHandlerImpl, ListenerInfo, Wakeup};
+	use crate::types::{
+		ConnectionInfo, EventHandlerImpl, ListenerInfo, ReadWriteInfo, Wakeup, WriteState,
+	};
 	use crate::{
 		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
 		TlsClientConfig, TlsServerConfig, READ_SLAB_DATA_SIZE,
@@ -2436,6 +2455,7 @@ mod test {
 	#[cfg(windows)]
 	use std::os::windows::io::IntoRawSocket;
 	use std::sync::mpsc::sync_channel;
+	use std::sync::Arc;
 	use std::thread::{sleep, spawn};
 	use std::time::Duration;
 
@@ -2858,6 +2878,7 @@ mod test {
 				conn_data.write_handle().write(&res)?;
 			} else {
 				conn_data.write_handle().close()?;
+				assert!(conn_data.write_handle().write(b"test").is_err());
 				assert!(conn_data.write_handle().suspend().is_ok());
 				assert!(conn_data.write_handle().resume().is_ok());
 				assert!(conn_data.write_handle().close().is_ok());
@@ -3179,19 +3200,9 @@ mod test {
 				let guard = tid1count.guard();
 				(**guard) += 1;
 			}
-			info!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
 			Ok(())
 		})?;
-		evh.set_on_close(move |conn_data, _thread_context| {
-			info!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
+		evh.set_on_close(move |_conn_data, _thread_context| {
 			let mut close_count = close_count.wlock()?;
 			(**close_count.guard()) += 1;
 			Ok(())
@@ -3277,41 +3288,9 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
-			info!("on read fs = {}", conn_data.slab_offset())?;
-			let first_slab = conn_data.first_slab();
-			let slab_offset = conn_data.slab_offset();
-			let res = conn_data.borrow_slab_allocator(move |sa| {
-				let slab = sa.get(first_slab.try_into()?)?;
-				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
-				let mut ret: Vec<u8> = vec![];
-				ret.extend(&slab.get()[0..slab_offset as usize]);
-				Ok(ret)
-			})?;
-			conn_data.clear_through(first_slab)?;
-			conn_data.write_handle().write(&res)?;
-			info!("res={:?}", res)?;
-			Ok(())
-		})?;
-
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			info!(
-				"stop accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-
-		evh.set_on_close(move |conn_data, _thread_context| {
-			info!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
-
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
@@ -3388,34 +3367,15 @@ mod test {
 				Ok((ret, second_slab))
 			})?;
 			info!("second_slab={}", second_slab)?;
-			if second_slab != usize::MAX {
-				conn_data.clear_through(second_slab.try_into()?)?;
-			} else {
-				conn_data.clear_through(last_slab)?;
-			}
+			assert_ne!(second_slab, usize::MAX);
+			conn_data.clear_through(second_slab.try_into()?)?;
 			conn_data.write_handle().write(&res)?;
 			info!("res={:?}", res)?;
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			info!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-
-		evh.set_on_close(move |conn_data, _thread_context| {
-			info!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
-
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
@@ -3522,22 +3482,8 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
@@ -3616,22 +3562,8 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
@@ -3698,22 +3630,8 @@ mod test {
 			Ok(())
 		})?;
 
-		evh2.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-		evh2.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
+		evh2.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh2.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh2.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh2.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh2.start()?;
@@ -3785,24 +3703,10 @@ mod test {
 			let res = conn_data.borrow_slab_allocator(move |sa| {
 				let mut slab_id = first_slab;
 				let mut ret: Vec<u8> = vec![];
-				loop {
-					let slab = sa.get(slab_id.try_into()?)?;
-					let slab_bytes = slab.get();
-					let offset = if slab_id == last_slab {
-						slab_offset as usize
-					} else {
-						READ_SLAB_DATA_SIZE
-					};
-					debug!("read bytes = {:?}", &slab.get()[0..offset as usize])?;
-					ret.extend(&slab_bytes[0..offset]);
-
-					if slab_id == last_slab {
-						break;
-					}
-					slab_id = u32::from_be_bytes(try_into!(
-						slab_bytes[READ_SLAB_DATA_SIZE..READ_SLAB_DATA_SIZE + 4]
-					)?);
-				}
+				let slab = sa.get(slab_id.try_into()?)?;
+				let slab_bytes = slab.get();
+				let offset = slab_offset as usize;
+				ret.extend(&slab_bytes[0..offset]);
 				Ok(ret)
 			})?;
 			debug!("res.len={}", res.len())?;
@@ -3810,23 +3714,9 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 
-		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
@@ -3899,24 +3789,10 @@ mod test {
 			let res = conn_data.borrow_slab_allocator(move |sa| {
 				let mut slab_id = first_slab;
 				let mut ret: Vec<u8> = vec![];
-				loop {
-					let slab = sa.get(slab_id.try_into()?)?;
-					let slab_bytes = slab.get();
-					let offset = if slab_id == last_slab {
-						slab_offset as usize
-					} else {
-						READ_SLAB_DATA_SIZE
-					};
-					debug!("read bytes = {:?}", &slab.get()[0..offset as usize])?;
-					ret.extend(&slab_bytes[0..offset]);
-
-					if slab_id == last_slab {
-						break;
-					}
-					slab_id = u32::from_be_bytes(try_into!(
-						slab_bytes[READ_SLAB_DATA_SIZE..READ_SLAB_DATA_SIZE + 4]
-					)?);
-				}
+				let slab = sa.get(slab_id.try_into()?)?;
+				let slab_bytes = slab.get();
+				let offset = slab_offset as usize;
+				ret.extend(&slab_bytes[0..offset]);
 				Ok(ret)
 			})?;
 			debug!("res.len={}", res.len())?;
@@ -3924,24 +3800,12 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
+		evh.set_on_accept(move |_conn_data, thread_context| {
 			thread_context.user_data = Box::new("something".to_string());
 			Ok(())
 		})?;
 
-		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
@@ -3999,23 +3863,8 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-
-		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
@@ -4090,23 +3939,14 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
+		let handles = create_listeners(threads, addr, 10)?;
+		let server_handle = handles[0];
 
-		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			assert_eq!(server_handle, conn_data.get_accept_handle().unwrap());
 			Ok(())
 		})?;
+		evh.set_on_close(move |_, _| Ok(()))?;
 
 		let mut on_panic_callback = lock_box!(0)?;
 		let on_panic_callback_clone = on_panic_callback.clone();
@@ -4119,7 +3959,6 @@ mod test {
 		})?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -4214,24 +4053,9 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			info!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-
-		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
-		evh.set_on_panic(move |_thread_context, e| {
+		evh.set_on_accept(move |_, _| Ok(()))?;
+		evh.set_on_close(move |_, _| Ok(()))?;
+		evh.set_on_panic(move |_, e| {
 			let e = e.downcast_ref::<&str>().unwrap();
 			info!("on panic callback: '{}'", e)?;
 			Ok(())
@@ -4365,23 +4189,10 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-
+		evh.set_on_accept(move |_, _| Ok(()))?;
 		let mut close_count = lock_box!(0)?;
 		let close_count_clone = close_count.clone();
-		evh.set_on_close(move |conn_data, _thread_context| {
-			info!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
+		evh.set_on_close(move |_conn_data, _thread_context| {
 			let mut close_count = close_count.wlock()?;
 			**close_count.guard() += 1;
 			Ok(())
@@ -4443,6 +4254,68 @@ mod test {
 	}
 
 	#[test]
+	fn test_evh_debug_pending() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("stop Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 60_000,
+			read_slab_count: 20,
+			max_handles_per_thread: 30,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+		evh.set_debug_pending(true);
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read fs = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			conn_data.write_handle().write(&res)?;
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |_, _| Ok(()))?;
+		evh.set_on_close(move |_, _| Ok(()))?;
+		evh.set_on_panic(move |_, _| Ok(()))?;
+		evh.set_housekeeper(move |_| Ok(()))?;
+
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+
+		// do a normal request
+		stream.write(b"12345")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 5);
+		assert_eq!(&buf[0..len], b"12345");
+
+		Ok(())
+	}
+
+	#[test]
 	fn test_evh_write_queue() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("stop Using port: {}", port)?;
@@ -4475,26 +4348,10 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			info!(
-				"write q accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-
-		evh.set_on_close(move |conn_data, _thread_context| {
-			info!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
-
-		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
-		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.set_on_accept(move |_, _| Ok(()))?;
+		evh.set_on_close(move |_, _| Ok(()))?;
+		evh.set_on_panic(move |_, _| Ok(()))?;
+		evh.set_housekeeper(move |_| Ok(()))?;
 
 		evh.start()?;
 
@@ -4581,29 +4438,13 @@ mod test {
 		let mut evh = EventHandlerImpl::new(config)?;
 
 		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
-
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-
-		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
-		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_on_accept(move |_, _| Ok(()))?;
+		evh.set_on_close(move |_, _| Ok(()))?;
+		evh.set_on_panic(move |_, _| Ok(()))?;
 
 		let mut x = lock_box!(0)?;
 		let x_clone = x.clone();
-		evh.set_housekeeper(move |thread_context| {
+		evh.set_housekeeper(move |thread_context: _| {
 			info!("housekeep callback")?;
 			match thread_context.user_data.downcast_mut::<u64>() {
 				Some(value) => {
@@ -4695,6 +4536,7 @@ mod test {
 					wh.write(b"test")?;
 					let handle = wh.handle();
 					wh.suspend()?;
+					assert!(wh.write(b"test").is_err());
 
 					#[cfg(unix)]
 					let mut strm = unsafe { TcpStream::from_raw_fd(handle) };
@@ -4739,26 +4581,10 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			debug!(
-				"accept a connection handle = {}, tid={}",
-				conn_data.get_handle(),
-				conn_data.tid()
-			)?;
-			Ok(())
-		})?;
-
-		evh.set_on_close(move |conn_data, _thread_context| {
-			debug!(
-				"on close: {}/{}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
-		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
-
-		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.set_on_accept(move |_, _| Ok(()))?;
+		evh.set_on_close(move |_, _| Ok(()))?;
+		evh.set_on_panic(move |_, _| Ok(()))?;
+		evh.set_housekeeper(move |_| Ok(()))?;
 		evh.start()?;
 		let handles = create_listeners(threads, addr, 10)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
@@ -4769,38 +4595,40 @@ mod test {
 		};
 		evh.add_server(sc)?;
 
-		let mut connection = TcpStream::connect(addr)?;
-		connection.write(b"test")?;
+		{
+			let mut connection = TcpStream::connect(addr)?;
+			connection.write(b"test")?;
 
-		sleep(Duration::from_millis(10_000));
-		connection.write(b"next")?;
-		let mut buf = vec![];
-		buf.resize(100, 0u8);
-		let len = connection.read(&mut buf)?;
+			sleep(Duration::from_millis(10_000));
+			connection.write(b"next")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+			let len = connection.read(&mut buf)?;
 
-		let response = std::str::from_utf8(&buf[0..len])?;
-		info!("buf={:?}", response)?;
-		assert_eq!(response, "testokokokokok");
+			let response = std::str::from_utf8(&buf[0..len])?;
+			info!("buf={:?}", response)?;
+			assert_eq!(response, "testokokokokok");
 
-		sleep(Duration::from_millis(1_000));
-		connection.write(b"resume")?;
-		let mut buf = vec![];
-		buf.resize(100, 0u8);
-		let len = connection.read(&mut buf)?;
-		let response = std::str::from_utf8(&buf[0..len])?;
-		info!("final={:?}", response)?;
-		assert_eq!(response, "resume");
+			sleep(Duration::from_millis(1_000));
+			connection.write(b"resume")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+			let len = connection.read(&mut buf)?;
+			let response = std::str::from_utf8(&buf[0..len])?;
+			info!("final={:?}", response)?;
+			assert_eq!(response, "resume");
 
-		let mut count = 0;
-		loop {
-			count += 1;
-			sleep(Duration::from_millis(1));
-			if **(complete.rlock()?.guard()) != 1 && count < 2_000 {
-				continue;
+			let mut count = 0;
+			loop {
+				count += 1;
+				sleep(Duration::from_millis(1));
+				if **(complete.rlock()?.guard()) != 1 && count < 2_000 {
+					continue;
+				}
+
+				assert_eq!(**(complete.rlock()?.guard()), 1);
+				break;
 			}
-
-			assert_eq!(**(complete.rlock()?.guard()), 1);
-			break;
 		}
 
 		evh.stop()?;
@@ -4810,7 +4638,6 @@ mod test {
 
 	#[test]
 	fn test_arc_to_ptr() -> Result<(), Error> {
-		use std::sync::Arc;
 		let x = Arc::new(10u32);
 
 		let ptr = Arc::into_raw(x);
@@ -4843,11 +4670,13 @@ mod test {
 					assert_eq!(li1.handle, li2.handle);
 					assert_eq!(li1.is_reuse_port, li2.is_reuse_port);
 				}
-				ConnectionInfo::ReadWriteInfo(_rwi) => assert!(false),
+				ConnectionInfo::ReadWriteInfo(_rwi) => {
+					return Err(err!(ErrKind::IllegalArgument, ""))
+				}
 			},
 			ConnectionInfo::ReadWriteInfo(rwi1) => match ci2 {
 				ConnectionInfo::ListenerInfo(_li) => {
-					assert!(false);
+					return Err(err!(ErrKind::IllegalArgument, ""));
 				}
 				ConnectionInfo::ReadWriteInfo(rwi2) => {
 					assert_eq!(rwi1.id, rwi2.id);
@@ -4866,15 +4695,15 @@ mod test {
 	#[test]
 	fn test_connection_info_serialization() -> Result<(), Error> {
 		let mut hashtable = hashtable!()?;
-		let ci = ConnectionInfo::ListenerInfo(ListenerInfo {
+		let ci1 = ConnectionInfo::ListenerInfo(ListenerInfo {
 			id: 7,
 			handle: 8,
 			is_reuse_port: false,
 			tls_config: None,
 		});
-		hashtable.insert(&0, &ci)?;
+		hashtable.insert(&0, &ci1)?;
 		let v = hashtable.get(&0)?.unwrap();
-		compare_ci(v, ci)?;
+		compare_ci(v, ci1.clone())?;
 
 		let ser_out = ConnectionInfo::ListenerInfo(ListenerInfo {
 			id: 10,
@@ -4887,6 +4716,28 @@ mod test {
 		v[0] = 2; // corrupt data
 		let ser_in: Result<ConnectionInfo, Error> = deserialize(&mut &v[..]);
 		assert!(ser_in.is_err());
+
+		let ci2 = ConnectionInfo::ReadWriteInfo(ReadWriteInfo {
+			accept_handle: None,
+			id: 0,
+			handle: 0,
+			first_slab: 0,
+			last_slab: 0,
+			slab_offset: 0,
+			is_accepted: true,
+			tls_client: None,
+			tls_server: None,
+			write_state: lock_box!(WriteState {
+				write_buffer: vec![],
+				flags: 0
+			})?,
+		});
+		hashtable.insert(&0, &ci2)?;
+		let v = hashtable.get(&0)?.unwrap();
+		compare_ci(v, ci2.clone())?;
+
+		assert!(compare_ci(ci1.clone(), ci2.clone()).is_err());
+		assert!(compare_ci(ci2, ci1).is_err());
 
 		Ok(())
 	}
@@ -4909,7 +4760,7 @@ mod test {
 		let mut client_handle = lock_box!(0)?;
 		let client_handle_clone = client_handle.clone();
 
-		let mut client_received_test1 = lock_box!(false)?;
+		let mut client_received_test1 = lock_box!(0)?;
 		let mut server_received_test1 = lock_box!(false)?;
 		let mut server_received_abc = lock_box!(false)?;
 		let client_received_test1_clone = client_received_test1.clone();
@@ -4961,6 +4812,9 @@ mod test {
 					info!("found abc")?;
 					let mut server_received_abc = server_received_abc.wlock()?;
 					(**server_received_abc.guard()) = true;
+
+					// write a big message to test the server side big messages
+					conn_data.write_handle().write(&big_msg)?;
 				} else {
 					conn_data.write_handle().write(&res)?;
 					let mut server_accumulator = server_accumulator.wlock()?;
@@ -4974,17 +4828,19 @@ mod test {
 				}
 			} else {
 				info!("client res.len= = {}", res.len())?;
-				let mut x = vec![];
-				x.extend(b"abc");
-				conn_data.write_handle().write(&x)?;
 
 				let mut client_accumulator = client_accumulator.wlock()?;
 				let guard = client_accumulator.guard();
 				(**guard).extend(res.clone());
 
 				if **guard == big_msg {
+					info!("client found a big message")?;
+					let mut x = vec![];
+					x.extend(b"abc");
+					conn_data.write_handle().write(&x)?;
+					**guard = vec![];
 					let mut client_received_test1 = client_received_test1.wlock()?;
-					(**client_received_test1.guard()) = true;
+					(**client_received_test1.guard()) += 1;
 				}
 			}
 			info!("res[0]={}, res.len()={}", res[0], res.len())?;
@@ -5043,7 +4899,7 @@ mod test {
 		let mut count = 0;
 		loop {
 			sleep(Duration::from_millis(1));
-			if !(**(client_received_test1_clone.rlock()?.guard())
+			if !(**(client_received_test1_clone.rlock()?.guard()) == 2
 				&& **(server_received_test1_clone.rlock()?.guard())
 				&& **(server_received_abc_clone.rlock()?.guard()))
 			{
@@ -5053,13 +4909,40 @@ mod test {
 				}
 			}
 			assert!(**(server_received_test1_clone.rlock()?.guard()));
-			assert!(**(client_received_test1_clone.rlock()?.guard()));
+			assert!(**(client_received_test1_clone.rlock()?.guard()) == 2);
 			assert!(**(server_received_abc_clone.rlock()?.guard()));
 			break;
 		}
 
 		evh.stop()?;
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_bad_configs() -> Result<(), Error> {
+		let mut evhs = vec![];
+		evhs.push(EventHandlerImpl::new(EventHandlerConfig {
+			read_slab_count: u32::MAX as usize,
+			..Default::default()
+		}));
+		evhs.push(EventHandlerImpl::new(EventHandlerConfig {
+			read_slab_count: 100 as usize,
+			..Default::default()
+		}));
+
+		for i in 0..2 {
+			if i == 0 {
+				assert!(evhs[i].is_err());
+			} else {
+				let evh = evhs[i].as_mut().unwrap();
+				evh.set_on_read(move |_, _| Ok(()))?;
+				evh.set_on_accept(move |_, _| Ok(()))?;
+				evh.set_on_close(move |_, _| Ok(()))?;
+				evh.set_housekeeper(move |_| Ok(()))?;
+				evh.set_on_panic(move |_, _| Ok(()))?;
+			}
+		}
 		Ok(())
 	}
 }
