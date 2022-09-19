@@ -256,6 +256,7 @@ pub(crate) fn get_events_impl(
 			let op = EpollOp::EpollCtlDel;
 
 			let mut event = EpollEvent::new(interest, evt.handle.try_into()?);
+			debug!("fd={},op={:?},ctx.tid={}", fd, op, ctx.tid)?;
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			if res.is_err() || debug_err {
 				error!(
@@ -277,7 +278,7 @@ pub(crate) fn get_events_impl(
 	}
 	.try_into()?;
 
-	debug!("wakeup req = {}", wakeup_requested)?;
+	debug!("epoll_wait tid = {}", ctx.tid)?;
 	let results = epoll_wait(ctx.selector, &mut ctx.epoll_events, sleep);
 
 	ctx.now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();

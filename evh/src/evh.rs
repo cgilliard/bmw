@@ -1359,7 +1359,7 @@ where
 			(**tls_conn).write_tls(&mut wbuf)?;
 		}
 
-		if len > 0 {
+		if wbuf.len() > 0 {
 			let connection_data = ConnectionData::new(
 				&mut rw,
 				ctx.tid,
@@ -1415,7 +1415,7 @@ where
 			(**tls_conn).write_tls(&mut wbuf)?;
 		}
 
-		if len > 0 {
+		if wbuf.len() > 0 {
 			let connection_data = ConnectionData::new(
 				&mut rw,
 				ctx.tid,
@@ -1438,53 +1438,8 @@ where
 	) -> Result<(), Error> {
 		match rw.tls_server {
 			Some(ref _tls_server) => {
-				let (raw_len, pt_len) = self.do_tls_server_read(rw.clone(), ctx)?;
-				if raw_len <= 0 {
-					// EAGAIN is would block. -2 is would block for windows
-					if errno().0 != EAGAIN
-						&& errno().0 != ETEMPUNAVAILABLE
-						&& errno().0 != WINNONBLOCKING
-						&& raw_len != -2
-					{
-						self.process_close(ctx, rw, callback_context)?;
-					}
-
-					if raw_len == -2 {
-						#[cfg(target_os = "windows")]
-						{
-							if !ctx.write_set.contains(&rw.handle)? {
-								epoll_ctl_impl(
-									EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
-									rw.handle,
-									&mut ctx.filter_set,
-									ctx.selector as *mut c_void,
-									ctx.tid,
-								)?;
-							}
-						}
-					}
-				} else if pt_len > 0 {
-					ctx.buffer.truncate(pt_len);
-					self.process_read_result(rw, ctx, callback_context, true)?;
-				} else {
-					#[cfg(target_os = "windows")]
-					{
-						if !ctx.write_set.contains(&rw.handle)? {
-							epoll_ctl_impl(
-								EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
-								rw.handle,
-								&mut ctx.filter_set,
-								ctx.selector as *mut c_void,
-								ctx.tid,
-							)?;
-						}
-					}
-				}
-				Ok(())
-			}
-			None => match rw.tls_client {
-				Some(ref _tls_client) => {
-					let (raw_len, pt_len) = self.do_tls_client_read(rw.clone(), ctx)?;
+				loop {
+					let (raw_len, pt_len) = self.do_tls_server_read(rw.clone(), ctx)?;
 					if raw_len <= 0 {
 						// EAGAIN is would block. -2 is would block for windows
 						if errno().0 != EAGAIN
@@ -1524,6 +1479,60 @@ where
 									ctx.tid,
 								)?;
 							}
+						}
+					}
+					if raw_len <= 0 {
+						break;
+					}
+				}
+				Ok(())
+			}
+			None => match rw.tls_client {
+				Some(ref _tls_client) => {
+					loop {
+						let (raw_len, pt_len) = self.do_tls_client_read(rw.clone(), ctx)?;
+						if raw_len <= 0 {
+							// EAGAIN is would block. -2 is would block for windows
+							if errno().0 != EAGAIN
+								&& errno().0 != ETEMPUNAVAILABLE && errno().0 != WINNONBLOCKING
+								&& raw_len != -2
+							{
+								self.process_close(ctx, rw, callback_context)?;
+							}
+
+							if raw_len == -2 {
+								#[cfg(target_os = "windows")]
+								{
+									if !ctx.write_set.contains(&rw.handle)? {
+										epoll_ctl_impl(
+											EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+											rw.handle,
+											&mut ctx.filter_set,
+											ctx.selector as *mut c_void,
+											ctx.tid,
+										)?;
+									}
+								}
+							}
+						} else if pt_len > 0 {
+							ctx.buffer.truncate(pt_len);
+							self.process_read_result(rw, ctx, callback_context, true)?;
+						} else {
+							#[cfg(target_os = "windows")]
+							{
+								if !ctx.write_set.contains(&rw.handle)? {
+									epoll_ctl_impl(
+										EPOLLIN | EPOLLONESHOT | EPOLLRDHUP,
+										rw.handle,
+										&mut ctx.filter_set,
+										ctx.selector as *mut c_void,
+										ctx.tid,
+									)?;
+								}
+							}
+						}
+						if raw_len <= 0 {
+							break;
 						}
 					}
 					Ok(())
@@ -2657,6 +2666,7 @@ mod test {
 			evh.add_server(sc)?;
 
 			let connection = TcpStream::connect(addr)?;
+			connection.set_nonblocking(true)?;
 			#[cfg(unix)]
 			let connection_handle = connection.into_raw_fd();
 			#[cfg(windows)]
@@ -3041,7 +3051,7 @@ mod test {
 			if conn_data.get_handle() != **guard {
 				if res[0] == 't' as u8 {
 					conn_data.write_handle().write(&res)?;
-					if res == b"test1".to_vec() {
+					if res == b"test1" {
 						let mut server_received_test1 = server_received_test1.wlock()?;
 						(**server_received_test1.guard()) = true;
 					}
@@ -4883,6 +4893,173 @@ mod test {
 
 	#[test]
 	fn test_evh_tls_multi_chunk() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("eventhandler tls_multi_chunk Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 100,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		let mut client_handle = lock_box!(0)?;
+		let client_handle_clone = client_handle.clone();
+
+		let mut client_received_test1 = lock_box!(false)?;
+		let mut server_received_test1 = lock_box!(false)?;
+		let mut server_received_abc = lock_box!(false)?;
+		let client_received_test1_clone = client_received_test1.clone();
+		let server_received_test1_clone = server_received_test1.clone();
+		let server_received_abc_clone = server_received_abc.clone();
+
+		let mut big_msg = vec![];
+		big_msg.resize(10 * 1024, 7u8);
+		big_msg[0] = 't' as u8;
+		let big_msg_clone = big_msg.clone();
+		let mut server_accumulator = lock_box!(vec![])?;
+		let mut client_accumulator = lock_box!(vec![])?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read slab offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let mut ret: Vec<u8> = vec![];
+				let mut slab_id = first_slab;
+				loop {
+					if slab_id == last_slab {
+						let slab = sa.get(slab_id.try_into()?)?;
+						ret.extend(&slab.get()[0..slab_offset as usize]);
+						break;
+					} else {
+						let slab = sa.get(slab_id.try_into()?)?;
+						let slab_bytes = slab.get();
+						ret.extend(&slab_bytes[0..READ_SLAB_NEXT_OFFSET]);
+						slab_id = u32::from_be_bytes(try_into!(
+							&slab_bytes[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
+						)?);
+					}
+				}
+				Ok(ret)
+			})?;
+			info!(
+				"on read handle={},id={}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			conn_data.clear_through(last_slab)?;
+			let client_handle = client_handle_clone.rlock()?;
+			let guard = client_handle.guard();
+			if conn_data.get_handle() != **guard {
+				info!("server res.len= = {}", res.len())?;
+				if res == b"abc".to_vec() {
+					info!("found abc")?;
+					let mut server_received_abc = server_received_abc.wlock()?;
+					(**server_received_abc.guard()) = true;
+				} else {
+					conn_data.write_handle().write(&res)?;
+					let mut server_accumulator = server_accumulator.wlock()?;
+					let guard = server_accumulator.guard();
+					(**guard).extend(res.clone());
+
+					if **guard == big_msg {
+						let mut server_received_test1 = server_received_test1.wlock()?;
+						(**server_received_test1.guard()) = true;
+					}
+				}
+			} else {
+				info!("client res.len= = {}", res.len())?;
+				let mut x = vec![];
+				x.extend(b"abc");
+				conn_data.write_handle().write(&x)?;
+
+				let mut client_accumulator = client_accumulator.wlock()?;
+				let guard = client_accumulator.guard();
+				(**guard).extend(res.clone());
+
+				if **guard == big_msg {
+					let mut client_received_test1 = client_received_test1.wlock()?;
+					(**client_received_test1.guard()) = true;
+				}
+			}
+			info!("res[0]={}, res.len()={}", res[0], res.len())?;
+			Ok(())
+		})?;
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			info!(
+				"accept a connection handle = {},id={}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			Ok(())
+		})?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![TlsServerConfig {
+				sni_host: "localhost".to_string(),
+				certificates_file: "./resources/cert.pem".to_string(),
+				private_key_file: "./resources/key.pem".to_string(),
+				ocsp_file: None,
+			}],
+			handles,
+			is_reuse_port: false,
+		};
+		evh.add_server(sc)?;
+
+		let connection = TcpStream::connect(addr)?;
+		connection.set_nonblocking(true)?;
+		#[cfg(unix)]
+		let connection_handle = connection.into_raw_fd();
+		#[cfg(windows)]
+		let connection_handle = connection.into_raw_socket().try_into()?;
+		{
+			let mut client_handle = client_handle.wlock()?;
+			(**client_handle.guard()) = connection_handle;
+		}
+
+		let client = ClientConnection {
+			handle: connection_handle,
+			tls_config: Some(TlsClientConfig {
+				sni_host: "localhost".to_string(),
+				trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
+			}),
+		};
+
+		let mut wh = evh.add_client(client)?;
+
+		wh.write(&big_msg_clone)?;
+		info!("big write complete")?;
+		let mut count = 0;
+		loop {
+			sleep(Duration::from_millis(1));
+			if !(**(client_received_test1_clone.rlock()?.guard())
+				&& **(server_received_test1_clone.rlock()?.guard())
+				&& **(server_received_abc_clone.rlock()?.guard()))
+			{
+				count += 1;
+				if count < 2_000 {
+					continue;
+				}
+			}
+			assert!(**(server_received_test1_clone.rlock()?.guard()));
+			assert!(**(client_received_test1_clone.rlock()?.guard()));
+			assert!(**(server_received_abc_clone.rlock()?.guard()));
+			break;
+		}
+
+		evh.stop()?;
+
 		Ok(())
 	}
 }
