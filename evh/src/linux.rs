@@ -210,7 +210,7 @@ pub(crate) fn get_events_impl(
 			debug!("fd={},op={:?},ctx.tid={}", fd, op, ctx.tid)?;
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			if res.is_err() || debug_err {
-				error!(
+				warn!(
 					"Error epoll_ctl1: {:?}, fd={}, op={:?},tid={}",
 					res, fd, op, ctx.tid
 				)?
@@ -239,7 +239,7 @@ pub(crate) fn get_events_impl(
 			debug!("fd={},op={:?},ctx.tid={}", fd, op, ctx.tid)?;
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			if res.is_err() || debug_err {
-				error!(
+				warn!(
 					"Error epoll_ctl2: {:?}, fd={}, op={:?},tid={}",
 					res, fd, op, ctx.tid
 				)?
@@ -259,7 +259,7 @@ pub(crate) fn get_events_impl(
 			debug!("fd={},op={:?},ctx.tid={}", fd, op, ctx.tid)?;
 			let res = epoll_ctl(ctx.selector, op, evt.handle, &mut event);
 			if res.is_err() || debug_err {
-				error!(
+				warn!(
 					"Error epoll_ctl3: {:?}, fd={}, op={:?},tid={}",
 					res, fd, op, ctx.tid
 				)?
@@ -305,7 +305,7 @@ pub(crate) fn get_events_impl(
 			}
 		}
 	} else {
-		error!("epoll wait generated error: {:?}", results)?;
+		warn!("epoll wait generated error: {:?}", results)?;
 	}
 
 	Ok(res_count)
@@ -316,9 +316,12 @@ mod test {
 	use crate::linux::*;
 	use crate::types::{EventHandlerContext, EventIn};
 	use bmw_test::port::pick_free_port;
+	use std::thread::sleep;
+	use std::time::Duration;
 
 	#[test]
 	fn test_evh_linux() -> Result<(), Error> {
+		sleep(Duration::from_millis(5_000));
 		let mut ctx = EventHandlerContext::new(0, 10, 10, 10, 10)?;
 		ctx.tid = 100;
 		let handle = get_socket()?;

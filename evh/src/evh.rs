@@ -4387,7 +4387,7 @@ mod test {
 		stream.write(b"b12345")?;
 		let mut buf = vec![];
 		buf.resize(100, 0u8);
-		sleep(Duration::from_millis(3_000));
+		sleep(Duration::from_millis(5_000));
 		let len = stream.read(&mut buf)?;
 		info!("read = {:?}", &buf[0..len])?;
 		assert_eq!(len, 6);
