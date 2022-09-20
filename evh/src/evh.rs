@@ -1017,24 +1017,24 @@ where
 										(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
 										#[cfg(unix)]
 										{
-											let strm =
-												unsafe { TcpStream::from_raw_fd(rwi.handle) };
-											strm.set_nonblocking(false)?;
-											strm.into_raw_fd();
+											let h = rwi.handle;
+											let s = unsafe { TcpStream::from_raw_fd(h) };
+											s.set_nonblocking(false)?;
+											s.into_raw_fd();
 										}
 										#[cfg(windows)]
 										{
-											let strm = unsafe {
-												TcpStream::from_raw_socket(u64!(rwi.handle))
-											};
-											strm.set_nonblocking(false)?;
-											strm.into_raw_socket();
+											let h = rwi.handle;
+											let s = unsafe { TcpStream::from_raw_socket(u64!(h)) };
+											s.set_nonblocking(false)?;
+											s.into_raw_socket();
 										}
 									} else if (**guard).is_set(WRITE_STATE_FLAG_RESUME) {
-										ctx.events_in.push(EventIn {
+										let ev_in = EventIn {
 											handle: rwi.handle,
 											etype: EventTypeIn::Resume,
-										});
+										};
+										ctx.events_in.push(ev_in);
 										(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
 										(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
 										#[cfg(unix)]
@@ -1048,10 +1048,11 @@ where
 									} else {
 										debug!("pushing a write event for handle={}", rwi.handle)?;
 										let handle = rwi.handle;
-										ctx.events_in.push(EventIn {
+										let ev_in = EventIn {
 											handle,
 											etype: EventTypeIn::Write,
-										});
+										};
+										ctx.events_in.push(ev_in);
 									}
 								}
 
@@ -1080,11 +1081,7 @@ where
 		if (**guard).stop {
 			return Ok(true);
 		}
-		debug!(
-			"ctx.nhandles.size={},ctx.tid={}",
-			(**guard).nhandles.length(),
-			ctx.tid
-		)?;
+		debug!("handles={},tid={}", (**guard).nhandles.length(), ctx.tid)?;
 		loop {
 			let mut next = (**guard).nhandles.dequeue();
 			match next {
