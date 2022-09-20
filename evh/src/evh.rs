@@ -1876,21 +1876,17 @@ where
 			ctx.last_process_type = LastProcessType::OnAccept;
 			match &mut self.on_accept {
 				Some(on_accept) => {
-					match on_accept(
-						&mut ConnectionData::new(
-							&mut rwi,
-							tid,
-							&mut ctx.read_slabs,
-							self.wakeup[tid].clone(),
-							self.data[tid].clone(),
-							self.debug_write_queue,
-							self.debug_pending,
-						),
-						callback_context,
-					) {
+					let rwi = &mut rwi;
+					let rslabs = &mut ctx.read_slabs;
+					let wakeup = self.wakeup[tid].clone();
+					let data = self.data[tid].clone();
+					let dbwq = self.debug_write_queue;
+					let dbp = self.debug_pending;
+					let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, dbwq, dbp);
+					match on_accept(&mut cd, callback_context) {
 						Ok(_) => {}
 						Err(e) => {
-							warn!("Callback on_read generated error: {}", e)?;
+							warn!("Callback on_accept generated error: {}", e)?;
 						}
 					}
 				}
@@ -1900,9 +1896,8 @@ where
 			{
 				let mut data = self.data[tid].wlock()?;
 				let guard = data.guard();
-				(**guard)
-					.nhandles
-					.enqueue(ConnectionInfo::ReadWriteInfo(rwi))?;
+				let ci = ConnectionInfo::ReadWriteInfo(rwi);
+				(**guard).nhandles.enqueue(ci)?;
 			}
 
 			debug!("wakeup called on tid = {}", tid)?;
@@ -1922,21 +1917,18 @@ where
 		ctx.last_process_type = LastProcessType::OnAccept;
 		match &mut self.on_accept {
 			Some(on_accept) => {
-				match on_accept(
-					&mut ConnectionData::new(
-						&mut rwi,
-						ctx.tid,
-						&mut ctx.read_slabs,
-						self.wakeup[ctx.tid].clone(),
-						self.data[ctx.tid].clone(),
-						self.debug_write_queue,
-						self.debug_pending,
-					),
-					callback_context,
-				) {
+				let rwi = &mut rwi;
+				let tid = ctx.tid;
+				let rslabs = &mut ctx.read_slabs;
+				let wakeup = self.wakeup[ctx.tid].clone();
+				let data = self.data[ctx.tid].clone();
+				let debug_wq = self.debug_write_queue;
+				let debug_p = self.debug_pending;
+				let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, debug_wq, debug_p);
+				match on_accept(&mut cd, callback_context) {
 					Ok(_) => {}
 					Err(e) => {
-						warn!("Callback on_read generated error: {}", e)?;
+						warn!("Callback on_accept generated error: {}", e)?;
 					}
 				}
 			}
@@ -1945,10 +1937,11 @@ where
 
 		match Self::insert_hashtables(ctx, id, handle, &ConnectionInfo::ReadWriteInfo(rwi)) {
 			Ok(_) => {
-				ctx.events_in.push(EventIn {
+				let ev_in = EventIn {
 					handle,
 					etype: EventTypeIn::Read,
-				});
+				};
+				ctx.events_in.push(ev_in);
 			}
 			Err(e) => {
 				warn!("insert_hashtables generated error1: {}. Closing.", e)?;
@@ -2027,11 +2020,14 @@ where
 		self.on_panic = Some(Box::pin(on_panic));
 		Ok(())
 	}
+
+	#[cfg(not(tarpaulin_include))]
 	fn stop(&mut self) -> Result<(), Error> {
-		match self.thread_pool_stopper.as_mut() {
-			Some(ref mut stopper) => stopper.stop()?,
-			None => {}
+		if self.thread_pool_stopper.is_none() {
+			let err = err!(ErrKind::IllegalState, "start must be called before stop");
+			return Err(err);
 		}
+		self.thread_pool_stopper.as_mut().unwrap().stop()?;
 		for i in 0..self.wakeup.size() {
 			let mut data = self.data[i].wlock()?;
 			let guard = data.guard();
@@ -2071,13 +2067,11 @@ where
 		for i in 0..self.config.threads {
 			let evh = self.clone();
 			let wakeup = self.wakeup.clone();
-			let ctx = EventHandlerContext::new(
-				i,
-				self.config.max_events_in,
-				self.config.max_events,
-				self.config.max_handles_per_thread,
-				self.config.read_slab_count,
-			)?;
+			let ev_in = self.config.max_events_in;
+			let max_ev = self.config.max_events;
+			let max_hpt = self.config.max_handles_per_thread;
+			let rsc = self.config.read_slab_count;
+			let ctx = EventHandlerContext::new(i, ev_in, max_ev, max_hpt, rsc)?;
 			let ctx = lock_box!(ctx)?;
 			let thread_context = ThreadContext::new();
 			let thread_context = lock_box!(thread_context)?;
@@ -2132,13 +2126,13 @@ where
 					let mut thread_context = thread_context.wlock_ignore_poison()?;
 					let thread_context = thread_context.guard();
 
-					match Self::execute_thread(
-						&mut evh,
-						&mut wakeup[id],
-						&mut *ctx,
-						&mut *thread_context,
-						true,
-					) {
+					let evh = &mut evh;
+					let wakeup = &mut wakeup[id];
+					let ctx = &mut *ctx;
+					let thc = &mut *thread_context;
+					let isr = true;
+					let ex = Self::execute_thread(evh, wakeup, ctx, thc, isr);
+					match ex {
 						Ok(_) => {}
 						Err(e) => {
 							fatal!("execute_thread generated error: {}", e)?;
@@ -2175,13 +2169,13 @@ where
 				let mut thread_context = thread_context.wlock_ignore_poison()?;
 				let thread_context = thread_context.guard();
 
-				match Self::execute_thread(
-					&mut evh,
-					&mut wakeup[tid],
-					&mut *ctx,
-					&mut *thread_context,
-					false,
-				) {
+				let evh = &mut evh;
+				let wakeup = &mut wakeup[tid];
+				let ctx = &mut *ctx;
+				let thc = &mut *thread_context;
+				let isr = false;
+				let ex = Self::execute_thread(evh, wakeup, ctx, thc, isr);
+				match ex {
 					Ok(_) => {}
 					Err(e) => {
 						fatal!("execute_thread generated error: {}", e)?;
@@ -2196,14 +2190,16 @@ where
 		Ok(())
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn add_client(&mut self, connection: ClientConnection) -> Result<WriteHandle, Error> {
 		let tid: usize = random::<usize>() % self.data.size();
 		let id: u128 = random::<u128>();
 		let handle = connection.handle;
-		let write_state = lock_box!(WriteState {
+		let ws = WriteState {
 			write_buffer: vec![],
-			flags: 0
-		})?;
+			flags: 0,
+		};
+		let write_state = lock_box!(ws)?;
 
 		let tls_client = match connection.tls_config {
 			Some(tls_config) => {
@@ -3307,6 +3303,8 @@ mod test {
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		assert!(evh.stop().is_err());
 
 		evh.start()?;
 
