@@ -2242,9 +2242,8 @@ where
 		{
 			let mut data = self.data[tid].wlock()?;
 			let guard = data.guard();
-			(**guard)
-				.nhandles
-				.enqueue(ConnectionInfo::ReadWriteInfo(rwi))?;
+			let ci = ConnectionInfo::ReadWriteInfo(rwi);
+			(**guard).nhandles.enqueue(ci)?;
 		}
 
 		self.wakeup[tid].wakeup()?;
@@ -2259,10 +2258,10 @@ where
 			let mut cert_resolver = ResolvesServerCertUsingSni::new();
 
 			for tls_config in connection.tls_config {
-				let signingkey =
-					any_supported_type(&load_private_key(&tls_config.private_key_file)?)?;
-				let mut certified_key =
-					CertifiedKey::new(load_certs(&tls_config.certificates_file)?, signingkey);
+				let pk = load_private_key(&tls_config.private_key_file)?;
+				let signingkey = any_supported_type(&pk)?;
+				let certs = load_certs(&tls_config.certificates_file)?;
+				let mut certified_key = CertifiedKey::new(certs, signingkey);
 				certified_key.ocsp = Some(load_ocsp(&tls_config.ocsp_file)?);
 				cert_resolver.add(&tls_config.sni_host, certified_key)?;
 			}
@@ -2277,34 +2276,29 @@ where
 		};
 
 		if connection.handles.size() != self.data.size() {
-			return Err(err!(
-				ErrKind::IllegalArgument,
-				"connections.handles must equal the number of threads"
-			));
+			let fmt = "connections.handles must equal the number of threads";
+			let err = err!(ErrKind::IllegalArgument, fmt);
+			return Err(err);
 		}
 
 		for i in 0..connection.handles.size() {
 			let handle = connection.handles[i];
-			if handle == 0 {
-				// windows/mac do not support reusing address so we pass in 0
-				// to indicate no handle
-				continue;
+			// check for 0 which means to skip this handle (port not reused)
+			if handle != 0 {
+				let mut data = self.data[i].wlock()?;
+				let wakeup = &mut self.wakeup[i];
+				let guard = data.guard();
+				let li = ListenerInfo {
+					id: random(),
+					handle,
+					is_reuse_port: connection.is_reuse_port,
+					tls_config: tls_config.clone(),
+				};
+				let ci = ConnectionInfo::ListenerInfo(li);
+				(**guard).nhandles.enqueue(ci)?;
+				debug!("add handle: {}", handle)?;
+				wakeup.wakeup()?;
 			}
-
-			let mut data = self.data[i].wlock()?;
-			let wakeup = &mut self.wakeup[i];
-			let guard = data.guard();
-			let li = ListenerInfo {
-				id: random(),
-				handle,
-				is_reuse_port: connection.is_reuse_port,
-				tls_config: tls_config.clone(),
-			};
-			(**guard)
-				.nhandles
-				.enqueue(ConnectionInfo::ListenerInfo(li))?;
-			debug!("add handle: {}", handle)?;
-			wakeup.wakeup()?;
 		}
 		Ok(())
 	}
@@ -2412,29 +2406,22 @@ fn load_ocsp(filename: &Option<String>) -> Result<Vec<u8>, Error> {
 	Ok(ret)
 }
 
-fn load_private_key(filename: &str) -> Result<PrivateKey, Error> {
-	let keyfile = File::open(filename)?;
-	let mut reader = BufReader::new(keyfile);
-
-	loop {
-		match read_one(&mut reader)? {
-			Some(Item::RSAKey(key)) => return Ok(PrivateKey(key)),
-			Some(Item::PKCS8Key(key)) => return Ok(PrivateKey(key)),
-			Some(Item::ECKey(key)) => return Ok(PrivateKey(key)),
-			_ => break,
+pub(crate) fn load_private_key(filename: &str) -> Result<PrivateKey, Error> {
+	match read_one(&mut BufReader::new(File::open(filename)?)) {
+		Ok(Some(Item::RSAKey(key))) => Ok(PrivateKey(key)),
+		Ok(Some(Item::PKCS8Key(key))) => Ok(PrivateKey(key)),
+		Ok(Some(Item::ECKey(key))) => Ok(PrivateKey(key)),
+		_ => {
+			let fmt = format!("no key or unsupported type found in file: {}", filename);
+			Err(err!(ErrKind::IllegalArgument, fmt))
 		}
 	}
-
-	Err(err!(
-		ErrKind::IllegalArgument,
-		format!("no private keys found in file: {}", filename)
-	))
 }
 
 #[cfg(test)]
 mod test {
 	use crate::evh::{create_listeners, errno, read_bytes};
-	use crate::evh::{READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
+	use crate::evh::{load_ocsp, load_private_key, READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
 	use crate::types::{
 		ConnectionInfo, EventHandlerImpl, ListenerInfo, ReadWriteInfo, Wakeup, WriteState,
 	};
@@ -2526,13 +2513,13 @@ mod test {
 			threads,
 			housekeeping_frequency_millis: 100_000,
 			read_slab_count: 2,
-			max_handles_per_thread: 2,
+			max_handles_per_thread: 3,
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
 		evh.set_on_read(move |conn_data, _thread_context| {
-			debug!("on read fs = {}", conn_data.slab_offset())?;
+			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
 			let slab_offset = conn_data.slab_offset();
@@ -2568,6 +2555,31 @@ mod test {
 		};
 		evh.add_server(sc)?;
 
+		let port = pick_free_port()?;
+		info!("basic Using port: {}", port)?;
+		let addr2 = &format!("127.0.0.1:{}", port)[..];
+		let handles = create_listeners(threads + 1, addr2, 10)?;
+		info!("handles={:?}", handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		assert!(evh.add_server(sc).is_err());
+
+		let port = pick_free_port()?;
+		info!("basic Using port: {}", port)?;
+		let addr2 = &format!("127.0.0.1:{}", port)[..];
+		let mut handles = create_listeners(threads, addr2, 10)?;
+		handles[0] = 0;
+		info!("handles={:?}", handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		assert!(evh.add_server(sc).is_ok());
+
 		let mut connection = TcpStream::connect(addr)?;
 		info!("about to write")?;
 		connection.write(b"test1")?;
@@ -2582,6 +2594,11 @@ mod test {
 		assert_eq!(&buf[0..len], b"test2");
 		evh.stop()?;
 
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_single_handler() -> Result<(), Error> {
 		Ok(())
 	}
 
@@ -2824,17 +2841,16 @@ mod test {
 
 		let mut count_count = 0;
 		loop {
+			count_count += 1;
 			sleep(Duration::from_millis(1));
 			let count = **((close_count_clone.rlock()?).guard());
-			if count != total + 1 {
-				count_count += 1;
-				if count_count < 1_000 {
-					continue;
-				}
+			if count != total + 1 && count_count < 1_000 {
+				continue;
 			}
 			assert_eq!((**((close_count_clone.rlock()?).guard())), total + 1);
 			break;
 		}
+
 		evh.stop()?;
 
 		Ok(())
@@ -3247,13 +3263,11 @@ mod test {
 
 		let mut count_count = 0;
 		loop {
+			count_count += 1;
 			sleep(Duration::from_millis(1));
 			let count = **((close_count_clone.rlock()?).guard());
-			if count != total + 1 {
-				count_count += 1;
-				if count_count < 1_000 {
-					continue;
-				}
+			if count != total + 1 && count_count < 1_000 {
+				continue;
 			}
 			assert_eq!((**((close_count_clone.rlock()?).guard())), total + 1);
 			break;
@@ -3701,7 +3715,7 @@ mod test {
 			let slab_offset = conn_data.slab_offset();
 			debug!("firstslab={},last_slab={}", first_slab, last_slab)?;
 			let res = conn_data.borrow_slab_allocator(move |sa| {
-				let mut slab_id = first_slab;
+				let slab_id = first_slab;
 				let mut ret: Vec<u8> = vec![];
 				let slab = sa.get(slab_id.try_into()?)?;
 				let slab_bytes = slab.get();
@@ -3787,7 +3801,7 @@ mod test {
 			let slab_offset = conn_data.slab_offset();
 			debug!("firstslab={},last_slab={}", first_slab, last_slab)?;
 			let res = conn_data.borrow_slab_allocator(move |sa| {
-				let mut slab_id = first_slab;
+				let slab_id = first_slab;
 				let mut ret: Vec<u8> = vec![];
 				let slab = sa.get(slab_id.try_into()?)?;
 				let slab_bytes = slab.get();
@@ -4943,6 +4957,27 @@ mod test {
 				evh.set_on_panic(move |_, _| Ok(()))?;
 			}
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn test_bad_keys() -> Result<(), Error> {
+		// it's empty so it would be an error
+		assert!(load_private_key("./resources/emptykey.pem").is_err());
+
+		// key is ok to load but signing won't work
+		assert!(load_private_key("./resources/badkey.pem").is_ok());
+
+		// rsa
+		assert!(load_private_key("./resources/rsa.pem").is_ok());
+
+		// eckey
+		assert!(load_private_key("./resources/ec256.pem").is_ok());
+
+		// load ocsp
+		assert!(load_ocsp(&Some("./resources/emptykey.pem".to_string())).is_ok());
+		assert!(load_ocsp(&Some("./resources/emptykey.pem1".to_string())).is_err());
+
 		Ok(())
 	}
 }
