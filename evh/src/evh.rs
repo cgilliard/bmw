@@ -438,6 +438,7 @@ impl WriteHandle {
 		event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 		debug_write_queue: bool,
 		debug_pending: bool,
+		debug_write_error: bool,
 		tls_server: Option<Box<dyn LockBox<RSConn>>>,
 		tls_client: Option<Box<dyn LockBox<RCConn>>>,
 	) -> Self {
@@ -451,6 +452,7 @@ impl WriteHandle {
 			debug_pending,
 			tls_client,
 			tls_server,
+			debug_write_error,
 		}
 	}
 
@@ -578,7 +580,10 @@ impl WriteHandle {
 			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_SUSPEND) {
 				return Err(err!(ErrKind::IO, "write handle suspended"));
 			}
-			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_PENDING) || self.debug_pending {
+			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_PENDING)
+				|| self.debug_pending
+				|| self.debug_write_error
+			{
 				0
 			} else {
 				if self.debug_write_queue {
@@ -598,17 +603,16 @@ impl WriteHandle {
 				}
 			}
 		};
-		if errno().0 != 0 || len < 0 || self.debug_pending {
+		if errno().0 != 0 || len < 0 || self.debug_pending || self.debug_write_error {
 			// check for would block
-			if errno().0 != EAGAIN
+			if (errno().0 != EAGAIN
 				&& errno().0 != ETEMPUNAVAILABLE
 				&& errno().0 != WINNONBLOCKING
-				&& !self.debug_pending
+				&& !self.debug_pending)
+				|| self.debug_write_error
 			{
-				return Err(err!(
-					ErrKind::IO,
-					format!("writing generated error: {}", errno())
-				));
+				let fmt = format!("writing generated error: {}", errno());
+				return Err(err!(ErrKind::IO, fmt));
 			}
 			self.queue_data(data)?;
 		} else {
@@ -672,6 +676,7 @@ impl<'a> ConnectionData<'a> {
 		event_handler_data: Box<dyn LockBox<EventHandlerData>>,
 		debug_write_queue: bool,
 		debug_pending: bool,
+		debug_write_error: bool,
 	) -> Self {
 		Self {
 			rwi,
@@ -681,6 +686,7 @@ impl<'a> ConnectionData<'a> {
 			event_handler_data,
 			debug_write_queue,
 			debug_pending,
+			debug_write_error,
 		}
 	}
 
@@ -711,6 +717,7 @@ impl<'a> ConnData for ConnectionData<'a> {
 			self.event_handler_data.clone(),
 			self.debug_write_queue,
 			self.debug_pending,
+			self.debug_write_error,
 			self.rwi.tls_server.clone(),
 			self.rwi.tls_client.clone(),
 		)
@@ -810,6 +817,7 @@ where
 			thread_pool_stopper: None,
 			debug_write_queue: false,
 			debug_pending: false,
+			debug_write_error: false,
 			debug_fatal_error: false,
 		};
 		Ok(ret)
@@ -826,12 +834,18 @@ where
 	}
 
 	#[cfg(test)]
+	fn set_debug_write_error(&mut self, value: bool) {
+		self.debug_write_error = value;
+	}
+
+	#[cfg(test)]
 	fn set_debug_fatal_error(&mut self, value: bool) {
 		self.debug_fatal_error = value;
 	}
 
 	#[cfg(test)]
 	fn set_on_panic_none(&mut self) {
+		self.housekeeper = None;
 		self.on_panic = None;
 	}
 
@@ -844,6 +858,7 @@ where
 		Ok(())
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn execute_thread(
 		&mut self,
 		wakeup: &mut Wakeup,
@@ -937,6 +952,7 @@ where
 		Ok(())
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_housekeeper(
 		&mut self,
 		ctx: &mut EventHandlerContext,
@@ -992,10 +1008,11 @@ where
 									let mut write_state = rwi.write_state.wlock()?;
 									let guard = write_state.guard();
 									if (**guard).is_set(WRITE_STATE_FLAG_SUSPEND) {
-										ctx.events_in.push(EventIn {
+										let ev = EventIn {
 											handle: rwi.handle,
 											etype: EventTypeIn::Suspend,
-										});
+										};
+										ctx.events_in.push(ev);
 										(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
 										(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
 										#[cfg(unix)]
@@ -1309,6 +1326,7 @@ where
 							self.data[ctx.tid].clone(),
 							self.debug_write_queue,
 							self.debug_pending,
+							self.debug_write_error,
 						),
 						callback_context,
 					) {
@@ -1389,6 +1407,7 @@ where
 				self.data[ctx.tid].clone(),
 				self.debug_write_queue,
 				self.debug_pending,
+				self.debug_write_error,
 			);
 			connection_data.write_handle().do_write(&wbuf)?;
 		}
@@ -1446,6 +1465,7 @@ where
 				self.data[ctx.tid].clone(),
 				self.debug_write_queue,
 				self.debug_pending,
+				self.debug_write_error,
 			);
 			connection_data.write_handle().do_write(&wbuf)?;
 		}
@@ -1740,6 +1760,7 @@ where
 							self.data[ctx.tid].clone(),
 							self.debug_write_queue,
 							self.debug_pending,
+							self.debug_write_error,
 						),
 						callback_context,
 					) {
@@ -1797,6 +1818,7 @@ where
 									self.data[ctx.tid].clone(),
 									self.debug_write_queue,
 									self.debug_pending,
+									self.debug_write_error,
 								),
 								callback_context,
 							) {
@@ -1906,7 +1928,8 @@ where
 					let data = self.data[tid].clone();
 					let dbwq = self.debug_write_queue;
 					let dbp = self.debug_pending;
-					let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, dbwq, dbp);
+					let we = self.debug_write_error;
+					let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, dbwq, dbp, we);
 					match on_accept(&mut cd, callback_context) {
 						Ok(_) => {}
 						Err(e) => {
@@ -1946,9 +1969,10 @@ where
 				let rslabs = &mut ctx.read_slabs;
 				let wakeup = self.wakeup[ctx.tid].clone();
 				let data = self.data[ctx.tid].clone();
-				let debug_wq = self.debug_write_queue;
+				let wq = self.debug_write_queue;
 				let debug_p = self.debug_pending;
-				let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, debug_wq, debug_p);
+				let we = self.debug_write_error;
+				let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, wq, debug_p, we);
 				match on_accept(&mut cd, callback_context) {
 					Ok(_) => {}
 					Err(e) => {
@@ -1982,6 +2006,7 @@ where
 	}
 
 	#[cfg(target_os = "macos")]
+	#[cfg(not(tarpaulin_include))]
 	fn get_events(
 		&self,
 		ctx: &mut EventHandlerContext,
@@ -2242,6 +2267,7 @@ where
 			self.data[tid].clone(),
 			self.debug_write_queue,
 			self.debug_pending,
+			self.debug_write_error,
 			None,
 			tls_client.clone(),
 		);
@@ -2443,7 +2469,8 @@ mod test {
 	use crate::evh::{create_listeners, read_bytes};
 	use crate::evh::{load_ocsp, load_private_key, READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
 	use crate::types::{
-		ConnectionInfo, EventHandlerImpl, ListenerInfo, ReadWriteInfo, Wakeup, WriteState,
+		ConnectionInfo, EventHandlerContext, EventHandlerImpl, ListenerInfo, ReadWriteInfo, Wakeup,
+		WriteState,
 	};
 	use crate::{
 		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
@@ -4023,6 +4050,7 @@ mod test {
 		// read and we should get 0 for close
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 0);
+		sleep(Duration::from_millis(5000));
 
 		// connect and send another request
 		let mut stream = TcpStream::connect(addr)?;
@@ -4053,7 +4081,7 @@ mod test {
 		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
-			housekeeping_frequency_millis: 10_000,
+			housekeeping_frequency_millis: 100,
 			read_slab_count: 10,
 			max_handles_per_thread: 10,
 			..Default::default()
@@ -4093,8 +4121,8 @@ mod test {
 		})?;
 		evh.set_on_close(move |_, _| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
-		evh.set_on_panic_none();
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.set_on_panic_none();
 		evh.start()?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
@@ -4388,9 +4416,78 @@ mod test {
 	}
 
 	#[test]
+	fn test_evh_write_error() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("write_error Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 60_000,
+			read_slab_count: 20,
+			max_handles_per_thread: 30,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+		evh.set_debug_write_error(true);
+
+		let mut count = lock_box!(0)?;
+		let count_clone = count.clone();
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			if res.len() > 0 && res[0] == '1' as u8 {
+				conn_data.write_handle().write(&res)?;
+			}
+			let mut count = count.wlock()?;
+			let g = count.guard();
+			**g += 1;
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |_, _| Ok(()))?;
+		evh.set_on_close(move |_, _| Ok(()))?;
+		evh.set_on_panic(move |_, _| Ok(()))?;
+		evh.set_housekeeper(move |_| Ok(()))?;
+
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+
+		stream.write(b"12345")?;
+		sleep(Duration::from_millis(1_000));
+		stream.write(b"0000")?;
+
+		sleep(Duration::from_millis(10_000));
+		assert_eq!(**(count_clone.rlock()?.guard()), 1);
+
+		Ok(())
+	}
+
+	#[test]
 	fn test_evh_debug_pending() -> Result<(), Error> {
 		let port = pick_free_port()?;
-		info!("stop Using port: {}", port)?;
+		info!("pending Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
 		let threads = 1;
 		let config = EventHandlerConfig {
@@ -5105,6 +5202,84 @@ mod test {
 	}
 
 	#[test]
+	fn test_evh_panic_fatal() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("panic_fatal Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+		evh.set_debug_fatal_error(true);
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			debug!("first_slab={}", first_slab)?;
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				assert_eq!(first_slab, last_slab);
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+
+			if res.len() > 0 && res[0] == '1' as u8 {
+				panic!("test start with '1'");
+			}
+
+			conn_data.clear_through(first_slab)?;
+			conn_data.write_handle().write(&res)?;
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		evh.add_server(sc)?;
+
+		let mut connection = TcpStream::connect(addr)?;
+		connection.write(b"1panic")?;
+		sleep(Duration::from_millis(1_000));
+
+		let mut connection = TcpStream::connect(addr)?;
+		info!("about to write")?;
+		connection.write(b"test1")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		info!("about to read")?;
+		let len = connection.read(&mut buf)?;
+		assert_eq!(&buf[0..len], b"test1");
+		info!("read back buf[{}] = {:?}", len, buf)?;
+		connection.write(b"test2")?;
+		let len = connection.read(&mut buf)?;
+		assert_eq!(&buf[0..len], b"test2");
+
+		connection.write(b"0test1")?;
+		sleep(Duration::from_millis(1_000));
+
+		Ok(())
+	}
+
+	#[test]
 	fn test_evh_other_situations() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("other_situations Using port: {}", port)?;
@@ -5134,6 +5309,7 @@ mod test {
 				ret.extend(&slab.get()[0..slab_offset as usize]);
 				Ok(ret)
 			})?;
+
 			conn_data.clear_through(first_slab)?;
 			conn_data.write_handle().write(&res)?;
 			info!("res={:?}", res)?;
@@ -5169,6 +5345,210 @@ mod test {
 
 		connection.write(b"0test1")?;
 		sleep(Duration::from_millis(1_000));
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_other_panics() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("other_situations Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+		evh.set_debug_fatal_error(true);
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			debug!("first_slab={}", first_slab)?;
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				assert_eq!(first_slab, last_slab);
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			conn_data.write_handle().write(&res)?;
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+
+		let mut acc_count = lock_box!(0)?;
+		let mut close_count = lock_box!(0)?;
+		let mut housekeeper_count = lock_box!(0)?;
+
+		evh.set_on_accept(move |_conn_data, _thread_context| {
+			let count = {
+				let mut acc_count = acc_count.wlock()?;
+				let count = **acc_count.guard();
+				**acc_count.guard() += 1;
+				count
+			};
+			if count == 0 {
+				panic!("on acc panic");
+			}
+			Ok(())
+		})?;
+		evh.set_on_close(move |_conn_data, _thread_context| {
+			let count = {
+				let mut close_count = close_count.wlock()?;
+				let count = **close_count.guard();
+				**close_count.guard() += 1;
+				count
+			};
+			if count == 0 {
+				panic!("on close panic");
+			}
+			Ok(())
+		})?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| {
+			let count = {
+				let mut housekeeper_count = housekeeper_count.wlock()?;
+				let count = **housekeeper_count.guard();
+				**housekeeper_count.guard() += 1;
+				count
+			};
+			if count == 0 {
+				panic!("on close panic");
+			}
+			Ok(())
+		})?;
+
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		evh.add_server(sc)?;
+
+		let _connection = TcpStream::connect(addr)?;
+		sleep(Duration::from_millis(1_000));
+		// listener should be closed so this will fail
+		assert!(TcpStream::connect(addr).is_err());
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		evh.add_server(sc)?;
+
+		{
+			let _connection = TcpStream::connect(addr)?;
+		}
+
+		sleep(Duration::from_millis(1_000));
+
+		// last connection on close handler panics, but we should be able to still send
+		// requests.
+		{
+			let mut connection = TcpStream::connect(addr)?;
+			info!("about to write")?;
+			connection.write(b"test1")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+			info!("about to read")?;
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test1");
+			info!("read back buf[{}] = {:?}", len, buf)?;
+			connection.write(b"test2")?;
+			let len = connection.read(&mut buf)?;
+			assert_eq!(&buf[0..len], b"test2");
+		}
+		sleep(Duration::from_millis(1_000));
+
+		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_housekeeper_error() -> Result<(), Error> {
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Err(err!(ErrKind::Test, "")))?;
+
+		evh.start()?;
+		sleep(Duration::from_millis(10_000));
+		assert!(evh.stop().is_ok());
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_invalid_write_queue() -> Result<(), Error> {
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+
+		let mut ctx = EventHandlerContext::new(0, 100, 100, 100, 100)?;
+
+		// enqueue an invalid handle. the function should just print the warning and still
+		// succeed
+		{
+			let mut data = evh.data[0].wlock()?;
+			let guard = data.guard();
+			(**guard).write_queue.enqueue(100)?;
+		}
+		evh.process_write_queue(&mut ctx)?;
+
+		// insert the listener. again an error should be printed but processing continue
+		let li = ListenerInfo {
+			id: 1_000,
+			handle: 0,
+			is_reuse_port: false,
+			tls_config: None,
+		};
+		let ci = ConnectionInfo::ListenerInfo(li);
+		ctx.connection_hashtable.insert(&1_000, &ci)?;
+		{
+			let mut data = evh.data[0].wlock()?;
+			let guard = data.guard();
+			(**guard).write_queue.enqueue(1_000)?;
+		}
+		evh.process_write_queue(&mut ctx)?;
 
 		Ok(())
 	}
