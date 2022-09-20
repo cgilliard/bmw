@@ -241,6 +241,7 @@ where
 	pub(crate) thread_pool_stopper: Option<ThreadPoolStopper>,
 	pub(crate) debug_write_queue: bool,
 	pub(crate) debug_pending: bool,
+	pub(crate) debug_fatal_error: bool,
 }
 
 #[derive(Clone)]
