@@ -826,6 +826,7 @@ where
 			debug_suspended: false,
 			debug_fatal_error: false,
 			debug_tls_server_error: false,
+			debug_read_error: false,
 		};
 		Ok(ret)
 	}
@@ -851,6 +852,11 @@ where
 	}
 
 	#[cfg(test)]
+	fn set_debug_read_error(&mut self, value: bool) {
+		self.debug_read_error = value;
+	}
+
+	#[cfg(test)]
 	fn set_debug_fatal_error(&mut self, value: bool) {
 		self.debug_fatal_error = value;
 	}
@@ -864,6 +870,11 @@ where
 	fn set_on_panic_none(&mut self) {
 		self.housekeeper = None;
 		self.on_panic = None;
+	}
+
+	#[cfg(test)]
+	fn set_on_read_none(&mut self) {
+		self.on_read = None;
 	}
 
 	#[cfg(test)]
@@ -1613,6 +1624,7 @@ where
 		}
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_read_result(
 		&mut self,
 		rw: &mut ReadWriteInfo,
@@ -1631,7 +1643,7 @@ where
 					Ok(slab) => slab,
 					Err(e) => {
 						// we could not allocate slabs. Drop connection.
-						warn!("slabs.allocate generated error: {}", e)?;
+						warn!("slabs.allocate1 generated error: {}", e)?;
 						total_len = 0;
 						do_close = true;
 						break;
@@ -1654,7 +1666,7 @@ where
 						Ok(slab) => slab,
 						Err(e) => {
 							// we could not allocate slabs. Drop connection.
-							warn!("slabs.allocate generated error: {}", e)?;
+							warn!("slabs.allocate2 generated error: {}", e)?;
 							total_len = 0;
 							do_close = true;
 							break;
@@ -1709,22 +1721,16 @@ where
 				}
 			}
 
-			debug!(
-				"len = {},handle={},errno={},e.0={}",
-				len,
-				rw.handle,
-				errno(),
-				errno().0
-			)?;
+			debug!("len = {},handle={},e.0={}", len, rw.handle, errno().0)?;
 			if len == 0 && !tls {
 				do_close = true;
 			}
-			if len < 0 {
+			if len < 0 || self.debug_read_error {
 				// EAGAIN is would block. -2 is would block for windows
-				if errno().0 != EAGAIN
+				if (errno().0 != EAGAIN
 					&& errno().0 != ETEMPUNAVAILABLE
 					&& errno().0 != WINNONBLOCKING
-					&& len != -2
+					&& len != -2) || self.debug_read_error
 				{
 					do_close = true;
 				}
@@ -3827,12 +3833,12 @@ mod test {
 		let port = pick_free_port()?;
 		info!("out of slabs Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let threads = 2;
+		let threads = 1;
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 10_000,
 			read_slab_count: 1,
-			max_handles_per_thread: 2,
+			max_handles_per_thread: 3,
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
@@ -3898,6 +3904,13 @@ mod test {
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 9);
 		assert_eq!(&buf[0..len], b"posterror");
+
+		// now make a new connection and run out of slabs
+		let mut stream2 = TcpStream::connect(addr)?;
+		stream2.write(b"posterror")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		assert!(stream2.read(&mut buf).is_err());
 
 		evh.stop()?;
 
@@ -6083,6 +6096,44 @@ mod test {
 	}
 
 	#[test]
+	fn test_evh_on_read_none() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("eventhandler on_read none Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.set_on_read_none();
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		evh.add_server(sc)?;
+
+		let mut connection = TcpStream::connect(addr)?;
+		info!("about to write")?;
+		connection.write(b"test1")?;
+		sleep(Duration::from_millis(1_000));
+		Ok(())
+	}
+
+	#[test]
 	fn test_evh_ins_hashtable_err() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("eventhandler tls_multi_chunk Using port: {}", port)?;
@@ -6156,6 +6207,101 @@ mod test {
 
 		// connection 2 closed so this will fail
 		assert!(TcpStream::connect(addr2).is_err());
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_debug_read_error() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("debug read Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 2;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			debug!("debug read slab_offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			debug!("first_slab={}", first_slab)?;
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				assert_eq!(first_slab, last_slab);
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			conn_data.write_handle().write(&res)?;
+			info!("res={:?}", res)?;
+			Ok(())
+		})?;
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			info!("accept a connection handle = {}", conn_data.get_handle())?;
+			Ok(())
+		})?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.set_debug_read_error(true);
+
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		evh.add_server(sc)?;
+
+		let port = pick_free_port()?;
+		info!("basic Using port: {}", port)?;
+		let addr2 = &format!("127.0.0.1:{}", port)[..];
+		let handles = create_listeners(threads + 1, addr2, 10)?;
+		info!("handles={:?}", handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		assert!(evh.add_server(sc).is_err());
+
+		let port = pick_free_port()?;
+		info!("basic Using port: {}", port)?;
+		let addr2 = &format!("127.0.0.1:{}", port)[..];
+		let mut handles = create_listeners(threads, addr2, 10)?;
+		handles[0] = 0;
+		info!("handles={:?}", handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		assert!(evh.add_server(sc).is_ok());
+
+		let mut connection = TcpStream::connect(addr)?;
+		info!("about to write")?;
+		connection.write(b"test1")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		info!("about to read")?;
+		let len = connection.read(&mut buf)?;
+		assert_eq!(&buf[0..len], b"test1");
+		info!("read back buf[{}] = {:?}", len, buf)?;
+		connection.write(b"test2")?;
+		let len = connection.read(&mut buf)?;
+		assert_eq!(len, 0); // due to error connection is closed
+		evh.stop()?;
 
 		Ok(())
 	}
