@@ -825,6 +825,7 @@ where
 			debug_write_error: false,
 			debug_suspended: false,
 			debug_fatal_error: false,
+			debug_tls_server_error: false,
 		};
 		Ok(ret)
 	}
@@ -854,10 +855,24 @@ where
 		self.debug_fatal_error = value;
 	}
 
+	fn set_debug_tls_server_error(&mut self, value: bool) {
+		self.debug_tls_server_error = value;
+	}
+
 	#[cfg(test)]
 	fn set_on_panic_none(&mut self) {
 		self.housekeeper = None;
 		self.on_panic = None;
+	}
+
+	#[cfg(test)]
+	fn set_on_accept_none(&mut self) {
+		self.on_accept = None;
+	}
+
+	#[cfg(test)]
+	fn set_on_close_none(&mut self) {
+		self.on_close = None;
 	}
 
 	fn check_config(config: &EventHandlerConfig) -> Result<(), Error> {
@@ -1087,6 +1102,7 @@ where
 		Ok(())
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_new_connections(&mut self, ctx: &mut EventHandlerContext) -> Result<bool, Error> {
 		let mut data = self.data[ctx.tid].wlock()?;
 		let guard = data.guard();
@@ -1104,16 +1120,14 @@ where
 							let id = random();
 							match Self::insert_hashtables(ctx, id, li.handle, nhandle) {
 								Ok(_) => {
-									ctx.events_in.push(EventIn {
+									let ev_in = EventIn {
 										handle: li.handle,
 										etype: EventTypeIn::Read,
-									});
+									};
+									ctx.events_in.push(ev_in);
 								}
 								Err(e) => {
-									warn!(
-										"insert_hashtables listener generated error: {}. Closing.",
-										e
-									)?;
+									warn!("inshash li generated error: {}. Closing.", e)?;
 									close_impl(ctx, li.handle, true)?;
 								}
 							}
@@ -1121,13 +1135,14 @@ where
 						ConnectionInfo::ReadWriteInfo(rw) => {
 							match Self::insert_hashtables(ctx, rw.id, rw.handle, nhandle) {
 								Ok(_) => {
-									ctx.events_in.push(EventIn {
+									let ev_in = EventIn {
 										handle: rw.handle,
 										etype: EventTypeIn::Read,
-									});
+									};
+									ctx.events_in.push(ev_in);
 								}
 								Err(e) => {
-									warn!("insert_hashtables rw generated error: {}. Closing.", e)?;
+									warn!("inshash rw generated error: {}. Closing.", e)?;
 									close_impl(ctx, rw.handle, true)?;
 								}
 							}
@@ -1684,7 +1699,7 @@ where
 				if len > 0 {
 					let index = usize!(rw.slab_offset);
 					let slab = slab.get();
-					info!("debug fatal {}", slab[index])?;
+					debug!("debug fatal {}", slab[index])?;
 					if slab[index] == '0' as u8 {
 						let fmt = "test debug_fatal";
 						let err = err!(ErrKind::Test, fmt);
@@ -1794,6 +1809,7 @@ where
 		Ok(())
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_close(
 		&mut self,
 		ctx: &mut EventHandlerContext,
@@ -1804,60 +1820,49 @@ where
 		// we must do an insert before removing to keep our arc's consistent
 		ctx.connection_hashtable
 			.insert(&rw.id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
-		match ctx.connection_hashtable.remove(&rw.id)? {
-			Some(mut ci) => match &mut ci {
-				ConnectionInfo::ReadWriteInfo(_rwi) => {
-					// set the close flag to true so if another thread tries to
-					// write there will be an error
-					{
-						let mut state = rw.write_state.wlock()?;
-						let guard = state.guard();
-						(**guard).set_flag(WRITE_STATE_FLAG_CLOSE);
-					}
-					ctx.handle_hashtable.remove(&rw.handle)?;
-					rw.clear_through_impl(rw.last_slab, &mut ctx.read_slabs)?;
-					close_impl(ctx, rw.handle, false)?;
-					ctx.do_write_back = false;
+		ctx.connection_hashtable.remove(&rw.id)?;
+		// set the close flag to true so if another thread tries to
+		// write there will be an error
+		{
+			let mut state = rw.write_state.wlock()?;
+			let guard = state.guard();
+			(**guard).set_flag(WRITE_STATE_FLAG_CLOSE);
+		}
+		ctx.handle_hashtable.remove(&rw.handle)?;
+		rw.clear_through_impl(rw.last_slab, &mut ctx.read_slabs)?;
+		close_impl(ctx, rw.handle, false)?;
+		ctx.do_write_back = false;
 
-					match &mut self.on_close {
-						Some(on_close) => {
-							ctx.last_process_type = LastProcessType::OnClose;
-							match on_close(
-								&mut ConnectionData::new(
-									rw,
-									ctx.tid,
-									&mut ctx.read_slabs,
-									self.wakeup[ctx.tid].clone(),
-									self.data[ctx.tid].clone(),
-									self.debug_write_queue,
-									self.debug_pending,
-									self.debug_write_error,
-									self.debug_suspended,
-								),
-								callback_context,
-							) {
-								Ok(_) => {}
-								Err(e) => {
-									warn!("Callback on_read generated error: {}", e)?;
-								}
-							}
-						}
-						None => {}
+		match &mut self.on_close {
+			Some(on_close) => {
+				ctx.last_process_type = LastProcessType::OnClose;
+				match on_close(
+					&mut ConnectionData::new(
+						rw,
+						ctx.tid,
+						&mut ctx.read_slabs,
+						self.wakeup[ctx.tid].clone(),
+						self.data[ctx.tid].clone(),
+						self.debug_write_queue,
+						self.debug_pending,
+						self.debug_write_error,
+						self.debug_suspended,
+					),
+					callback_context,
+				) {
+					Ok(_) => {}
+					Err(e) => {
+						warn!("Callback on_close generated error: {}", e)?;
 					}
 				}
-				ConnectionInfo::ListenerInfo(li) => warn!(
-					"Unexpected error: listener info found in process close: {:?}",
-					li
-				)?,
-			},
-			None => {
-				// already closed
 			}
+			None => {}
 		}
 
 		Ok(())
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_accept(
 		&mut self,
 		li: &ListenerInfo,
@@ -1884,21 +1889,25 @@ where
 		if handle == usize::MAX {
 			return Ok(handle);
 		}
-		debug!(
-			"accept handle = {},tid={},reuse_port={}",
-			handle, ctx.tid, li.is_reuse_port
-		)?;
 
-		let tls_server = match &li.tls_config {
-			Some(tls_config) => match RSConn::new(tls_config.clone()) {
-				Ok(tls_conn) => Some(lock_box!(tls_conn)?),
-				Err(e) => {
-					error!("Error building tls_connection: {}", e.to_string())?;
-					None
-				}
-			},
-			None => None,
-		};
+		let mut tls_server = None;
+		if li.tls_config.is_some() {
+			let tls_conn = RSConn::new(li.tls_config.as_ref().unwrap().clone());
+			if tls_conn.is_err() || self.debug_tls_server_error {
+				warn!("Error building tls_connection: {:?}", tls_conn)?;
+			} else {
+				let tls_conn = tls_conn.unwrap();
+				tls_server = Some(lock_box!(tls_conn)?);
+			}
+
+			if tls_server.is_none() {
+				close_impl(ctx, handle, true)?;
+				// send back the invalid handle to stay in the accept loop (we're not
+				// able to stop until we get the blocking value).
+				// don't add it to the data structures below though
+				return Ok(handle);
+			}
+		}
 
 		let id = random();
 		let mut rwi = ReadWriteInfo {
@@ -1968,6 +1977,7 @@ where
 		Ok(handle)
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_accepted_connection(
 		&mut self,
 		ctx: &mut EventHandlerContext,
@@ -2092,7 +2102,6 @@ where
 			let err = err!(ErrKind::IllegalState, "start must be called before stop");
 			return Err(err);
 		}
-		self.thread_pool_stopper.as_mut().unwrap().stop()?;
 		for i in 0..self.wakeup.size() {
 			let mut data = self.data[i].wlock()?;
 			let guard = data.guard();
@@ -2116,6 +2125,9 @@ where
 				break;
 			}
 		}
+
+		self.thread_pool_stopper.as_mut().unwrap().stop()?;
+
 		Ok(())
 	}
 	fn start(&mut self) -> Result<(), Error> {
@@ -2491,7 +2503,7 @@ mod test {
 	};
 	use crate::{
 		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
-		TlsClientConfig, TlsServerConfig, READ_SLAB_DATA_SIZE,
+		ThreadContext, TlsClientConfig, TlsServerConfig, READ_SLAB_DATA_SIZE,
 	};
 	use bmw_deps::rand::random;
 	use bmw_err::*;
@@ -2662,7 +2674,55 @@ mod test {
 	}
 
 	#[test]
-	fn test_evh_single_handler() -> Result<(), Error> {
+	fn test_eventhandler_tls_basic_server_error() -> Result<(), Error> {
+		{
+			let port = pick_free_port()?;
+			info!("eventhandler tls_basic Using port: {}", port)?;
+			let addr = &format!("127.0.0.1:{}", port)[..];
+			let threads = 2;
+			let config = EventHandlerConfig {
+				threads,
+				housekeeping_frequency_millis: 100_000,
+				read_slab_count: 100,
+				max_handles_per_thread: 3,
+				..Default::default()
+			};
+			let mut evh = EventHandlerImpl::new(config)?;
+
+			evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+			evh.set_housekeeper(move |_thread_context| Ok(()))?;
+			evh.set_debug_tls_server_error(true);
+			evh.start()?;
+
+			let handles = create_listeners(threads, addr, 10)?;
+			info!("handles.size={},handles={:?}", handles.size(), handles)?;
+			let sc = ServerConnection {
+				tls_config: vec![TlsServerConfig {
+					sni_host: "localhost".to_string(),
+					certificates_file: "./resources/cert.pem".to_string(),
+					private_key_file: "./resources/key.pem".to_string(),
+					ocsp_file: None,
+				}],
+				handles,
+				is_reuse_port: false,
+			};
+			evh.add_server(sc)?;
+
+			let mut connection = TcpStream::connect(addr)?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+
+			// connection will close because of the error
+			assert_eq!(connection.read(&mut buf)?, 0);
+
+			evh.stop()?;
+		}
+
+		sleep(Duration::from_millis(2000));
+
 		Ok(())
 	}
 
@@ -2863,7 +2923,8 @@ mod test {
 			)?;
 			let mut close_count = close_count.wlock()?;
 			(**close_count.guard()) += 1;
-			Ok(())
+			// test that error works
+			Err(err!(ErrKind::Test, "test close err"))
 		})?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
@@ -3033,7 +3094,7 @@ mod test {
 		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
-			housekeeping_frequency_millis: 100_000,
+			housekeeping_frequency_millis: 1_000,
 			read_slab_count: 3,
 			max_handles_per_thread: 2,
 			..Default::default()
@@ -3071,9 +3132,9 @@ mod test {
 			Ok(())
 		})?;
 
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			info!("accept a connection handle = {}", conn_data.get_handle())?;
-			Ok(())
+		evh.set_on_accept(move |_conn_data, _thread_context| {
+			// test returning an error on accept. It doesn't affect processing
+			Err(err!(ErrKind::Test, "test on acc err"))
 		})?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -3102,6 +3163,7 @@ mod test {
 			assert_eq!(buf[i], 'a' as u8 + (i % 26) as u8);
 		}
 
+		sleep(Duration::from_millis(5_000));
 		evh.stop()?;
 
 		Ok(())
@@ -4062,29 +4124,21 @@ mod test {
 
 		// create a thread panic
 		stream.write(b"aaa")?;
-		sleep(Duration::from_millis(5000));
-
 		// read and we should get 0 for close
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 0);
-		sleep(Duration::from_millis(5000));
-
 		// connect and send another request
 		let mut stream = TcpStream::connect(addr)?;
 		stream.write(b"test")?;
 		let mut buf = vec![];
 		buf.resize(100, 0u8);
 		let len = stream.read(&mut buf)?;
-		assert_eq!(len, 4);
 		assert_eq!(&buf[0..len], b"test");
 
 		// assert that the on_panic callback was called
 		assert_eq!(**on_panic_callback_clone.rlock()?.guard(), 1);
-
 		// create a thread panic
 		stream.write(b"aaa")?;
-		sleep(Duration::from_millis(5000));
-
 		evh.stop()?;
 
 		Ok(())
@@ -5051,6 +5105,362 @@ mod test {
 	}
 
 	#[test]
+	fn test_evh_tls_multi_chunk_reuse_port_acc_err() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!(
+			"eventhandler tls_multi_chunk no reuse port Using port: {}",
+			port
+		)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 100,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		let mut client_handle = lock_box!(0)?;
+		let client_handle_clone = client_handle.clone();
+
+		let mut client_received_test1 = lock_box!(0)?;
+		let mut server_received_test1 = lock_box!(false)?;
+		let mut server_received_abc = lock_box!(false)?;
+		let client_received_test1_clone = client_received_test1.clone();
+		let server_received_test1_clone = server_received_test1.clone();
+		let server_received_abc_clone = server_received_abc.clone();
+
+		let mut big_msg = vec![];
+		big_msg.resize(10 * 1024, 7u8);
+		big_msg[0] = 't' as u8;
+		let big_msg_clone = big_msg.clone();
+		let mut server_accumulator = lock_box!(vec![])?;
+		let mut client_accumulator = lock_box!(vec![])?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read slab offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let mut ret: Vec<u8> = vec![];
+				let mut slab_id = first_slab;
+				loop {
+					if slab_id == last_slab {
+						let slab = sa.get(slab_id.try_into()?)?;
+						ret.extend(&slab.get()[0..slab_offset as usize]);
+						break;
+					} else {
+						let slab = sa.get(slab_id.try_into()?)?;
+						let slab_bytes = slab.get();
+						ret.extend(&slab_bytes[0..READ_SLAB_NEXT_OFFSET]);
+						slab_id = u32::from_be_bytes(try_into!(
+							&slab_bytes[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
+						)?);
+					}
+				}
+				Ok(ret)
+			})?;
+			info!(
+				"on read handle={},id={}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			conn_data.clear_through(last_slab)?;
+			let client_handle = client_handle_clone.rlock()?;
+			let guard = client_handle.guard();
+			if conn_data.get_handle() != **guard {
+				info!("server res.len= = {}", res.len())?;
+				if res == b"abc".to_vec() {
+					info!("found abc")?;
+					let mut server_received_abc = server_received_abc.wlock()?;
+					(**server_received_abc.guard()) = true;
+
+					// write a big message to test the server side big messages
+					conn_data.write_handle().write(&big_msg)?;
+				} else {
+					conn_data.write_handle().write(&res)?;
+					let mut server_accumulator = server_accumulator.wlock()?;
+					let guard = server_accumulator.guard();
+					(**guard).extend(res.clone());
+
+					if **guard == big_msg {
+						let mut server_received_test1 = server_received_test1.wlock()?;
+						(**server_received_test1.guard()) = true;
+					}
+				}
+			} else {
+				info!("client res.len = {}", res.len())?;
+
+				let mut client_accumulator = client_accumulator.wlock()?;
+				let guard = client_accumulator.guard();
+				(**guard).extend(res.clone());
+
+				if **guard == big_msg {
+					info!("client found a big message")?;
+					let mut x = vec![];
+					x.extend(b"abc");
+					conn_data.write_handle().write(&x)?;
+					**guard = vec![];
+					let mut client_received_test1 = client_received_test1.wlock()?;
+					(**client_received_test1.guard()) += 1;
+				}
+			}
+			info!("res[0]={}, res.len()={}", res[0], res.len())?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |_conn_data, _thread_context| Err(err!(ErrKind::Test, "acc err")))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![TlsServerConfig {
+				sni_host: "localhost".to_string(),
+				certificates_file: "./resources/cert.pem".to_string(),
+				private_key_file: "./resources/key.pem".to_string(),
+				ocsp_file: None,
+			}],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let connection = TcpStream::connect(addr)?;
+		connection.set_nonblocking(true)?;
+		#[cfg(unix)]
+		let connection_handle = connection.into_raw_fd();
+		#[cfg(windows)]
+		let connection_handle = connection.into_raw_socket().try_into()?;
+		{
+			let mut client_handle = client_handle.wlock()?;
+			(**client_handle.guard()) = connection_handle;
+		}
+
+		let client = ClientConnection {
+			handle: connection_handle,
+			tls_config: Some(TlsClientConfig {
+				sni_host: "localhost".to_string(),
+				trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
+			}),
+		};
+
+		let mut wh = evh.add_client(client)?;
+
+		wh.write(&big_msg_clone)?;
+		info!("big write complete")?;
+		let mut count = 0;
+		loop {
+			sleep(Duration::from_millis(1));
+			if !(**(client_received_test1_clone.rlock()?.guard()) >= 2
+				&& **(server_received_test1_clone.rlock()?.guard())
+				&& **(server_received_abc_clone.rlock()?.guard()))
+			{
+				count += 1;
+				if count < 20_000 {
+					continue;
+				}
+			}
+
+			let v = **(client_received_test1_clone.rlock()?.guard());
+			info!("client recieved = {}", v)?;
+			assert!(**(server_received_test1_clone.rlock()?.guard()));
+			assert!(**(client_received_test1_clone.rlock()?.guard()) >= 2);
+			assert!(**(server_received_abc_clone.rlock()?.guard()));
+			break;
+		}
+
+		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_tls_multi_chunk_no_reuse_port() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!(
+			"eventhandler tls_multi_chunk no reuse port Using port: {}",
+			port
+		)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 100,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		let mut client_handle = lock_box!(0)?;
+		let client_handle_clone = client_handle.clone();
+
+		let mut client_received_test1 = lock_box!(0)?;
+		let mut server_received_test1 = lock_box!(false)?;
+		let mut server_received_abc = lock_box!(false)?;
+		let client_received_test1_clone = client_received_test1.clone();
+		let server_received_test1_clone = server_received_test1.clone();
+		let server_received_abc_clone = server_received_abc.clone();
+
+		let mut big_msg = vec![];
+		big_msg.resize(10 * 1024, 7u8);
+		big_msg[0] = 't' as u8;
+		let big_msg_clone = big_msg.clone();
+		let mut server_accumulator = lock_box!(vec![])?;
+		let mut client_accumulator = lock_box!(vec![])?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read slab offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let mut ret: Vec<u8> = vec![];
+				let mut slab_id = first_slab;
+				loop {
+					if slab_id == last_slab {
+						let slab = sa.get(slab_id.try_into()?)?;
+						ret.extend(&slab.get()[0..slab_offset as usize]);
+						break;
+					} else {
+						let slab = sa.get(slab_id.try_into()?)?;
+						let slab_bytes = slab.get();
+						ret.extend(&slab_bytes[0..READ_SLAB_NEXT_OFFSET]);
+						slab_id = u32::from_be_bytes(try_into!(
+							&slab_bytes[READ_SLAB_NEXT_OFFSET..READ_SLAB_SIZE]
+						)?);
+					}
+				}
+				Ok(ret)
+			})?;
+			info!(
+				"on read handle={},id={}",
+				conn_data.get_handle(),
+				conn_data.get_connection_id()
+			)?;
+			conn_data.clear_through(last_slab)?;
+			let client_handle = client_handle_clone.rlock()?;
+			let guard = client_handle.guard();
+			if conn_data.get_handle() != **guard {
+				info!("server res.len= = {}", res.len())?;
+				if res == b"abc".to_vec() {
+					info!("found abc")?;
+					let mut server_received_abc = server_received_abc.wlock()?;
+					(**server_received_abc.guard()) = true;
+
+					// write a big message to test the server side big messages
+					conn_data.write_handle().write(&big_msg)?;
+				} else {
+					conn_data.write_handle().write(&res)?;
+					let mut server_accumulator = server_accumulator.wlock()?;
+					let guard = server_accumulator.guard();
+					(**guard).extend(res.clone());
+
+					if **guard == big_msg {
+						let mut server_received_test1 = server_received_test1.wlock()?;
+						(**server_received_test1.guard()) = true;
+					}
+				}
+			} else {
+				info!("client res.len = {}", res.len())?;
+
+				let mut client_accumulator = client_accumulator.wlock()?;
+				let guard = client_accumulator.guard();
+				(**guard).extend(res.clone());
+
+				if **guard == big_msg {
+					info!("client found a big message")?;
+					let mut x = vec![];
+					x.extend(b"abc");
+					conn_data.write_handle().write(&x)?;
+					**guard = vec![];
+					let mut client_received_test1 = client_received_test1.wlock()?;
+					(**client_received_test1.guard()) += 1;
+				}
+			}
+			info!("res[0]={}, res.len()={}", res[0], res.len())?;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept_none();
+
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![TlsServerConfig {
+				sni_host: "localhost".to_string(),
+				certificates_file: "./resources/cert.pem".to_string(),
+				private_key_file: "./resources/key.pem".to_string(),
+				ocsp_file: None,
+			}],
+			handles,
+			is_reuse_port: false,
+		};
+		evh.add_server(sc)?;
+
+		let connection = TcpStream::connect(addr)?;
+		connection.set_nonblocking(true)?;
+		#[cfg(unix)]
+		let connection_handle = connection.into_raw_fd();
+		#[cfg(windows)]
+		let connection_handle = connection.into_raw_socket().try_into()?;
+		{
+			let mut client_handle = client_handle.wlock()?;
+			(**client_handle.guard()) = connection_handle;
+		}
+
+		let client = ClientConnection {
+			handle: connection_handle,
+			tls_config: Some(TlsClientConfig {
+				sni_host: "localhost".to_string(),
+				trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
+			}),
+		};
+
+		let mut wh = evh.add_client(client)?;
+
+		wh.write(&big_msg_clone)?;
+		info!("big write complete")?;
+		let mut count = 0;
+		loop {
+			sleep(Duration::from_millis(1));
+			if !(**(client_received_test1_clone.rlock()?.guard()) >= 2
+				&& **(server_received_test1_clone.rlock()?.guard())
+				&& **(server_received_abc_clone.rlock()?.guard()))
+			{
+				count += 1;
+				if count < 20_000 {
+					continue;
+				}
+			}
+
+			let v = **(client_received_test1_clone.rlock()?.guard());
+			info!("client recieved = {}", v)?;
+			assert!(**(server_received_test1_clone.rlock()?.guard()));
+			assert!(**(client_received_test1_clone.rlock()?.guard()) >= 2);
+			assert!(**(server_received_abc_clone.rlock()?.guard()));
+			break;
+		}
+
+		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
 	fn test_evh_tls_multi_chunk() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("eventhandler tls_multi_chunk Using port: {}", port)?;
@@ -5154,14 +5564,10 @@ mod test {
 			info!("res[0]={}, res.len()={}", res[0], res.len())?;
 			Ok(())
 		})?;
-		evh.set_on_accept(move |conn_data, _thread_context| {
-			info!(
-				"accept a connection handle = {},id={}",
-				conn_data.get_handle(),
-				conn_data.get_connection_id()
-			)?;
-			Ok(())
-		})?;
+
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept_none();
+
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
@@ -5177,7 +5583,7 @@ mod test {
 				ocsp_file: None,
 			}],
 			handles,
-			is_reuse_port: false,
+			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
 
@@ -5618,7 +6024,7 @@ mod test {
 			is_reuse_port: false,
 			tls_config: None,
 		};
-		let ci = ConnectionInfo::ListenerInfo(li);
+		let ci = ConnectionInfo::ListenerInfo(li.clone());
 		ctx.connection_hashtable.insert(&1_000, &ci)?;
 		{
 			let mut data = evh.data[0].wlock()?;
@@ -5626,6 +6032,129 @@ mod test {
 			(**guard).write_queue.enqueue(1_000)?;
 		}
 		evh.process_write_queue(&mut ctx)?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_close_no_handler() -> Result<(), Error> {
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.set_on_close_none();
+
+		let mut ctx = EventHandlerContext::new(0, 100, 100, 100, 100)?;
+
+		// insert the rwi
+		let mut rwi = ReadWriteInfo {
+			id: 1_000,
+			handle: 0,
+			accept_handle: None,
+			write_state: lock_box!(WriteState {
+				write_buffer: vec![],
+				flags: 0
+			})?,
+			first_slab: u32::MAX,
+			last_slab: u32::MAX,
+			slab_offset: 0,
+			is_accepted: false,
+			tls_client: None,
+			tls_server: None,
+		};
+		let ci = ConnectionInfo::ReadWriteInfo(rwi.clone());
+		ctx.connection_hashtable.insert(&1_000, &ci)?;
+
+		// call on close to trigger the none on close. No error should return.
+		evh.process_close(&mut ctx, &mut rwi, &mut ThreadContext::new())?;
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_ins_hashtable_err() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("eventhandler tls_multi_chunk Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let port2 = pick_free_port()?;
+		let addr2 = &format!("127.0.0.1:{}", port2)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 100,
+			max_handles_per_thread: 1,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![TlsServerConfig {
+				sni_host: "localhost".to_string(),
+				certificates_file: "./resources/cert.pem".to_string(),
+				private_key_file: "./resources/key.pem".to_string(),
+				ocsp_file: None,
+			}],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let connection = TcpStream::connect(addr)?;
+		connection.set_nonblocking(true)?;
+		#[cfg(unix)]
+		let connection_handle = connection.into_raw_fd();
+		#[cfg(windows)]
+		let connection_handle = connection.into_raw_socket().try_into()?;
+
+		let client = ClientConnection {
+			handle: connection_handle,
+			tls_config: Some(TlsClientConfig {
+				sni_host: "localhost".to_string(),
+				trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
+			}),
+		};
+
+		evh.add_client(client)?;
+		sleep(Duration::from_millis(1_000));
+		let handles = create_listeners(threads, addr2, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![TlsServerConfig {
+				sni_host: "localhost".to_string(),
+				certificates_file: "./resources/cert.pem".to_string(),
+				private_key_file: "./resources/key.pem".to_string(),
+				ocsp_file: None,
+			}],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+		sleep(Duration::from_millis(1_000));
+
+		// connection 2 closed so this will fail
+		assert!(TcpStream::connect(addr2).is_err());
 
 		Ok(())
 	}
