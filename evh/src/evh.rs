@@ -827,6 +827,7 @@ where
 			debug_fatal_error: false,
 			debug_tls_server_error: false,
 			debug_read_error: false,
+			debug_tls_read: false,
 		};
 		Ok(ret)
 	}
@@ -864,6 +865,11 @@ where
 	#[cfg(test)]
 	fn set_debug_tls_server_error(&mut self, value: bool) {
 		self.debug_tls_server_error = value;
+	}
+
+	#[cfg(test)]
+	fn set_debug_tls_read(&mut self, value: bool) {
+		self.debug_tls_read = value;
 	}
 
 	#[cfg(test)]
@@ -1512,6 +1518,7 @@ where
 		Ok((len, pt_len))
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_read(
 		&mut self,
 		rw: &mut ReadWriteInfo,
@@ -1524,15 +1531,14 @@ where
 					let (raw_len, pt_len) = self.do_tls_server_read(rw.clone(), ctx)?;
 					if raw_len <= 0 {
 						// EAGAIN is would block. -2 is would block for windows
-						if errno().0 != EAGAIN
+						if (errno().0 != EAGAIN
 							&& errno().0 != ETEMPUNAVAILABLE
 							&& errno().0 != WINNONBLOCKING
-							&& raw_len != -2
+							&& raw_len != -2) || self.debug_tls_read
 						{
+							debug!("proc close: {} {}", rw.handle, self.debug_tls_read)?;
 							self.process_close(ctx, rw, callback_context)?;
-						}
-
-						if raw_len == -2 {
+						} else if raw_len == -2 {
 							#[cfg(target_os = "windows")]
 							{
 								if !ctx.write_set.contains(&rw.handle)? {
@@ -1575,14 +1581,13 @@ where
 						let (raw_len, pt_len) = self.do_tls_client_read(rw.clone(), ctx)?;
 						if raw_len <= 0 {
 							// EAGAIN is would block. -2 is would block for windows
-							if errno().0 != EAGAIN
+							if (errno().0 != EAGAIN
 								&& errno().0 != ETEMPUNAVAILABLE && errno().0 != WINNONBLOCKING
-								&& raw_len != -2
+								&& raw_len != -2) || self.debug_tls_read
 							{
+								debug!("proc close client")?;
 								self.process_close(ctx, rw, callback_context)?;
-							}
-
-							if raw_len == -2 {
+							} else if raw_len == -2 {
 								#[cfg(target_os = "windows")]
 								{
 									if !ctx.write_set.contains(&rw.handle)? {
@@ -2681,10 +2686,129 @@ mod test {
 	}
 
 	#[test]
+	fn test_eventhandler_tls_basic_read_error() -> Result<(), Error> {
+		{
+			let port = pick_free_port()?;
+			info!("eventhandler tls_basic read error Using port: {}", port)?;
+			let addr = &format!("127.0.0.1:{}", port)[..];
+			let threads = 2;
+			let config = EventHandlerConfig {
+				threads,
+				housekeeping_frequency_millis: 100_000,
+				read_slab_count: 100,
+				max_handles_per_thread: 3,
+				..Default::default()
+			};
+			let mut evh = EventHandlerImpl::new(config)?;
+
+			evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_close(move |conn_data, _thread_context| {
+				info!("on close: {}", conn_data.get_handle())?;
+				Ok(())
+			})?;
+			evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+			evh.set_housekeeper(move |_thread_context| Ok(()))?;
+			evh.set_debug_tls_read(true);
+			evh.start()?;
+
+			let handles = create_listeners(threads, addr, 10)?;
+			info!("handles.size={},handles={:?}", handles.size(), handles)?;
+			let sc = ServerConnection {
+				tls_config: vec![TlsServerConfig {
+					sni_host: "localhost".to_string(),
+					certificates_file: "./resources/cert.pem".to_string(),
+					private_key_file: "./resources/key.pem".to_string(),
+					ocsp_file: None,
+				}],
+				handles,
+				is_reuse_port: false,
+			};
+			evh.add_server(sc)?;
+			let mut connection = TcpStream::connect(addr)?;
+			connection.write(b"test")?;
+			let mut buf = vec![];
+			buf.resize(100, 0u8);
+
+			// connection will close because of the error
+			assert_eq!(connection.read(&mut buf)?, 0);
+
+			let port = pick_free_port()?;
+			let addr2 = &format!("127.0.0.1:{}", port)[..];
+			let config = EventHandlerConfig {
+				threads,
+				housekeeping_frequency_millis: 100_000,
+				read_slab_count: 100,
+				max_handles_per_thread: 3,
+				..Default::default()
+			};
+			let mut evhserver = EventHandlerImpl::new(config)?;
+			evhserver.set_on_read(move |conn_data, _thread_context| {
+				debug!("on read slab_offset = {}", conn_data.slab_offset())?;
+				let first_slab = conn_data.first_slab();
+				let last_slab = conn_data.last_slab();
+				let slab_offset = conn_data.slab_offset();
+				debug!("first_slab={}", first_slab)?;
+				let res = conn_data.borrow_slab_allocator(move |sa| {
+					let slab = sa.get(first_slab.try_into()?)?;
+					assert_eq!(first_slab, last_slab);
+					info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+					let mut ret: Vec<u8> = vec![];
+					ret.extend(&slab.get()[0..slab_offset as usize]);
+					Ok(ret)
+				})?;
+				conn_data.clear_through(first_slab)?;
+				conn_data.write_handle().write(&res)?;
+				info!("res={:?}", res)?;
+				Ok(())
+			})?;
+			evhserver.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+			evhserver.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+			evhserver.set_on_panic(move |_thread_context, _e| Ok(()))?;
+			evhserver.set_housekeeper(move |_thread_context| Ok(()))?;
+			evhserver.start()?;
+			let handles = create_listeners(threads, addr2, 10)?;
+			let sc = ServerConnection {
+				tls_config: vec![TlsServerConfig {
+					sni_host: "localhost".to_string(),
+					certificates_file: "./resources/cert.pem".to_string(),
+					private_key_file: "./resources/key.pem".to_string(),
+					ocsp_file: None,
+				}],
+				handles,
+				is_reuse_port: false,
+			};
+			evhserver.add_server(sc)?;
+
+			let connection = TcpStream::connect(addr2)?;
+			connection.set_nonblocking(true)?;
+			#[cfg(unix)]
+			let connection_handle = connection.into_raw_fd();
+			#[cfg(windows)]
+			let connection_handle = connection.into_raw_socket().try_into()?;
+			let client = ClientConnection {
+				handle: connection_handle,
+				tls_config: Some(TlsClientConfig {
+					sni_host: "localhost".to_string(),
+					trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
+				}),
+			};
+			let mut wh = evh.add_client(client)?;
+			wh.write(b"test")?;
+			sleep(Duration::from_millis(2000));
+
+			evh.stop()?;
+			evhserver.stop()?;
+		}
+
+		Ok(())
+	}
+
+	#[test]
 	fn test_eventhandler_tls_basic_server_error() -> Result<(), Error> {
 		{
 			let port = pick_free_port()?;
-			info!("eventhandler tls_basic Using port: {}", port)?;
+			info!("eventhandler tls_basic server error Using port: {}", port)?;
 			let addr = &format!("127.0.0.1:{}", port)[..];
 			let threads = 2;
 			let config = EventHandlerConfig {

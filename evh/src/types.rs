@@ -250,6 +250,7 @@ where
 	pub(crate) debug_fatal_error: bool,
 	pub(crate) debug_tls_server_error: bool,
 	pub(crate) debug_read_error: bool,
+	pub(crate) debug_tls_read: bool,
 }
 
 #[derive(Clone)]
