@@ -439,6 +439,7 @@ impl WriteHandle {
 		debug_write_queue: bool,
 		debug_pending: bool,
 		debug_write_error: bool,
+		debug_suspended: bool,
 		tls_server: Option<Box<dyn LockBox<RSConn>>>,
 		tls_client: Option<Box<dyn LockBox<RCConn>>>,
 	) -> Self {
@@ -453,6 +454,7 @@ impl WriteHandle {
 			tls_client,
 			tls_server,
 			debug_write_error,
+			debug_suspended,
 		}
 	}
 
@@ -577,7 +579,7 @@ impl WriteHandle {
 			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_CLOSE) {
 				return Err(err!(ErrKind::IO, "write handle closed"));
 			}
-			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_SUSPEND) {
+			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_SUSPEND) || self.debug_suspended {
 				return Err(err!(ErrKind::IO, "write handle suspended"));
 			}
 			if (**write_state.guard()).is_set(WRITE_STATE_FLAG_PENDING)
@@ -677,6 +679,7 @@ impl<'a> ConnectionData<'a> {
 		debug_write_queue: bool,
 		debug_pending: bool,
 		debug_write_error: bool,
+		debug_suspended: bool,
 	) -> Self {
 		Self {
 			rwi,
@@ -687,6 +690,7 @@ impl<'a> ConnectionData<'a> {
 			debug_write_queue,
 			debug_pending,
 			debug_write_error,
+			debug_suspended,
 		}
 	}
 
@@ -718,6 +722,7 @@ impl<'a> ConnData for ConnectionData<'a> {
 			self.debug_write_queue,
 			self.debug_pending,
 			self.debug_write_error,
+			self.debug_suspended,
 			self.rwi.tls_server.clone(),
 			self.rwi.tls_client.clone(),
 		)
@@ -818,6 +823,7 @@ where
 			debug_write_queue: false,
 			debug_pending: false,
 			debug_write_error: false,
+			debug_suspended: false,
 			debug_fatal_error: false,
 		};
 		Ok(ret)
@@ -836,6 +842,11 @@ where
 	#[cfg(test)]
 	fn set_debug_write_error(&mut self, value: bool) {
 		self.debug_write_error = value;
+	}
+
+	#[cfg(test)]
+	fn set_debug_suspended(&mut self, value: bool) {
+		self.debug_suspended = value;
 	}
 
 	#[cfg(test)]
@@ -993,6 +1004,7 @@ where
 		Ok(())
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_write_queue(&mut self, ctx: &mut EventHandlerContext) -> Result<(), Error> {
 		debug!("process write queue")?;
 		let mut data = self.data[ctx.tid].wlock()?;
@@ -1324,6 +1336,7 @@ where
 							self.debug_write_queue,
 							self.debug_pending,
 							self.debug_write_error,
+							self.debug_suspended,
 						),
 						callback_context,
 					) {
@@ -1405,6 +1418,7 @@ where
 				self.debug_write_queue,
 				self.debug_pending,
 				self.debug_write_error,
+				self.debug_suspended,
 			);
 			connection_data.write_handle().do_write(&wbuf)?;
 		}
@@ -1463,6 +1477,7 @@ where
 				self.debug_write_queue,
 				self.debug_pending,
 				self.debug_write_error,
+				self.debug_suspended,
 			);
 			connection_data.write_handle().do_write(&wbuf)?;
 		}
@@ -1758,6 +1773,7 @@ where
 							self.debug_write_queue,
 							self.debug_pending,
 							self.debug_write_error,
+							self.debug_suspended,
 						),
 						callback_context,
 					) {
@@ -1816,6 +1832,7 @@ where
 									self.debug_write_queue,
 									self.debug_pending,
 									self.debug_write_error,
+									self.debug_suspended,
 								),
 								callback_context,
 							) {
@@ -1923,10 +1940,11 @@ where
 					let rslabs = &mut ctx.read_slabs;
 					let wakeup = self.wakeup[tid].clone();
 					let data = self.data[tid].clone();
-					let dbwq = self.debug_write_queue;
-					let dbp = self.debug_pending;
+					let q = self.debug_write_queue;
+					let p = self.debug_pending;
 					let we = self.debug_write_error;
-					let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, dbwq, dbp, we);
+					let s = self.debug_suspended;
+					let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, q, p, we, s);
 					match on_accept(&mut cd, callback_context) {
 						Ok(_) => {}
 						Err(e) => {
@@ -1967,9 +1985,10 @@ where
 				let wakeup = self.wakeup[ctx.tid].clone();
 				let data = self.data[ctx.tid].clone();
 				let wq = self.debug_write_queue;
-				let debug_p = self.debug_pending;
+				let p = self.debug_pending;
 				let we = self.debug_write_error;
-				let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, wq, debug_p, we);
+				let s = self.debug_suspended;
+				let mut cd = ConnectionData::new(rwi, tid, rslabs, wakeup, data, wq, p, we, s);
 				match on_accept(&mut cd, callback_context) {
 					Ok(_) => {}
 					Err(e) => {
@@ -2265,6 +2284,7 @@ where
 			self.debug_write_queue,
 			self.debug_pending,
 			self.debug_write_error,
+			self.debug_suspended,
 			None,
 			tls_client.clone(),
 		);
@@ -4482,6 +4502,67 @@ mod test {
 	}
 
 	#[test]
+	fn test_evh_debug_suspend() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("pending Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 60_000,
+			read_slab_count: 20,
+			max_handles_per_thread: 30,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+		evh.set_debug_suspended(true);
+
+		let mut success = lock_box!(false)?;
+		let success_clone = success.clone();
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			info!("on read fs = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let slab_offset = conn_data.slab_offset();
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			assert!(conn_data.write_handle().write(&res).is_err());
+			info!("res={:?}", res)?;
+			**(success.wlock()?.guard()) = true;
+			Ok(())
+		})?;
+
+		evh.set_on_accept(move |_, _| Ok(()))?;
+		evh.set_on_close(move |_, _| Ok(()))?;
+		evh.set_on_panic(move |_, _| Ok(()))?;
+		evh.set_housekeeper(move |_| Ok(()))?;
+
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+		stream.write(b"12345")?;
+		sleep(Duration::from_millis(5_000));
+		assert!(**(success_clone.rlock()?.guard()));
+
+		Ok(())
+	}
+
+	#[test]
 	fn test_evh_debug_pending() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("pending Using port: {}", port)?;
@@ -4764,7 +4845,6 @@ mod test {
 					wh.write(b"test")?;
 					let handle = wh.handle();
 					wh.suspend()?;
-					assert!(wh.write(b"test").is_err());
 
 					#[cfg(unix)]
 					let mut strm = unsafe { TcpStream::from_raw_fd(handle) };
@@ -4773,8 +4853,8 @@ mod test {
 
 					let mut count = 0;
 					loop {
-						strm.write(b"ok")?;
 						sleep(Duration::from_millis(1_000));
+						strm.write(b"ok")?;
 						if count > 3 {
 							break;
 						}

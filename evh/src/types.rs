@@ -79,6 +79,7 @@ pub struct ConnectionData<'a> {
 	pub(crate) debug_write_queue: bool,
 	pub(crate) debug_pending: bool,
 	pub(crate) debug_write_error: bool,
+	pub(crate) debug_suspended: bool,
 }
 
 #[derive(Clone)]
@@ -91,6 +92,7 @@ pub struct WriteHandle {
 	pub(crate) debug_write_queue: bool,
 	pub(crate) debug_pending: bool,
 	pub(crate) debug_write_error: bool,
+	pub(crate) debug_suspended: bool,
 	pub(crate) tls_server: Option<Box<dyn LockBox<RustlsServerConnection>>>,
 	pub(crate) tls_client: Option<Box<dyn LockBox<RustlsClientConnection>>>,
 }
@@ -244,6 +246,7 @@ where
 	pub(crate) debug_write_queue: bool,
 	pub(crate) debug_pending: bool,
 	pub(crate) debug_write_error: bool,
+	pub(crate) debug_suspended: bool,
 	pub(crate) debug_fatal_error: bool,
 }
 
