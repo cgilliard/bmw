@@ -855,6 +855,7 @@ where
 		self.debug_fatal_error = value;
 	}
 
+	#[cfg(test)]
 	fn set_debug_tls_server_error(&mut self, value: bool) {
 		self.debug_tls_server_error = value;
 	}
