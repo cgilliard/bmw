@@ -1184,6 +1184,7 @@ where
 		Ok(())
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_events(
 		&mut self,
 		ctx: &mut EventHandlerContext,
@@ -1254,13 +1255,13 @@ where
 								}
 							}
 						},
-						None => warn!("Couldn't look up conn info for {}", id)?, //1
+						None => warn!("Couldn't look up conn info for {}", id)?,
 					}
 				}
 				None => warn!(
 					"Couldn't look up id for handle {}, tid={}",
 					ctx.events[ctx.counter].handle, ctx.tid
-				)?, //2
+				)?,
 			}
 			ctx.counter += 1;
 		}
@@ -1372,12 +1373,11 @@ where
 					) {
 						Ok(_) => {}
 						Err(e) => {
-							//4
 							warn!("Callback on_read generated error: {}", e)?;
 						}
 					}
 				}
-				None => {} //5
+				None => {}
 			}
 		}
 
@@ -2498,8 +2498,8 @@ mod test {
 	use crate::evh::{create_listeners, read_bytes};
 	use crate::evh::{load_ocsp, load_private_key, READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
 	use crate::types::{
-		ConnectionInfo, EventHandlerContext, EventHandlerImpl, ListenerInfo, ReadWriteInfo, Wakeup,
-		WriteState,
+		ConnectionInfo, Event, EventHandlerContext, EventHandlerImpl, EventType, ListenerInfo,
+		ReadWriteInfo, Wakeup, WriteState,
 	};
 	use crate::{
 		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
@@ -3014,7 +3014,7 @@ mod test {
 				let last_slab = conn_data.last_slab();
 				let slab_offset = conn_data.slab_offset();
 				debug!("first_slab={}", first_slab)?;
-				let res = conn_data.borrow_slab_allocator(move |sa| {
+				conn_data.borrow_slab_allocator(move |sa| {
 					let slab = sa.get(first_slab.try_into()?)?;
 					assert_eq!(first_slab, last_slab);
 					info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
@@ -3023,7 +3023,7 @@ mod test {
 					Ok(ret)
 				})?;
 				conn_data.clear_through(first_slab)?;
-				for i in 0..3 {
+				for _ in 0..3 {
 					conn_data.write_handle().write(b"test")?;
 					sleep(Duration::from_millis(1_000));
 				}
@@ -4229,6 +4229,73 @@ mod test {
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 4);
 		assert_eq!(&buf[0..len], b"test");
+
+		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_trigger_on_read_error() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("trigger on_read error Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 2;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 10_000,
+			read_slab_count: 1,
+			max_handles_per_thread: 2,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			conn_data.write_handle().write(b"1234")?;
+			let mut wh = conn_data.write_handle();
+
+			spawn(move || -> Result<(), Error> {
+				info!("new thread")?;
+				sleep(Duration::from_millis(1000));
+				wh.write(b"5678")?;
+				sleep(Duration::from_millis(1000));
+				wh.trigger_on_read()?;
+				Ok(())
+			});
+			Err(err!(ErrKind::Test, "on_read test err"))
+		})?;
+
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let mut stream = TcpStream::connect(addr)?;
+
+		// do a normal request
+		stream.write(b"test")?;
+		let mut buf = vec![];
+		buf.resize(100, 0u8);
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"1234");
+
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"5678");
+
+		let len = stream.read(&mut buf)?;
+		assert_eq!(len, 4);
+		assert_eq!(&buf[0..len], b"1234");
 
 		evh.stop()?;
 
@@ -6351,7 +6418,7 @@ mod test {
 			threads,
 			housekeeping_frequency_millis: 100_000,
 			read_slab_count: 2,
-			max_handles_per_thread: 3,
+			max_handles_per_thread: 5,
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
@@ -6376,6 +6443,23 @@ mod test {
 		info!("about to write")?;
 		connection.write(b"test1")?;
 		sleep(Duration::from_millis(1_000));
+
+		let connection2 = TcpStream::connect(addr)?;
+		connection2.set_nonblocking(true)?;
+		#[cfg(unix)]
+		let connection_handle = connection2.into_raw_fd();
+		#[cfg(windows)]
+		let connection_handle = connection2.into_raw_socket().try_into()?;
+
+		let client = ClientConnection {
+			handle: connection_handle,
+			tls_config: None,
+		};
+		let mut wh = evh.add_client(client)?;
+
+		wh.trigger_on_read()?;
+		sleep(Duration::from_millis(1_000));
+
 		Ok(())
 	}
 
@@ -6548,6 +6632,46 @@ mod test {
 		let len = connection.read(&mut buf)?;
 		assert_eq!(len, 0); // due to error connection is closed
 		evh.stop()?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_process_events_other_situations() -> Result<(), Error> {
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.set_on_close_none();
+
+		let mut ctx = EventHandlerContext::new(0, 100, 100, 100, 100)?;
+
+		let mut wakeup = Wakeup::new()?;
+		ctx.counter = 0;
+		ctx.count = 1;
+		ctx.events[0] = Event {
+			handle: 1000,
+			etype: EventType::Read,
+		};
+
+		// both of these will succeed with warning printed
+		// TODO: would be good to do an assertion that verifies these
+		evh.process_events(&mut ctx, &mut wakeup, &mut ThreadContext::new())?;
+		ctx.handle_hashtable.insert(&1000, &2000)?;
+		ctx.counter = 0;
+		ctx.count = 1;
+		evh.process_events(&mut ctx, &mut wakeup, &mut ThreadContext::new())?;
 
 		Ok(())
 	}
