@@ -1268,6 +1268,7 @@ where
 		Ok(())
 	}
 
+	#[cfg(not(tarpaulin_include))]
 	fn process_write(
 		&mut self,
 		rw: &mut ReadWriteInfo,
@@ -1290,42 +1291,6 @@ where
 					} else if (**guard).is_set(WRITE_STATE_FLAG_TRIGGER_ON_READ) {
 						(**guard).unset_flag(WRITE_STATE_FLAG_TRIGGER_ON_READ);
 						trigger_on_read = true;
-					} else if (**guard).is_set(WRITE_STATE_FLAG_SUSPEND) {
-						let ev_in = EventIn {
-							handle: rw.handle,
-							etype: EventTypeIn::Suspend,
-						};
-						ctx.events_in.push(ev_in);
-						(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
-						(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
-						#[cfg(unix)]
-						{
-							let strm = unsafe { TcpStream::from_raw_fd(rw.handle) };
-							strm.set_nonblocking(false)?;
-							strm.into_raw_fd();
-						}
-						#[cfg(windows)]
-						{
-							let strm = unsafe { TcpStream::from_raw_socket(u64!(rw.handle)) };
-							strm.set_nonblocking(false)?;
-							strm.into_raw_socket();
-						}
-					} else if (**guard).is_set(WRITE_STATE_FLAG_RESUME) {
-						let ev_in = EventIn {
-							handle: rw.handle,
-							etype: EventTypeIn::Resume,
-						};
-						ctx.events_in.push(ev_in);
-						(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
-						(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
-						#[cfg(unix)]
-						{
-							unsafe { fcntl(rw.handle, F_SETFL, O_NONBLOCK) };
-						}
-						#[cfg(windows)]
-						{
-							set_windows_socket_options(rw.handle)?;
-						}
 					}
 					break;
 				}
@@ -1337,7 +1302,6 @@ where
 					&(**guard).write_buffer.len()
 				)?;
 				if wlen < 0 {
-					//3
 					// check if it's an actual error and not wouldblock
 					if errno().0 != EAGAIN
 						&& errno().0 != ETEMPUNAVAILABLE
@@ -5226,6 +5190,7 @@ mod test {
 					wh.write(b"test")?;
 					let handle = wh.handle();
 					wh.suspend()?;
+					sleep(Duration::from_millis(1_000));
 
 					#[cfg(unix)]
 					let mut strm = unsafe { TcpStream::from_raw_fd(handle) };
@@ -6409,6 +6374,52 @@ mod test {
 	}
 
 	#[test]
+	fn test_evh_trigger_on_read_none() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("eventhandler trigger_on_read none Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 5,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept(move |conn_data, _thread_context| {
+			let mut wh = conn_data.write_handle();
+
+			spawn(move || -> Result<(), Error> {
+				sleep(Duration::from_millis(1000));
+				wh.trigger_on_read()?;
+				Ok(())
+			});
+			Ok(())
+		})?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.set_on_read_none();
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![],
+			handles,
+			is_reuse_port: false,
+		};
+		evh.add_server(sc)?;
+		let _connection = TcpStream::connect(addr)?;
+		sleep(Duration::from_millis(5_000));
+
+		Ok(())
+	}
+
+	#[test]
 	fn test_evh_on_read_none() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("eventhandler on_read none Using port: {}", port)?;
@@ -6672,6 +6683,50 @@ mod test {
 		ctx.counter = 0;
 		ctx.count = 1;
 		evh.process_events(&mut ctx, &mut wakeup, &mut ThreadContext::new())?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_process_write_errors() -> Result<(), Error> {
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 2,
+			max_handles_per_thread: 3,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.set_on_close_none();
+
+		let mut ctx = EventHandlerContext::new(0, 100, 100, 100, 100)?;
+
+		let mut rwi = ReadWriteInfo {
+			id: 1001,
+			handle: 1001,
+			accept_handle: None,
+			write_state: lock_box!(WriteState {
+				write_buffer: vec!['a' as u8],
+				flags: 0
+			})?,
+			first_slab: u32::MAX,
+			last_slab: u32::MAX,
+			slab_offset: 0,
+			is_accepted: false,
+			tls_client: None,
+			tls_server: None,
+		};
+		let ci = ConnectionInfo::ReadWriteInfo(rwi.clone());
+		ctx.handle_hashtable.insert(&1001, &1001)?;
+		ctx.connection_hashtable.insert(&1001, &ci)?;
+		evh.process_write(&mut rwi, &mut ctx, &mut ThreadContext::new())?;
 
 		Ok(())
 	}
