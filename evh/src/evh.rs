@@ -1210,6 +1210,7 @@ where
 				ctx.counter += 1;
 				continue;
 			}
+			debug!("evt={:?}", ctx.events[ctx.counter])?;
 			match ctx.handle_hashtable.get(&ctx.events[ctx.counter].handle)? {
 				Some(id) => {
 					match ctx.connection_hashtable.get(&id)? {
@@ -1241,10 +1242,6 @@ where
 										debug!("write event {:?}", ctx.events[ctx.counter])?;
 										self.process_write(rw, ctx, callback_context)?
 									}
-									EventType::Error => {
-										self.process_error(rw, ctx, callback_context)?
-									}
-									_ => {}
 								}
 
 								// unless process close was called
@@ -1257,26 +1254,16 @@ where
 								}
 							}
 						},
-						None => warn!("Couldn't look up conn info for {}", id)?,
+						None => warn!("Couldn't look up conn info for {}", id)?, //1
 					}
 				}
 				None => warn!(
 					"Couldn't look up id for handle {}, tid={}",
 					ctx.events[ctx.counter].handle, ctx.tid
-				)?,
+				)?, //2
 			}
 			ctx.counter += 1;
 		}
-		Ok(())
-	}
-
-	fn process_error(
-		&mut self,
-		rw: &mut ReadWriteInfo,
-		ctx: &mut EventHandlerContext,
-		callback_context: &mut ThreadContext,
-	) -> Result<(), Error> {
-		self.process_close(ctx, rw, callback_context)?;
 		Ok(())
 	}
 
@@ -1303,10 +1290,11 @@ where
 						(**guard).unset_flag(WRITE_STATE_FLAG_TRIGGER_ON_READ);
 						trigger_on_read = true;
 					} else if (**guard).is_set(WRITE_STATE_FLAG_SUSPEND) {
-						ctx.events_in.push(EventIn {
+						let ev_in = EventIn {
 							handle: rw.handle,
 							etype: EventTypeIn::Suspend,
-						});
+						};
+						ctx.events_in.push(ev_in);
 						(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
 						(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
 						#[cfg(unix)]
@@ -1322,10 +1310,11 @@ where
 							strm.into_raw_socket();
 						}
 					} else if (**guard).is_set(WRITE_STATE_FLAG_RESUME) {
-						ctx.events_in.push(EventIn {
+						let ev_in = EventIn {
 							handle: rw.handle,
 							etype: EventTypeIn::Resume,
-						});
+						};
+						ctx.events_in.push(ev_in);
 						(**guard).unset_flag(WRITE_STATE_FLAG_SUSPEND);
 						(**guard).unset_flag(WRITE_STATE_FLAG_RESUME);
 						#[cfg(unix)]
@@ -1347,7 +1336,15 @@ where
 					&(**guard).write_buffer.len()
 				)?;
 				if wlen < 0 {
-					do_close = true;
+					//3
+					// check if it's an actual error and not wouldblock
+					if errno().0 != EAGAIN
+						&& errno().0 != ETEMPUNAVAILABLE
+						&& errno().0 != WINNONBLOCKING
+					{
+						do_close = true;
+					}
+
 					break;
 				}
 				(**guard).write_buffer.drain(0..wlen as usize);
@@ -1375,11 +1372,12 @@ where
 					) {
 						Ok(_) => {}
 						Err(e) => {
+							//4
 							warn!("Callback on_read generated error: {}", e)?;
 						}
 					}
 				}
-				None => {}
+				None => {} //5
 			}
 		}
 
@@ -1430,11 +1428,7 @@ where
 					(**tls_conn).reader().read_exact(&mut buf[..pt_len])?;
 				}
 				Err(e) => {
-					warn!(
-						"error generated processing packets for handle={}. Error={}",
-						handle,
-						e.to_string()
-					)?;
+					warn!("processing packets generated error: {}", e)?;
 					return Ok((-1, 0)); // invalid text received. Close conn.
 				}
 			}
@@ -1442,17 +1436,16 @@ where
 		}
 
 		if wbuf.len() > 0 {
-			let connection_data = ConnectionData::new(
-				&mut rw,
-				ctx.tid,
-				&mut ctx.read_slabs,
-				self.wakeup[ctx.tid].clone(),
-				self.data[ctx.tid].clone(),
-				self.debug_write_queue,
-				self.debug_pending,
-				self.debug_write_error,
-				self.debug_suspended,
-			);
+			let rw = &mut rw;
+			let tid = ctx.tid;
+			let rs = &mut ctx.read_slabs;
+			let wakeup = self.wakeup[ctx.tid].clone();
+			let data = self.data[ctx.tid].clone();
+			let d1 = self.debug_write_queue;
+			let d2 = self.debug_pending;
+			let d3 = self.debug_write_error;
+			let d4 = self.debug_suspended;
+			let connection_data = ConnectionData::new(rw, tid, rs, wakeup, data, d1, d2, d3, d4);
 			connection_data.write_handle().do_write(&wbuf)?;
 		}
 
@@ -1489,11 +1482,7 @@ where
 					(**tls_conn).reader().read_exact(&mut buf[..pt_len])?;
 				}
 				Err(e) => {
-					warn!(
-						"error generated processing packets for handle={}. Error={}",
-						handle,
-						e.to_string()
-					)?;
+					warn!("processing packets generated error: {}", e)?;
 					return Ok((-1, 0)); // invalid text received. Close conn.
 				}
 			}
@@ -1501,17 +1490,16 @@ where
 		}
 
 		if wbuf.len() > 0 {
-			let connection_data = ConnectionData::new(
-				&mut rw,
-				ctx.tid,
-				&mut ctx.read_slabs,
-				self.wakeup[ctx.tid].clone(),
-				self.data[ctx.tid].clone(),
-				self.debug_write_queue,
-				self.debug_pending,
-				self.debug_write_error,
-				self.debug_suspended,
-			);
+			let rw = &mut rw;
+			let tid = ctx.tid;
+			let rs = &mut ctx.read_slabs;
+			let wakeup = self.wakeup[ctx.tid].clone();
+			let data = self.data[ctx.tid].clone();
+			let d1 = self.debug_write_queue;
+			let d2 = self.debug_pending;
+			let d3 = self.debug_write_error;
+			let d4 = self.debug_suspended;
+			let connection_data = ConnectionData::new(rw, tid, rs, wakeup, data, d1, d2, d3, d4);
 			connection_data.write_handle().do_write(&wbuf)?;
 		}
 
@@ -2996,6 +2984,140 @@ mod test {
 				break;
 			}
 
+			evh.stop()?;
+		}
+
+		sleep(Duration::from_millis(2000));
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_tls_client_error() -> Result<(), Error> {
+		{
+			let port = pick_free_port()?;
+			info!("eventhandler tls_client_error Using port: {}", port)?;
+			let addr = &format!("127.0.0.1:{}", port)[..];
+			let threads = 2;
+			let config = EventHandlerConfig {
+				threads,
+				housekeeping_frequency_millis: 100_000,
+				read_slab_count: 100,
+				max_handles_per_thread: 3,
+				..Default::default()
+			};
+			let mut evh = EventHandlerImpl::new(config)?;
+
+			evh.set_on_read(move |conn_data, _thread_context| {
+				debug!("on read slab_offset = {}", conn_data.slab_offset())?;
+				let first_slab = conn_data.first_slab();
+				let last_slab = conn_data.last_slab();
+				let slab_offset = conn_data.slab_offset();
+				debug!("first_slab={}", first_slab)?;
+				let res = conn_data.borrow_slab_allocator(move |sa| {
+					let slab = sa.get(first_slab.try_into()?)?;
+					assert_eq!(first_slab, last_slab);
+					info!("read bytes = {:?}", &slab.get()[0..slab_offset as usize])?;
+					let mut ret: Vec<u8> = vec![];
+					ret.extend(&slab.get()[0..slab_offset as usize]);
+					Ok(ret)
+				})?;
+				conn_data.clear_through(first_slab)?;
+				for i in 0..3 {
+					conn_data.write_handle().write(b"test")?;
+					sleep(Duration::from_millis(1_000));
+				}
+				Ok(())
+			})?;
+			evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+			evh.set_housekeeper(move |_thread_context| Ok(()))?;
+			evh.start()?;
+
+			let handles = create_listeners(threads, addr, 10)?;
+			info!("handles.size={},handles={:?}", handles.size(), handles)?;
+			let sc = ServerConnection {
+				tls_config: vec![],
+				handles,
+				is_reuse_port: false,
+			};
+			evh.add_server(sc)?;
+
+			let connection = TcpStream::connect(addr)?;
+			connection.set_nonblocking(true)?;
+			#[cfg(unix)]
+			let connection_handle = connection.into_raw_fd();
+			#[cfg(windows)]
+			let connection_handle = connection.into_raw_socket().try_into()?;
+
+			let client = ClientConnection {
+				handle: connection_handle,
+				tls_config: Some(TlsClientConfig {
+					sni_host: "localhost".to_string(),
+					trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
+				}),
+			};
+			info!("client handle = {}", connection_handle)?;
+			let mut wh = evh.add_client(client)?;
+
+			let _ = wh.write(b"test1");
+			sleep(Duration::from_millis(1_000));
+			let _ = wh.write(b"test1");
+			sleep(Duration::from_millis(1_000));
+			let _ = wh.write(b"test1");
+			sleep(Duration::from_millis(10_000));
+			evh.stop()?;
+		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_eventhandler_tls_error() -> Result<(), Error> {
+		{
+			let port = pick_free_port()?;
+			info!("eventhandler tls_basic Using port: {}", port)?;
+			let addr = &format!("127.0.0.1:{}", port)[..];
+			let threads = 2;
+			let config = EventHandlerConfig {
+				threads,
+				housekeeping_frequency_millis: 100_000,
+				read_slab_count: 100,
+				max_handles_per_thread: 3,
+				..Default::default()
+			};
+			let mut evh = EventHandlerImpl::new(config)?;
+
+			evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+			evh.set_housekeeper(move |_thread_context| Ok(()))?;
+			evh.start()?;
+
+			let handles = create_listeners(threads, addr, 10)?;
+			info!("handles.size={},handles={:?}", handles.size(), handles)?;
+			let sc = ServerConnection {
+				tls_config: vec![TlsServerConfig {
+					sni_host: "localhost".to_string(),
+					certificates_file: "./resources/cert.pem".to_string(),
+					private_key_file: "./resources/key.pem".to_string(),
+					ocsp_file: None,
+				}],
+				handles,
+				is_reuse_port: false,
+			};
+			evh.add_server(sc)?;
+
+			// connect and send clear text. Internally an error should occur and
+			// warning printed. Processing continues though.
+			let mut connection = TcpStream::connect(addr)?;
+			connection.write(b"test")?;
+			sleep(Duration::from_millis(1000));
+			connection.write(b"test")?;
+			sleep(Duration::from_millis(1000));
+			connection.write(b"test")?;
 			evh.stop()?;
 		}
 

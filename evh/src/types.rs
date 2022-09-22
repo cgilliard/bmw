@@ -310,10 +310,8 @@ pub(crate) struct EventHandlerData {
 
 #[derive(Debug, Clone, Serializable, PartialEq)]
 pub(crate) enum EventType {
-	Accept,
 	Read,
 	Write,
-	Error,
 }
 
 #[derive(Debug, Clone, Serializable, PartialEq)]
