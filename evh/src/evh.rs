@@ -6640,8 +6640,9 @@ mod test {
 		assert_eq!(&buf[0..len], b"test1");
 		info!("read back buf[{}] = {:?}", len, buf)?;
 		connection.write(b"test2")?;
-		let len = connection.read(&mut buf)?;
-		assert_eq!(len, 0); // due to error connection is closed
+		info!("write ok")?;
+		let res = connection.read(&mut buf);
+		assert!(res.is_err() || res.unwrap() == 0);
 		evh.stop()?;
 
 		Ok(())

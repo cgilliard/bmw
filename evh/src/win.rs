@@ -156,7 +156,7 @@ pub(crate) fn close_impl(
 	}
 
 	ctx.filter_set.replace(handle_as_usize, false);
-	info!("closesocket={},tid={}", handle_as_usize, ctx.tid)?;
+	debug!("closesocket={},tid={}", handle_as_usize, ctx.tid)?;
 	if !partial {
 		let data = epoll_data_t {
 			fd: handle.try_into()?,
