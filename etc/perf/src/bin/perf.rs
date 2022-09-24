@@ -68,6 +68,8 @@ fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 		true => args.value_of("slabs").unwrap().parse()?,
 		false => 20,
 	};
+	let reuse_port = args.is_present("reuse_port");
+
 	info!("Using port: {}", port)?;
 	let addr = &format!("127.0.0.1:{}", port)[..];
 	let config = EventHandlerConfig {
@@ -164,7 +166,7 @@ fn run_eventhandler(args: ArgMatches) -> Result<(), Error> {
 	evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 	evh.start()?;
-	let handles = create_listeners(threads, addr, 10)?;
+	let handles = create_listeners(threads, addr, 10, reuse_port)?;
 	debug!("handles.size={},handles={:?}", handles.size(), handles)?;
 	let sc = ServerConnection {
 		tls_config: vec![],
