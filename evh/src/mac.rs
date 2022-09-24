@@ -68,19 +68,18 @@ pub(crate) fn create_listeners_impl(
 	size: usize,
 	addr: &str,
 	listen_size: usize,
+	_reuse_port: bool,
 ) -> Result<Array<Handle>, Error> {
 	let std_sa = SocketAddr::from_str(&addr).unwrap();
 	let inet_addr = InetAddr::from_std(&std_sa);
 	let sock_addr = SockAddr::new_inet(inet_addr);
 	let mut ret = array!(size, &0)?;
-	for i in 0..size {
-		let fd = get_socket()?;
-		bind(fd, &sock_addr)?;
-		listen(fd, listen_size)?;
-		ret[i] = fd;
-		unsafe {
-			fcntl(fd, F_SETFL, O_NONBLOCK);
-		}
+	let fd = get_socket()?;
+	bind(fd, &sock_addr)?;
+	listen(fd, listen_size)?;
+	ret[0] = fd;
+	unsafe {
+		fcntl(fd, F_SETFL, O_NONBLOCK);
 	}
 
 	Ok(ret)
@@ -262,27 +261,6 @@ fn get_socket() -> Result<RawFd, Error> {
 		SockFlag::empty(),
 		None,
 	)?;
-
-	let optval: libc::c_int = 1;
-	unsafe {
-		libc::setsockopt(
-			raw_fd,
-			libc::SOL_SOCKET,
-			libc::SO_REUSEPORT,
-			&optval as *const _ as *const libc::c_void,
-			mem::size_of_val(&optval) as libc::socklen_t,
-		)
-	};
-
-	unsafe {
-		libc::setsockopt(
-			raw_fd,
-			libc::SOL_SOCKET,
-			libc::SO_REUSEADDR,
-			&optval as *const _ as *const libc::c_void,
-			mem::size_of_val(&optval) as libc::socklen_t,
-		)
-	};
 
 	Ok(raw_fd)
 }

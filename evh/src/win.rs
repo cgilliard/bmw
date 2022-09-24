@@ -386,6 +386,7 @@ pub(crate) fn create_listeners_impl(
 	size: usize,
 	addr: &str,
 	_listen_size: usize,
+	_reuse_port: bool,
 ) -> Result<Array<Handle>, Error> {
 	let mut ret = array!(size, &0)?;
 	let handle = TcpListener::bind(addr)?.into_raw_socket().try_into()?;

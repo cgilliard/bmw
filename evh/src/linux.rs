@@ -119,16 +119,27 @@ pub(crate) fn create_listeners_impl(
 	size: usize,
 	addr: &str,
 	listen_size: usize,
+	reuse_port: bool,
 ) -> Result<Array<Handle>, Error> {
 	let std_sa = SocketAddr::from_str(&addr).unwrap();
 	let inet_addr = InetAddr::from_std(&std_sa);
 	let sock_addr = SockAddr::new_inet(inet_addr);
 	let mut ret = array!(size, &0)?;
-	for i in 0..size {
-		let fd = get_socket()?;
+	if reuse_port {
+		for i in 0..size {
+			let fd = get_socket(reuse_port)?;
+			bind(fd, &sock_addr)?;
+			listen(fd, listen_size)?;
+			ret[i] = fd;
+			unsafe {
+				fcntl(fd, F_SETFL, O_NONBLOCK);
+			}
+		}
+	} else {
+		let fd = get_socket(reuse_port)?;
 		bind(fd, &sock_addr)?;
 		listen(fd, listen_size)?;
-		ret[i] = fd;
+		ret[0] = fd;
 		unsafe {
 			fcntl(fd, F_SETFL, O_NONBLOCK);
 		}
@@ -137,7 +148,7 @@ pub(crate) fn create_listeners_impl(
 	Ok(ret)
 }
 
-fn get_socket() -> Result<RawFd, Error> {
+fn get_socket(reuseport: bool) -> Result<RawFd, Error> {
 	let raw_fd = socket(
 		AddressFamily::Inet,
 		SockType::Stream,
@@ -145,26 +156,28 @@ fn get_socket() -> Result<RawFd, Error> {
 		None,
 	)?;
 
-	let optval: libc::c_int = 1;
-	unsafe {
-		libc::setsockopt(
-			raw_fd,
-			libc::SOL_SOCKET,
-			libc::SO_REUSEPORT,
-			&optval as *const _ as *const libc::c_void,
-			mem::size_of_val(&optval) as libc::socklen_t,
-		)
-	};
+	if reuseport {
+		let optval: libc::c_int = 1;
+		unsafe {
+			libc::setsockopt(
+				raw_fd,
+				libc::SOL_SOCKET,
+				libc::SO_REUSEPORT,
+				&optval as *const _ as *const libc::c_void,
+				mem::size_of_val(&optval) as libc::socklen_t,
+			)
+		};
 
-	unsafe {
-		libc::setsockopt(
-			raw_fd,
-			libc::SOL_SOCKET,
-			libc::SO_REUSEADDR,
-			&optval as *const _ as *const libc::c_void,
-			mem::size_of_val(&optval) as libc::socklen_t,
-		)
-	};
+		unsafe {
+			libc::setsockopt(
+				raw_fd,
+				libc::SOL_SOCKET,
+				libc::SO_REUSEADDR,
+				&optval as *const _ as *const libc::c_void,
+				mem::size_of_val(&optval) as libc::socklen_t,
+			)
+		};
+	}
 
 	Ok(raw_fd)
 }
@@ -324,7 +337,7 @@ mod test {
 		sleep(Duration::from_millis(5_000));
 		let mut ctx = EventHandlerContext::new(0, 10, 10, 10, 10)?;
 		ctx.tid = 100;
-		let handle = get_socket()?;
+		let handle = get_socket(true)?;
 		assert!(accept_impl(handle).is_err());
 		ctx.filter_set.resize(1, false);
 		assert_eq!(ctx.filter_set.len(), 1);
@@ -332,7 +345,7 @@ mod test {
 		assert_eq!(ctx.filter_set.len(), 100 + handle as usize);
 		ctx.filter_set.resize(10_100, false);
 		let addr = &format!("127.0.0.1:{}", pick_free_port()?)[..];
-		let ret = create_listeners_impl(1, addr, 10)?;
+		let ret = create_listeners_impl(1, addr, 10, true)?;
 		ctx.filter_set.resize(1, false);
 		ctx.events_in.push(EventIn {
 			handle: ret[0],
