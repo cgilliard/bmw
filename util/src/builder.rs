@@ -78,15 +78,7 @@ impl Builder {
 		ArrayList::new(size, default)
 	}
 
-	/// Build an [`crate::ArrayList`] based on the specified `size` and `default` value.
-	/// The default value is only used to initialize the underlying [`crate::Array`]
-	/// and is not included in the list. On success a Box<dyn SortableList<T>>
-	/// is returned. This function may be used if you wish to store the list in a
-	/// struct or enum.
-	///
-	/// # Errors
-	///
-	/// [`bmw_err::ErrorKind::IllegalArgument`] is returned if the specified size is 0.
+	/// boxed version of [`crate::Builder::build_array_list`].
 	pub fn build_array_list_box<T>(
 		size: usize,
 		default: &T,
@@ -97,6 +89,7 @@ impl Builder {
 		Ok(Box::new(ArrayList::new(size, default)?))
 	}
 
+	/// sync version of [`crate::Builder::build_array_list`].
 	pub fn build_array_list_sync<T>(
 		size: usize,
 		default: &T,
@@ -107,6 +100,7 @@ impl Builder {
 		ArrayList::new(size, default)
 	}
 
+	/// sync box version of [`crate::Builder::build_array_list`].
 	pub fn build_array_list_sync_box<T>(
 		size: usize,
 		default: &T,
@@ -218,6 +212,7 @@ impl Builder {
 		Ok(Box::new(ArrayList::new(size, default)?))
 	}
 
+	/// sync version of [`crate::Builder::build_stack`].
 	pub fn build_stack_sync<T>(
 		size: usize,
 		default: &T,
@@ -228,6 +223,7 @@ impl Builder {
 		ArrayList::new(size, default)
 	}
 
+	/// sync box version of [`crate::Builder::build_stack`].
 	pub fn build_stack_sync_box<T>(
 		size: usize,
 		default: &T,
@@ -601,6 +597,7 @@ impl Builder {
 		Box::new(SlabAllocatorImpl::new())
 	}
 
+	/// sync version of [`crate::Builder::build_slabs`].
 	pub fn build_sync_slabs() -> Box<dyn SlabAllocator + Send + Sync> {
 		Box::new(SlabAllocatorImpl::new())
 	}

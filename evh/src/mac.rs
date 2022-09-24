@@ -25,7 +25,7 @@ use bmw_deps::nix::sys::socket::{
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
-use std::mem::{self, size_of, zeroed};
+use std::mem::{size_of, zeroed};
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::os::raw::c_int;

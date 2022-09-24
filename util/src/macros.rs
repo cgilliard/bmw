@@ -1632,6 +1632,7 @@ macro_rules! array_list_box {
 	}};
 }
 
+/// sync version of [`crate::array_list`].
 #[macro_export]
 macro_rules! array_list_sync {
 	( $size:expr, $default:expr ) => {{
@@ -1639,6 +1640,7 @@ macro_rules! array_list_sync {
 	}};
 }
 
+/// sync box version of [`crate::array_list`].
 #[macro_export]
 macro_rules! array_list_sync_box {
 	( $size:expr, $default:expr ) => {{
@@ -1760,6 +1762,7 @@ macro_rules! stack_box {
 	}};
 }
 
+/// sync version of [`crate::stack`].
 #[macro_export]
 macro_rules! stack_sync {
 	( $size:expr, $default:expr ) => {{
@@ -1767,6 +1770,7 @@ macro_rules! stack_sync {
 	}};
 }
 
+/// box version of [`crate::stack`].
 #[macro_export]
 macro_rules! stack_sync_box {
 	( $size:expr, $default:expr ) => {{
