@@ -249,7 +249,7 @@ fn run_client(args: ArgMatches) -> Result<(), Error> {
 
 	spawn(move || -> Result<(), Error> {
 		loop {
-			sleep(Duration::from_millis(1000));
+			sleep(Duration::from_millis(3000));
 			info_plain!("--------------------------------------------------------------------------------------------------------------------------------")?;
 			for i in 0..threads {
 				let state = state_clone[i].rlock()?;

@@ -42,4 +42,5 @@ pub use rustls;
 pub use rustls_pemfile;
 pub use substring;
 pub use try_traits;
+pub use webpki_roots;
 pub use winapi;

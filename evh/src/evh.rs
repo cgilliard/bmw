@@ -25,10 +25,11 @@ use bmw_deps::rand::random;
 use bmw_deps::rustls::server::{NoClientAuth, ResolvesServerCertUsingSni};
 use bmw_deps::rustls::sign::{any_supported_type, CertifiedKey};
 use bmw_deps::rustls::{
-	Certificate, ClientConfig, ClientConnection as RCConn, PrivateKey, RootCertStore, ServerConfig,
-	ServerConnection as RSConn, ALL_CIPHER_SUITES, ALL_VERSIONS,
+	Certificate, ClientConfig, ClientConnection as RCConn, OwnedTrustAnchor, PrivateKey,
+	RootCertStore, ServerConfig, ServerConnection as RSConn, ALL_CIPHER_SUITES, ALL_VERSIONS,
 };
 use bmw_deps::rustls_pemfile::{certs, read_one, Item};
+use bmw_deps::webpki_roots::TLS_SERVER_ROOTS;
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
@@ -2404,6 +2405,14 @@ fn write_bytes(handle: Handle, buf: &[u8]) -> isize {
 
 fn make_config(trusted_cert_full_chain_file: Option<String>) -> Result<Arc<ClientConfig>, Error> {
 	let mut root_store = RootCertStore::empty();
+	root_store.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
+		OwnedTrustAnchor::from_subject_spki_name_constraints(
+			ta.subject,
+			ta.spki,
+			ta.name_constraints,
+		)
+	}));
+
 	match trusted_cert_full_chain_file {
 		Some(trusted_cert_full_chain_file) => {
 			let full_chain_certs = load_certs(&trusted_cert_full_chain_file)?;
@@ -6728,6 +6737,102 @@ mod test {
 		ctx.handle_hashtable.insert(&1001, &1001)?;
 		ctx.connection_hashtable.insert(&1001, &ci)?;
 		evh.process_write(&mut rwi, &mut ctx, &mut ThreadContext::new())?;
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_evh_example_com() -> Result<(), Error> {
+		let port = pick_free_port()?;
+		info!("eventhandler tls_examplecom Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
+		let threads = 1;
+		let config = EventHandlerConfig {
+			threads,
+			housekeeping_frequency_millis: 100_000,
+			read_slab_count: 100,
+			max_handles_per_thread: 10,
+			..Default::default()
+		};
+		let mut evh = EventHandlerImpl::new(config)?;
+
+		let mut found = lock_box!(false)?;
+		let found_clone = found.clone();
+
+		evh.set_on_read(move |conn_data, _thread_context| {
+			debug!("examplecom read slab_offset = {}", conn_data.slab_offset())?;
+			let first_slab = conn_data.first_slab();
+			let last_slab = conn_data.last_slab();
+			let slab_offset = conn_data.slab_offset();
+			debug!("first_slab={}", first_slab)?;
+			let res = conn_data.borrow_slab_allocator(move |sa| {
+				let slab = sa.get(first_slab.try_into()?)?;
+				assert_eq!(first_slab, last_slab);
+				let mut ret: Vec<u8> = vec![];
+				ret.extend(&slab.get()[0..slab_offset as usize]);
+				Ok(ret)
+			})?;
+			conn_data.clear_through(first_slab)?;
+			assert_eq!(res[0], 'H' as u8);
+			let res = std::str::from_utf8(&res)?;
+			info!("res='{}'", res)?;
+
+			let mut found = found.wlock()?;
+			let guard = found.guard();
+			**guard = true;
+
+			Ok(())
+		})?;
+		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
+
+		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
+		evh.set_housekeeper(move |_thread_context| Ok(()))?;
+		evh.start()?;
+
+		let handles = create_listeners(threads, addr, 10)?;
+		info!("handles.size={},handles={:?}", handles.size(), handles)?;
+		let sc = ServerConnection {
+			tls_config: vec![TlsServerConfig {
+				sni_host: "localhost".to_string(),
+				certificates_file: "./resources/cert.pem".to_string(),
+				private_key_file: "./resources/key.pem".to_string(),
+				ocsp_file: None,
+			}],
+			handles,
+			is_reuse_port: true,
+		};
+		evh.add_server(sc)?;
+
+		let connection = TcpStream::connect("example.com:443")?;
+		connection.set_nonblocking(true)?;
+		#[cfg(unix)]
+		let connection_handle = connection.into_raw_fd();
+		#[cfg(windows)]
+		let connection_handle = connection.into_raw_socket().try_into()?;
+
+		let client = ClientConnection {
+			handle: connection_handle,
+			tls_config: Some(TlsClientConfig {
+				sni_host: "example.com".to_string(),
+				trusted_cert_full_chain_file: None,
+			}),
+		};
+
+		let mut wh = evh.add_client(client)?;
+
+		wh.write(b"GET / HTTP/1.0\r\n\r\n")?;
+		let mut count = 0;
+		loop {
+			count += 1;
+			sleep(Duration::from_millis(1));
+			if **(found_clone.rlock()?.guard()) == false && count < 10_000 {
+				continue;
+			}
+
+			assert!(**(found_clone.rlock()?.guard()));
+			break;
+		}
 
 		Ok(())
 	}
