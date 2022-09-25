@@ -3524,7 +3524,7 @@ mod test {
 				&& **(server_received_abc_clone.rlock()?.guard()))
 			{
 				count += 1;
-				if count < 2_000 {
+				if count < 5_000 {
 					continue;
 				}
 			}
@@ -6246,6 +6246,9 @@ mod test {
 		// listener should be closed so this will fail
 		assert!(TcpStream::connect(addr).is_err());
 
+		let port = pick_free_port()?;
+		info!("other_situations2 Using port: {}", port)?;
+		let addr = &format!("127.0.0.1:{}", port)[..];
 		let handles = create_listeners(threads, addr, 10, true)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {

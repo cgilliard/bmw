@@ -21,6 +21,7 @@ static GLOBAL_NEXT_PORT: AtomicU16 = AtomicU16::new(9000);
 pub fn pick_free_port() -> Result<u16, Error> {
 	loop {
 		let port = GLOBAL_NEXT_PORT.fetch_add(1, Ordering::SeqCst);
+
 		if is_free(port) {
 			return Ok(port);
 		}
