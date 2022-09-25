@@ -13,8 +13,7 @@
 
 use crate::types::{
 	ConnectionInfo, Event, EventHandlerContext, EventHandlerData, EventHandlerImpl, EventIn,
-	EventType, EventTypeIn, Handle, LastProcessType, ListenerInfo, ReadWriteInfo, Wakeup,
-	WriteState,
+	EventType, EventTypeIn, Handle, LastProcessType, ListenerInfo, StreamInfo, Wakeup, WriteState,
 };
 use crate::{
 	ClientConnection, ConnData, ConnectionData, EventHandler, EventHandlerConfig, ServerConnection,
@@ -215,7 +214,7 @@ impl Serializable for ConnectionInfo {
 				let tls_client: Box<dyn LockBox<RCConn>> = lock_box_from_usize(v);
 				Some(tls_client)
 			};
-			let rwi = ReadWriteInfo {
+			let rwi = StreamInfo {
 				id,
 				handle,
 				accept_handle,
@@ -227,7 +226,7 @@ impl Serializable for ConnectionInfo {
 				tls_client,
 				tls_server,
 			};
-			Ok(ConnectionInfo::ReadWriteInfo(rwi))
+			Ok(ConnectionInfo::StreamInfo(rwi))
 		} else {
 			let err = err!(ErrKind::CorruptedData, "Unexpected type in ConnectionInfo");
 			Err(err)
@@ -259,7 +258,7 @@ impl Serializable for ConnectionInfo {
 					}
 				}
 			}
-			ConnectionInfo::ReadWriteInfo(ri) => {
+			ConnectionInfo::StreamInfo(ri) => {
 				debug!("serrw for id={}", ri.id)?;
 				writer.write_u8(1)?;
 				writer.write_u128(ri.id)?;
@@ -294,7 +293,7 @@ impl Serializable for ConnectionInfo {
 	}
 }
 
-impl ReadWriteInfo {
+impl StreamInfo {
 	fn clear_through_impl(
 		&mut self,
 		slab_id: u32,
@@ -692,7 +691,7 @@ impl WriteHandle {
 
 impl<'a> ConnectionData<'a> {
 	fn new(
-		rwi: &'a mut ReadWriteInfo,
+		rwi: &'a mut StreamInfo,
 		tid: usize,
 		slabs: &'a mut Box<dyn SlabAllocator + Send + Sync>,
 		wakeup: Wakeup,
@@ -1069,7 +1068,7 @@ where
 					debug!("write q chashtable.get({})", next)?;
 					match ctx.connection_hashtable.get(&next)? {
 						Some(mut ci) => match &mut ci {
-							ConnectionInfo::ReadWriteInfo(ref mut rwi) => {
+							ConnectionInfo::StreamInfo(ref mut rwi) => {
 								{
 									let mut write_state = rwi.write_state.wlock()?;
 									let guard = write_state.guard();
@@ -1171,7 +1170,7 @@ where
 								}
 							}
 						}
-						ConnectionInfo::ReadWriteInfo(rw) => {
+						ConnectionInfo::StreamInfo(rw) => {
 							match Self::insert_hashtables(ctx, rw.id, rw.handle, nhandle) {
 								Ok(_) => {
 									let ev_in = EventIn {
@@ -1254,7 +1253,7 @@ where
 									}
 								}
 							}
-							ConnectionInfo::ReadWriteInfo(rw) => {
+							ConnectionInfo::StreamInfo(rw) => {
 								ctx.do_write_back = true;
 								match ctx.events[ctx.counter].etype {
 									EventType::Read => {
@@ -1272,7 +1271,7 @@ where
 								// table consistent
 								if ctx.do_write_back {
 									ctx.connection_hashtable
-										.insert(&id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
+										.insert(&id, &ConnectionInfo::StreamInfo(rw.clone()))?;
 								}
 							}
 						},
@@ -1292,7 +1291,7 @@ where
 	#[cfg(not(tarpaulin_include))]
 	fn process_write(
 		&mut self,
-		rw: &mut ReadWriteInfo,
+		rw: &mut StreamInfo,
 		ctx: &mut EventHandlerContext,
 		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
@@ -1386,7 +1385,7 @@ where
 
 	fn do_tls_server_read(
 		&mut self,
-		mut rw: ReadWriteInfo,
+		mut rw: StreamInfo,
 		ctx: &mut EventHandlerContext,
 	) -> Result<(isize, usize), Error> {
 		let mut pt_len = 0;
@@ -1439,7 +1438,7 @@ where
 
 	fn do_tls_client_read(
 		&mut self,
-		mut rw: ReadWriteInfo,
+		mut rw: StreamInfo,
 		ctx: &mut EventHandlerContext,
 	) -> Result<(isize, usize), Error> {
 		let mut pt_len = 0;
@@ -1494,7 +1493,7 @@ where
 	#[cfg(not(tarpaulin_include))]
 	fn process_read(
 		&mut self,
-		rw: &mut ReadWriteInfo,
+		rw: &mut StreamInfo,
 		ctx: &mut EventHandlerContext,
 		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
@@ -1605,7 +1604,7 @@ where
 	#[cfg(not(tarpaulin_include))]
 	fn process_read_result(
 		&mut self,
-		rw: &mut ReadWriteInfo,
+		rw: &mut StreamInfo,
 		ctx: &mut EventHandlerContext,
 		callback_context: &mut ThreadContext,
 		tls: bool,
@@ -1798,13 +1797,13 @@ where
 	fn process_close(
 		&mut self,
 		ctx: &mut EventHandlerContext,
-		rw: &mut ReadWriteInfo,
+		rw: &mut StreamInfo,
 		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
 		debug!("proc close {}", rw.handle)?;
 		// we must do an insert before removing to keep our arc's consistent
 		ctx.connection_hashtable
-			.insert(&rw.id, &ConnectionInfo::ReadWriteInfo(rw.clone()))?;
+			.insert(&rw.id, &ConnectionInfo::StreamInfo(rw.clone()))?;
 		ctx.connection_hashtable.remove(&rw.id)?;
 		// set the close flag to true so if another thread tries to
 		// write there will be an error
@@ -1895,7 +1894,7 @@ where
 		}
 
 		let id = random();
-		let mut rwi = ReadWriteInfo {
+		let mut rwi = StreamInfo {
 			id,
 			handle,
 			accept_handle: Some(li.handle),
@@ -1952,7 +1951,7 @@ where
 			{
 				let mut data = self.data[tid].wlock()?;
 				let guard = data.guard();
-				let ci = ConnectionInfo::ReadWriteInfo(rwi);
+				let ci = ConnectionInfo::StreamInfo(rwi);
 				(**guard).nhandles.enqueue(ci)?;
 			}
 
@@ -1967,7 +1966,7 @@ where
 		&mut self,
 		ctx: &mut EventHandlerContext,
 		handle: Handle,
-		mut rwi: ReadWriteInfo,
+		mut rwi: StreamInfo,
 		id: u128,
 		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
@@ -1994,7 +1993,7 @@ where
 			None => {}
 		}
 
-		match Self::insert_hashtables(ctx, id, handle, &ConnectionInfo::ReadWriteInfo(rwi)) {
+		match Self::insert_hashtables(ctx, id, handle, &ConnectionInfo::StreamInfo(rwi)) {
 			Ok(_) => {
 				let ev_in = EventIn {
 					handle,
@@ -2286,7 +2285,7 @@ where
 			tls_client.clone(),
 		);
 
-		let rwi = ReadWriteInfo {
+		let rwi = StreamInfo {
 			id,
 			handle,
 			accept_handle: None,
@@ -2302,7 +2301,7 @@ where
 		{
 			let mut data = self.data[tid].wlock()?;
 			let guard = data.guard();
-			let ci = ConnectionInfo::ReadWriteInfo(rwi);
+			let ci = ConnectionInfo::StreamInfo(rwi);
 			(**guard).nhandles.enqueue(ci)?;
 		}
 
@@ -2492,7 +2491,7 @@ mod test {
 	use crate::evh::{load_ocsp, load_private_key, READ_SLAB_NEXT_OFFSET, READ_SLAB_SIZE};
 	use crate::types::{
 		ConnectionInfo, Event, EventHandlerContext, EventHandlerImpl, EventType, ListenerInfo,
-		ReadWriteInfo, Wakeup, WriteState,
+		StreamInfo, Wakeup, WriteState,
 	};
 	use crate::{
 		ClientConnection, ConnData, EventHandler, EventHandlerConfig, ServerConnection,
@@ -2573,7 +2572,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_basic() -> Result<(), Error> {
+	fn test_evh_basic() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("basic Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -2667,7 +2666,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_tls_basic_read_error() -> Result<(), Error> {
+	fn test_evh_tls_basic_read_error() -> Result<(), Error> {
 		{
 			let port = pick_free_port()?;
 			info!("eventhandler tls_basic read error Using port: {}", port)?;
@@ -2786,7 +2785,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_tls_basic_server_error() -> Result<(), Error> {
+	fn test_evh_tls_basic_server_error() -> Result<(), Error> {
 		{
 			let port = pick_free_port()?;
 			info!("eventhandler tls_basic server error Using port: {}", port)?;
@@ -2839,7 +2838,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_tls_basic() -> Result<(), Error> {
+	fn test_evh_tls_basic() -> Result<(), Error> {
 		{
 			let port = pick_free_port()?;
 			info!("eventhandler tls_basic Using port: {}", port)?;
@@ -2986,7 +2985,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_tls_client_error() -> Result<(), Error> {
+	fn test_evh_tls_client_error() -> Result<(), Error> {
 		{
 			let port = pick_free_port()?;
 			info!("eventhandler tls_client_error Using port: {}", port)?;
@@ -3067,7 +3066,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_tls_error() -> Result<(), Error> {
+	fn test_evh_tls_error() -> Result<(), Error> {
 		{
 			let port = pick_free_port()?;
 			info!("eventhandler tls_basic Using port: {}", port)?;
@@ -3120,7 +3119,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_close() -> Result<(), Error> {
+	fn test_evh_close() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("close Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3228,7 +3227,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_server_close() -> Result<(), Error> {
+	fn test_evh_server_close() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("server_close Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3333,7 +3332,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_multi_slab_message() -> Result<(), Error> {
+	fn test_evh_multi_slab_message() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("multi_slab_message Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3416,7 +3415,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_client() -> Result<(), Error> {
+	fn test_evh_client() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("eventhandler client Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3540,7 +3539,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_is_reuse_port() -> Result<(), Error> {
+	fn test_evh_is_reuse_port() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("reuse port Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3660,7 +3659,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_stop() -> Result<(), Error> {
+	fn test_evh_stop() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("stop Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3708,7 +3707,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_partial_clear() -> Result<(), Error> {
+	fn test_evh_partial_clear() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("partial clear Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3821,7 +3820,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_different_lengths1() -> Result<(), Error> {
+	fn test_evh_different_lengths1() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("different len1 Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3907,7 +3906,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_different_lengths_client() -> Result<(), Error> {
+	fn test_evh_different_lengths_client() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("lengths client Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -4068,7 +4067,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_out_of_slabs() -> Result<(), Error> {
+	fn test_evh_out_of_slabs() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("out of slabs Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -4157,7 +4156,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_user_data() -> Result<(), Error> {
+	fn test_evh_user_data() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("user data Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -4229,7 +4228,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_trigger_on_read_error() -> Result<(), Error> {
+	fn test_evh_trigger_on_read_error() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("trigger on_read error Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -4296,7 +4295,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_trigger_on_read() -> Result<(), Error> {
+	fn test_evh_trigger_on_read() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("trigger on_read Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -4363,7 +4362,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_thread_panic1() -> Result<(), Error> {
+	fn test_evh_thread_panic1() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("thread_panic Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -4556,7 +4555,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_thread_panic_multi() -> Result<(), Error> {
+	fn test_evh_thread_panic_multi() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("thread_panic Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -4708,7 +4707,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_too_many_connections() -> Result<(), Error> {
+	fn test_evh_too_many_connections() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("too many connections on_read Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -5106,7 +5105,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_housekeeper() -> Result<(), Error> {
+	fn test_evh_housekeeper() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("housekeeper Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -5179,7 +5178,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_eventhandler_suspend_resume() -> Result<(), Error> {
+	fn test_evh_suspend_resume() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("suspend/resume Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -5353,15 +5352,13 @@ mod test {
 					assert_eq!(li1.handle, li2.handle);
 					assert_eq!(li1.is_reuse_port, li2.is_reuse_port);
 				}
-				ConnectionInfo::ReadWriteInfo(_rwi) => {
-					return Err(err!(ErrKind::IllegalArgument, ""))
-				}
+				ConnectionInfo::StreamInfo(_rwi) => return Err(err!(ErrKind::IllegalArgument, "")),
 			},
-			ConnectionInfo::ReadWriteInfo(rwi1) => match ci2 {
+			ConnectionInfo::StreamInfo(rwi1) => match ci2 {
 				ConnectionInfo::ListenerInfo(_li) => {
 					return Err(err!(ErrKind::IllegalArgument, ""));
 				}
-				ConnectionInfo::ReadWriteInfo(rwi2) => {
+				ConnectionInfo::StreamInfo(rwi2) => {
 					assert_eq!(rwi1.id, rwi2.id);
 					assert_eq!(rwi1.handle, rwi2.handle);
 					assert_eq!(rwi1.accept_handle, rwi2.accept_handle);
@@ -5400,7 +5397,7 @@ mod test {
 		let ser_in: Result<ConnectionInfo, Error> = deserialize(&mut &v[..]);
 		assert!(ser_in.is_err());
 
-		let ci2 = ConnectionInfo::ReadWriteInfo(ReadWriteInfo {
+		let ci2 = ConnectionInfo::StreamInfo(StreamInfo {
 			accept_handle: None,
 			id: 0,
 			handle: 0,
@@ -6382,7 +6379,7 @@ mod test {
 		let mut ctx = EventHandlerContext::new(0, 100, 100, 100, 100)?;
 
 		// insert the rwi
-		let mut rwi = ReadWriteInfo {
+		let mut rwi = StreamInfo {
 			id: 1_000,
 			handle: 0,
 			accept_handle: None,
@@ -6397,7 +6394,7 @@ mod test {
 			tls_client: None,
 			tls_server: None,
 		};
-		let ci = ConnectionInfo::ReadWriteInfo(rwi.clone());
+		let ci = ConnectionInfo::StreamInfo(rwi.clone());
 		ctx.connection_hashtable.insert(&1_000, &ci)?;
 
 		// call on close to trigger the none on close. No error should return.
@@ -6741,7 +6738,7 @@ mod test {
 
 		let mut ctx = EventHandlerContext::new(0, 100, 100, 100, 100)?;
 
-		let mut rwi = ReadWriteInfo {
+		let mut rwi = StreamInfo {
 			id: 1001,
 			handle: 1001,
 			accept_handle: None,
@@ -6756,7 +6753,7 @@ mod test {
 			tls_client: None,
 			tls_server: None,
 		};
-		let ci = ConnectionInfo::ReadWriteInfo(rwi.clone());
+		let ci = ConnectionInfo::StreamInfo(rwi.clone());
 		ctx.handle_hashtable.insert(&1001, &1001)?;
 		ctx.connection_hashtable.insert(&1001, &ci)?;
 		evh.process_write(&mut rwi, &mut ctx, &mut ThreadContext::new())?;

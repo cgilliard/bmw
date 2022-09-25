@@ -84,7 +84,7 @@ pub struct ServerConnection {
 /// A struct which is passed to several of the callbacks in [`crate::EventHandler`]. It provides
 /// information on the connection from which data is read.
 pub struct ConnectionData<'a> {
-	pub(crate) rwi: &'a mut ReadWriteInfo,
+	pub(crate) rwi: &'a mut StreamInfo,
 	pub(crate) tid: usize,
 	pub(crate) slabs: &'a mut Box<dyn SlabAllocator + Send + Sync>,
 	pub(crate) wakeup: Wakeup,
@@ -264,7 +264,7 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) counter: usize,
 	pub(crate) count: usize,
 	pub(crate) last_process_type: LastProcessType,
-	pub(crate) last_rw: Option<ReadWriteInfo>,
+	pub(crate) last_rw: Option<StreamInfo>,
 	pub(crate) buffer: Vec<u8>,
 	pub(crate) do_write_back: bool,
 }
@@ -331,7 +331,7 @@ pub(crate) struct Wakeup {
 #[derive(Clone, Debug)]
 pub(crate) enum ConnectionInfo {
 	ListenerInfo(ListenerInfo),
-	ReadWriteInfo(ReadWriteInfo),
+	StreamInfo(StreamInfo),
 }
 
 unsafe impl Send for ConnectionInfo {}
@@ -346,7 +346,7 @@ pub(crate) struct ListenerInfo {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct ReadWriteInfo {
+pub(crate) struct StreamInfo {
 	pub(crate) id: u128,
 	pub(crate) handle: Handle,
 	pub(crate) accept_handle: Option<Handle>,
