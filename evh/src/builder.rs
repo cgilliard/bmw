@@ -17,6 +17,8 @@ use bmw_err::*;
 use std::any::Any;
 
 impl Builder {
+	/// Builds a [`crate::EventHandler`] instance based on the specified
+	/// [`crate::EventHandlerConfig`].
 	pub fn build_evh<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>(
 		config: EventHandlerConfig,
 	) -> Result<impl EventHandler<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>, Error>

@@ -72,9 +72,12 @@ use std::os::unix::io::{FromRawFd, IntoRawFd};
 #[cfg(windows)]
 use std::os::windows::io::{FromRawSocket, IntoRawSocket};
 
+/// The size of the data which is stored in read slabs. This data is followed by 4 bytes which is a
+/// pointer to the next slab in the list.
+pub const READ_SLAB_DATA_SIZE: usize = 508;
+
 const READ_SLAB_SIZE: usize = 512;
 const READ_SLAB_NEXT_OFFSET: usize = 508;
-pub const READ_SLAB_DATA_SIZE: usize = 508;
 
 const HANDLE_SLAB_SIZE: usize = 42;
 const CONNECTION_SLAB_SIZE: usize = 90;
@@ -95,6 +98,14 @@ const TLS_CHUNKS: usize = 5_120;
 
 info!();
 
+/// Create listeners for use with the [`crate::ServerConnection`] struct.
+/// This function crates an array of handles which can be used to construct a [`crate::ServerConnection`]
+/// object. `size` is the size of the array. It must be equal to the number of threads that the
+/// [`crate::EventHandler`] has configured. `addr` is the socketaddress to bind to. (For example:
+/// 127.0.0.1:80 or 0.0.0.0:443.). `listen_size` is the size of the listener backlog for this
+/// tcp/ip connection. `reuse_port` specifies whether or not to reuse the port on a per thread
+/// basis for this connection. This is only available on linux and will be ignored on other
+/// platforms.
 pub fn create_listeners(
 	size: usize,
 	addr: &str,
@@ -460,6 +471,9 @@ impl WriteHandle {
 		}
 	}
 
+	/// Suspend any reads/writes in the [`crate::EventHandler`] for the connection associated
+	/// with this [`crate::WriteHandle`]. This can be used to transfer large amounts of data in
+	/// a separate thread while suspending reads/writes in the evh.
 	pub fn suspend(&mut self) -> Result<(), Error> {
 		{
 			debug!("wlock for {}", self.id)?;
@@ -482,6 +496,8 @@ impl WriteHandle {
 		Ok(())
 	}
 
+	/// Resume reads/writes in the [`crate::EventHandler`]. This must be called after
+	/// [`crate::WriteHandle::suspend`].
 	pub fn resume(&mut self) -> Result<(), Error> {
 		{
 			debug!("wlock for {}", self.id)?;
@@ -504,6 +520,7 @@ impl WriteHandle {
 		Ok(())
 	}
 
+	/// Close the connection associated with this [`crate::WriteHandle`].
 	pub fn close(&mut self) -> Result<(), Error> {
 		{
 			debug!("wlock for {}", self.id)?;
@@ -524,6 +541,8 @@ impl WriteHandle {
 		self.wakeup.wakeup()?;
 		Ok(())
 	}
+
+	/// Write data to the connection associated with this [`crate::WriteHandle`].
 	pub fn write(&mut self, data: &[u8]) -> Result<(), Error> {
 		match &mut self.tls_client.clone() {
 			Some(ref mut tls_conn) => {
