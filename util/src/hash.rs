@@ -97,6 +97,8 @@ where
 				match list.get_next_slot(&mut self.cur, self.direction, &mut slab_reader) {
 					Ok(ret) => {
 						if ret {
+							// seek the location in the list for this
+							// slot
 							slab_reader.seek(slot, list.ptr_size * 2);
 							match V::read(slab_reader) {
 								Ok(v) => Some(v),

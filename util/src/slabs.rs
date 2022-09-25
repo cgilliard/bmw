@@ -120,6 +120,7 @@ impl SlabAllocator for SlabAllocatorImpl {
 					return Err(err!(ErrKind::IllegalState, fmt));
 				}
 
+				// update free list
 				let mut first_free_slice = [0u8; 8];
 				usize_to_slice(self.first_free, &mut first_free_slice[0..self.ptr_size])?;
 				debug!("free:self.config={:?},id={}", config, id)?;
@@ -146,7 +147,9 @@ impl SlabAllocator for SlabAllocatorImpl {
 			return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 		}
 		debug!("get:self.config={:?},id={}", config, id)?;
+		// calculate offset of this slab
 		let offset = self.ptr_size + ((self.ptr_size + config.slab_size) * id);
+		// get data
 		let data = &self.data.as_slice()[offset..offset + config.slab_size];
 		Ok(Slab { data, id })
 	}
@@ -160,7 +163,9 @@ impl SlabAllocator for SlabAllocatorImpl {
 			return Err(err!(ErrKind::ArrayIndexOutOfBounds, fmt));
 		}
 		debug!("get_mut:self.config={:?},id={}", config, id)?;
+		// calculate offset of this slab
 		let offset = self.ptr_size + ((self.ptr_size + config.slab_size) * id);
+		// get data
 		let data = &mut self.data.as_mut()[offset..offset + config.slab_size as usize];
 		Ok(SlabMut { data, id })
 	}
@@ -215,10 +220,14 @@ impl SlabAllocator for SlabAllocatorImpl {
 						"slab_count must be greater than 0"
 					));
 				}
+
+				// build data array
 				let mut data = Builder::build_array(
 					config.slab_count * (config.slab_size + self.ptr_size),
 					&0u8,
 				)?;
+
+				// calculate the pointer size and max_value
 				self.ptr_size = 0;
 				let mut x = config.slab_count + 2; // two more,
 								   // one for termination
@@ -233,6 +242,8 @@ impl SlabAllocator for SlabAllocatorImpl {
 				let mut ptr = [0u8; 8];
 				set_max(&mut ptr[0..self.ptr_size]);
 				self.max_value = slice_to_usize(&ptr[0..self.ptr_size])?;
+
+				// build free list
 				Self::build_free_list(
 					&mut data,
 					config.slab_count,
@@ -270,6 +281,7 @@ impl SlabAllocatorImpl {
 		ptr_size: usize,
 		max_value: usize,
 	) -> Result<(), Error> {
+		// Initially all slabs are in the free list. Create a linked list of slabs.
 		for i in 0..slab_count {
 			let mut next_bytes = [0u8; 8];
 			if i < slab_count - 1 {
