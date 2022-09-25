@@ -79,27 +79,27 @@
 //!
 //!     // set the on read handler for this evh
 //!     evh.set_on_read(move |cd, _ctx| {
-//!         // log the connection_id of this connection. The connection_id is a random u128 value.
-//!         // Each connection has a unique id.
+//!         // log the connection_id of this connection. The connection_id is a random u128
+//!         //value. Each connection has a unique id.
 //!         info!("read data on connection {}", cd.get_connection_id())?;
 //!
-//!         // data read is stored in a linked list of slabs. first_slab returns the first slab in
-//!         // the list.
+//!         // data read is stored in a linked list of slabs. first_slab returns the first
+//!         // slab in the list.
 //!         let first_slab = cd.first_slab();
 //!
-//!         // in this example, we don't use it, but we could get the last slab in the list if more
-//!         // than one slab of data may be returned.
+//!         // in this example, we don't use it, but we could get the last slab in the list
+//!         // if more than one slab of data may be returned.
 //!         let _last_slab = cd.last_slab();
 //!
-//!         // get the slab_offset. This is the offset in the last slab read. The slabs before the
-//!         // last slab will be full so no offset is needed for them. In this example, we always
-//!         // have only a single slab so the offset is always the offset of the slab we are
-//!         // looking at.
+//!         // get the slab_offset. This is the offset in the last slab read. The slabs
+//!         // before the last slab will be full so no offset is needed for them. In this
+//!         // example, we always have only a single slab so the offset is always the offset
+//!         // of the slab we are looking at.
 //!         let slab_offset = cd.slab_offset();
 //!
-//!         // the borrow slab allocator function allows for the on_read callback to analyze the
-//!         // data that has been read by this connection. The slab_allocator that is passed to the
-//!         // closure is immutable so none of the data can be modified.
+//!         // the borrow slab allocator function allows for the on_read callback to analyze
+//!         // the data that has been read by this connection. The slab_allocator that is
+//!         // passed to the closure is immutable so none of the data can be modified.
 //!         let res = cd.borrow_slab_allocator(move |sa| {
 //!             // get the first slab
 //!             let slab = sa.get(first_slab.try_into()?)?;
@@ -111,14 +111,14 @@
 //!             let mut ret: Vec<u8> = vec![];
 //!             ret.extend(&slab.get()[0..slab_offset as usize]);
 //!
-//!             // Return the data that was read. The return value is a generic so it could be any
-//!             // type. In this case, we return a Vec<u8>.
+//!             // Return the data that was read. The return value is a generic so it
+//!             // could be any type. In this case, we return a Vec<u8>.
 //!             Ok(ret)
 //!         })?;
 //!
-//!         // Clear all the data through the first slab, which in this example is assumed to be
-//!         // the last slab. Once this function is called, the subsequent executions of this
-//!         // callback will not include this slab.
+//!         // Clear all the data through the first slab, which in this example is assumed
+//!         // to be the last slab. Once this function is called, the subsequent executions
+//!         // of this callback will not include this slab.
 //!         cd.clear_through(first_slab)?;
 //!
 //!         // Return a write handle and echo back the data that was read.
@@ -137,8 +137,8 @@
 //!         Ok(())
 //!     })?;
 //!     evh.set_on_panic(move |_ctx, e| {
-//!         // The error is returned by the panic handler as a Box<dyn Any> so we downcast to &str
-//!         // to get the message.
+//!         // The error is returned by the panic handler as a Box<dyn Any> so we downcast
+//!         // to &str to get the message.
 //!         let e = e.downcast_ref::<&str>().unwrap();
 //!         // The on_panic callback is executed when a thread panic occurs.
 //!         warn!("callback generated thread panic: {}", e)?;
