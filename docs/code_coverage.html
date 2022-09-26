@@ -107,6 +107,7 @@
 100.00,
 100.00,
 100.00,
+99.98,
 99.98,];
 			let labels = [format_date(1659895655 * 1000 ),
 format_date(1659896021 * 1000 ),
@@ -165,7 +166,8 @@ format_date(1663719256 * 1000 ),
 format_date(1663805924 * 1000 ),
 format_date(1663891972 * 1000 ),
 format_date(1663978420 * 1000 ),
-format_date(1664064766 * 1000 ),];
+format_date(1664064766 * 1000 ),
+format_date(1664151177 * 1000 ),];
 
 			const data = {
 				labels: labels,
@@ -192,44 +194,37 @@ format_date(1664064766 * 1000 ),];
 
 		<p align="center">
 			Raw tarpaulin output:<br/>
-			<textarea readonly class="textarea" rows="50" cols="100">[2mSep 25 00:16:06.559[0m [32m INFO[0m cargo_tarpaulin::config: Creating config
-[2mSep 25 00:16:07.460[0m [32m INFO[0m cargo_tarpaulin: Running Tarpaulin
-[2mSep 25 00:16:07.460[0m [32m INFO[0m cargo_tarpaulin: Building project
-[2mSep 25 00:16:07.460[0m [32m INFO[0m cargo_tarpaulin::cargo: Cleaning project
-[2mSep 25 00:18:17.107[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
-[2mSep 25 00:18:17.107[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_deps-ad7dedd9bebb1a8d
+			<textarea readonly class="textarea" rows="50" cols="100">[2mSep 26 00:16:19.456[0m [32m INFO[0m cargo_tarpaulin::config: Creating config
+[2mSep 26 00:16:20.493[0m [32m INFO[0m cargo_tarpaulin: Running Tarpaulin
+[2mSep 26 00:16:20.493[0m [32m INFO[0m cargo_tarpaulin: Building project
+[2mSep 26 00:16:20.493[0m [32m INFO[0m cargo_tarpaulin::cargo: Cleaning project
+[2mSep 26 00:18:30.882[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mSep 26 00:18:30.882[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_deps-ad7dedd9bebb1a8d
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-[2mSep 25 00:18:17.607[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
-[2mSep 25 00:18:17.607[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_err-bd9f25e9befe941a
+[2mSep 26 00:18:31.382[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mSep 26 00:18:31.382[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_err-bd9f25e9befe941a
 
 running 4 tests
 test error::test::test_errors ... ok
 test macros::test::test_ekinds ... ok
-test macros::test::test_map_err ... ok
 test error::test::test_other_errors ... ok
+test macros::test::test_map_err ... ok
 
 test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
 
-[2mSep 25 00:18:19.587[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
-[2mSep 25 00:18:19.587[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_test-e47711e9fb944813
+[2mSep 26 00:18:33.358[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mSep 26 00:18:33.358[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_test-e47711e9fb944813
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-[2mSep 25 00:18:20.783[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
-[2mSep 25 00:18:20.783[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_ser-f42c7ded8daa1c2f
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-[2mSep 25 00:18:21.287[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
-[2mSep 25 00:18:21.287[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_log-00c1224a71c18312
+[2mSep 26 00:18:34.550[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mSep 26 00:18:34.550[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_log-00c1224a71c18312
 
 running 18 tests
 test log::test::test_bad_configs ... ok
@@ -241,8 +236,8 @@ test log::test::test_init ... ok
 test log::test::test_invalid_flags ... ok
 test log::test::test_log_rotation ... ok
 test log::test::test_log_file_and_bt ... ok
-test log::test::test_manual_rotation ... ok
 test log::test::test_other_config_options ... ok
+test log::test::test_manual_rotation ... ok
 test log::test::test_resolve_frame_error ... ok
 test log::test::test_other_situations ... ok
 test macros::test::test_lock ... ok
@@ -253,23 +248,30 @@ test log::test::test_time_based_rotation ... ok
 
 test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.79s
 
-[2mSep 25 00:19:03.415[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
-[2mSep 25 00:19:03.416[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_derive-188782802d7d5c40
+[2mSep 26 00:19:16.686[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mSep 26 00:19:16.686[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_ser-f42c7ded8daa1c2f
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-[2mSep 25 00:19:04.299[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
-[2mSep 25 00:19:04.300[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_crypt-904483ced03c69e3
+[2mSep 26 00:19:17.190[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mSep 26 00:19:17.190[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_derive-188782802d7d5c40
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[2mSep 26 00:19:18.078[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mSep 26 00:19:18.078[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_crypt-904483ced03c69e3
 
 running 1 test
 test test::test_ser ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
 
-[2mSep 25 00:19:06.715[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
-[2mSep 25 00:19:06.716[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_util-a0149a1a441bc693
+[2mSep 26 00:19:20.506[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mSep 26 00:19:20.506[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw_util-a0149a1a441bc693
 
 running 105 tests
 test array::test::test_array_iterator ... ok
@@ -378,10 +380,10 @@ test threadpool::test::test_threadpool_drop ... ok
 test types::test::test_config_option_ser ... ok
 test threadpool::test::test_sizing ... ok
 
-test result: ok. 105 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 55.55s
+test result: ok. 105 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 55.60s
 
-[2mSep 25 00:20:04.459[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
-[2mSep 25 00:20:04.459[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw-a26ceeda0e3eb896
+[2mSep 26 00:20:18.310[0m [32m INFO[0m cargo_tarpaulin::process_handling::linux: Launching test
+[2mSep 26 00:20:18.310[0m [32m INFO[0m cargo_tarpaulin::process_handling: running /home/vsts/work/1/s/target/debug/deps/bmw-a26ceeda0e3eb896
 
 running 2 tests
 test test::test_debug_startup_32 ... ok
@@ -389,7 +391,7 @@ test test::test_main ... ok
 
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
 
-[2mSep 25 00:20:06.072[0m [32m INFO[0m cargo_tarpaulin::report: Coverage Results:
+[2mSep 26 00:20:19.918[0m [32m INFO[0m cargo_tarpaulin::report: Coverage Results:
 || Uncovered Lines:
 || util/src/hash.rs: 1927
 || Tested/Total Lines:
