@@ -17,22 +17,35 @@ use crate::types::{
 use crate::{
 	Array, ArrayList, Hashset, HashsetConfig, Hashtable, HashtableConfig, ListConfig, Lock,
 	LockBox, Match, Pattern, Queue, Serializable, SlabAllocator, SlabAllocatorConfig, SortableList,
-	Stack, SuffixTree, ThreadPoolConfig, ThreadPool,
+	Stack, SuffixTree, ThreadPool, ThreadPoolConfig,
 };
 use bmw_err::Error;
+use bmw_log::*;
+use std::any::Any;
 use std::cell::{RefCell, UnsafeCell};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
 
+info!();
+
 /// The [`crate::Builder`] is used to build the data structures in the [`crate`].
 impl Builder {
 	/// Build a [`crate::ThreadPool`] based on the specified [`crate::ThreadPoolConfig`].
 	/// The [`crate::ThreadPool::start`] function must be called before executing tasks.
-	pub fn build_thread_pool<T: 'static + Send + Sync>(
+	pub fn build_thread_pool<T, OnPanic>(
 		config: ThreadPoolConfig,
-	) -> Result<impl ThreadPool<T>, Error> {
-		Ok(ThreadPoolImpl::new(config, None)?)
+	) -> Result<impl ThreadPool<T, OnPanic>, Error>
+	where
+		OnPanic: FnMut(u128, Box<dyn Any + Send>) -> Result<(), Error>
+			+ Send
+			+ 'static
+			+ Clone
+			+ Sync
+			+ Unpin,
+		T: 'static + Send + Sync,
+	{
+		Ok(ThreadPoolImpl::new(config)?)
 	}
 
 	/// Build a [`crate::Array`]. `size` is the size of the array and `default` is the
@@ -65,21 +78,35 @@ impl Builder {
 		ArrayList::new(size, default)
 	}
 
-	/// Build an [`crate::ArrayList`] based on the specified `size` and `default` value.
-	/// The default value is only used to initialize the underlying [`crate::Array`]
-	/// and is not included in the list. On success a Box<dyn SortableList<T>>
-	/// is returned. This function may be used if you wish to store the list in a
-	/// struct or enum.
-	///
-	/// # Errors
-	///
-	/// [`bmw_err::ErrorKind::IllegalArgument`] is returned if the specified size is 0.
+	/// boxed version of [`crate::Builder::build_array_list`].
 	pub fn build_array_list_box<T>(
 		size: usize,
 		default: &T,
 	) -> Result<Box<dyn SortableList<T>>, Error>
 	where
 		T: Clone + Debug + PartialEq + Serializable + 'static,
+	{
+		Ok(Box::new(ArrayList::new(size, default)?))
+	}
+
+	/// sync version of [`crate::Builder::build_array_list`].
+	pub fn build_array_list_sync<T>(
+		size: usize,
+		default: &T,
+	) -> Result<impl SortableList<T> + Send + Sync, Error>
+	where
+		T: Clone + Debug + PartialEq + Serializable + Send + Sync,
+	{
+		ArrayList::new(size, default)
+	}
+
+	/// sync box version of [`crate::Builder::build_array_list`].
+	pub fn build_array_list_sync_box<T>(
+		size: usize,
+		default: &T,
+	) -> Result<Box<dyn SortableList<T> + Send + Sync>, Error>
+	where
+		T: Clone + Debug + PartialEq + Serializable + Send + Sync + 'static,
 	{
 		Ok(Box::new(ArrayList::new(size, default)?))
 	}
@@ -115,6 +142,45 @@ impl Builder {
 		Ok(Box::new(ArrayList::new(size, default)?))
 	}
 
+	/// Build an [`crate::Queue`] based on the specified `size` and `default` value.
+	/// The default value is only used to initialize the underlying [`crate::Array`]
+	/// and is not included in the queue. On success an anonymous impl of [`crate::Queue`]
+	/// is returned. This version requires that T be Send and Sync and returns a "Send/Sync"
+	/// queue.
+	///
+	/// # Errors
+	///
+	/// [`bmw_err::ErrorKind::IllegalArgument`] is returned if the specified size is 0.
+	pub fn build_queue_sync<T>(
+		size: usize,
+		default: &T,
+	) -> Result<impl Queue<T> + Send + Sync, Error>
+	where
+		T: Clone + Send + Sync,
+	{
+		ArrayList::new(size, default)
+	}
+
+	/// Build an [`crate::Queue`] based on the specified `size` and `default` value.
+	/// The default value is only used to initialize the underlying [`crate::Array`]
+	/// and is not included in the queue. On success a Box<dyn Queue<T>>
+	/// is returned. This function may be used if you wish to store the list in a
+	/// struct or enum. This version requires that T be Send and Sync and returns a "Send/Sync"
+	/// queue.
+	///
+	/// # Errors
+	///
+	/// [`bmw_err::ErrorKind::IllegalArgument`] is returned if the specified size is 0.
+	pub fn build_queue_sync_box<T>(
+		size: usize,
+		default: &T,
+	) -> Result<Box<dyn Queue<T> + Send + Sync>, Error>
+	where
+		T: Clone + Send + Sync + 'static,
+	{
+		Ok(Box::new(ArrayList::new(size, default)?))
+	}
+
 	/// Build an [`crate::Stack`] based on the specified `size` and `default` value.
 	/// The default value is only used to initialize the underlying [`crate::Array`]
 	/// and is not included in the stack. On success an anonymous impl of [`crate::Stack`]
@@ -146,6 +212,28 @@ impl Builder {
 		Ok(Box::new(ArrayList::new(size, default)?))
 	}
 
+	/// sync version of [`crate::Builder::build_stack`].
+	pub fn build_stack_sync<T>(
+		size: usize,
+		default: &T,
+	) -> Result<impl Stack<T> + Send + Sync, Error>
+	where
+		T: Send + Sync + Clone,
+	{
+		ArrayList::new(size, default)
+	}
+
+	/// sync box version of [`crate::Builder::build_stack`].
+	pub fn build_stack_sync_box<T>(
+		size: usize,
+		default: &T,
+	) -> Result<Box<dyn Stack<T> + Send + Sync>, Error>
+	where
+		T: Send + Sync + Clone + 'static,
+	{
+		Ok(Box::new(ArrayList::new(size, default)?))
+	}
+
 	/// Build a synchronous [`crate::Hashtable`] based on the specified `config` and
 	/// `slab_config`. The returned Hashtable implements Send and Sync. Since a shared
 	/// slab allocator is not thread safe and the global slab allocator is thread local,
@@ -163,7 +251,7 @@ impl Builder {
 	pub fn build_hashtable_sync<K, V>(
 		config: HashtableConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<impl Hashtable<K, V>, Error>
+	) -> Result<impl Hashtable<K, V> + Send + Sync, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 		V: Serializable + Clone,
@@ -261,7 +349,7 @@ impl Builder {
 	pub fn build_hashset_sync<K>(
 		config: HashsetConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<impl Hashset<K>, Error>
+	) -> Result<impl Hashset<K> + Send + Sync, Error>
 	where
 		K: Serializable + Hash + PartialEq + Debug + Clone,
 	{
@@ -377,7 +465,7 @@ impl Builder {
 	pub fn build_list_sync_box<V>(
 		config: ListConfig,
 		slab_config: SlabAllocatorConfig,
-	) -> Result<Box<dyn SortableList<V>>, Error>
+	) -> Result<Box<dyn SortableList<V> + Send + Sync>, Error>
 	where
 		V: Serializable + Debug + PartialEq + Clone + 'static,
 	{
@@ -471,7 +559,7 @@ impl Builder {
 		patterns: impl SortableList<Pattern>,
 		termination_length: usize,
 		max_wildcard_length: usize,
-	) -> Result<impl SuffixTree, Error> {
+	) -> Result<impl SuffixTree + Send + Sync, Error> {
 		SuffixTreeImpl::new(patterns, termination_length, max_wildcard_length)
 	}
 
@@ -481,7 +569,7 @@ impl Builder {
 		patterns: impl SortableList<Pattern>,
 		termination_length: usize,
 		max_wildcard_length: usize,
-	) -> Result<Box<dyn SuffixTree>, Error> {
+	) -> Result<Box<dyn SuffixTree + Send + Sync>, Error> {
 		Ok(Box::new(SuffixTreeImpl::new(
 			patterns,
 			termination_length,
@@ -509,6 +597,11 @@ impl Builder {
 		Box::new(SlabAllocatorImpl::new())
 	}
 
+	/// sync version of [`crate::Builder::build_slabs`].
+	pub fn build_sync_slabs() -> Box<dyn SlabAllocator + Send + Sync> {
+		Box::new(SlabAllocatorImpl::new())
+	}
+
 	/// Build a [`crate::Lock`].
 	pub fn build_lock<T>(t: T) -> Result<impl Lock<T>, Error>
 	where
@@ -520,7 +613,7 @@ impl Builder {
 	/// Build a [`crate::LockBox`].
 	pub fn build_lock_box<T>(t: T) -> Result<Box<dyn LockBox<T>>, Error>
 	where
-		T: Send + Sync + Clone + 'static,
+		T: Send + Sync + 'static,
 	{
 		Ok(Box::new(LockImpl::new(t)))
 	}
@@ -528,8 +621,11 @@ impl Builder {
 
 #[cfg(test)]
 mod test {
-	use crate::{Builder, ListConfig, SlabAllocatorConfig};
+	use crate as bmw_util;
+	use crate::*;
 	use bmw_err::*;
+	use std::thread::sleep;
+	use std::time::Duration;
 
 	#[test]
 	fn test_builder() -> Result<(), Error> {
@@ -551,6 +647,125 @@ mod test {
 		assert_eq!(nmatch.start(), 0);
 		assert_eq!(nmatch.end(), 1);
 		assert_eq!(nmatch.id(), 2);
+
+		Ok(())
+	}
+
+	#[derive(Clone)]
+	struct TestObj {
+		array: Array<u32>,
+		array_list: Box<dyn SortableList<u32> + Send + Sync>,
+		queue: Box<dyn Queue<u32> + Send + Sync>,
+		stack: Box<dyn Stack<u32> + Send + Sync>,
+		hashtable: Box<dyn Hashtable<u32, u32> + Send + Sync>,
+		hashset: Box<dyn Hashset<u32> + Send + Sync>,
+		list: Box<dyn SortableList<u32> + Send + Sync>,
+		suffix_tree: Box<dyn SuffixTree + Send + Sync>,
+	}
+
+	#[test]
+	fn test_builder_sync() -> Result<(), Error> {
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_, _| Ok(()))?;
+
+		let test_obj = TestObj {
+			array: Builder::build_array(10, &0)?,
+			array_list: Builder::build_array_list_sync_box(10, &0)?,
+			queue: Builder::build_queue_sync_box(10, &0)?,
+			stack: Builder::build_stack_sync_box(10, &0)?,
+			hashtable: Builder::build_hashtable_sync_box(
+				HashtableConfig::default(),
+				SlabAllocatorConfig::default(),
+			)?,
+			hashset: Builder::build_hashset_sync_box(
+				HashsetConfig::default(),
+				SlabAllocatorConfig::default(),
+			)?,
+			list: Builder::build_list_sync_box(
+				ListConfig::default(),
+				SlabAllocatorConfig::default(),
+			)?,
+			suffix_tree: Builder::build_suffix_tree_box(
+				list![pattern!(Regex("abc"), Id(0))?],
+				100,
+				50,
+			)?,
+		};
+		let array_list_sync = Builder::build_array_list_sync(10, &0)?;
+		let mut array_list_sync = lock_box!(array_list_sync)?;
+		let queue_sync = Builder::build_queue_sync(10, &0)?;
+		let mut queue_sync = lock_box!(queue_sync)?;
+		let stack_sync = Builder::build_stack_sync(10, &0)?;
+		let mut stack_sync = lock_box!(stack_sync)?;
+
+		let mut stack_box = Builder::build_stack_box(10, &0)?;
+		stack_box.push(50)?;
+		assert_eq!(stack_box.pop(), Some(&50));
+		assert_eq!(stack_box.pop(), None);
+
+		assert_eq!(test_obj.array[0], 0);
+		assert_eq!(test_obj.array_list.iter().next().is_none(), true);
+		assert_eq!(test_obj.queue.peek().is_none(), true);
+		assert_eq!(test_obj.stack.peek().is_none(), true);
+		assert_eq!(test_obj.hashtable.size(), 0);
+		assert_eq!(test_obj.hashset.size(), 0);
+		assert_eq!(test_obj.list.size(), 0);
+		let mut test_obj = lock_box!(test_obj)?;
+		let test_obj_clone = test_obj.clone();
+
+		execute!(tp, {
+			{
+				let mut test_obj = test_obj.wlock()?;
+				let guard = test_obj.guard();
+				(**guard).array[0] = 1;
+				(**guard).array_list.push(1)?;
+				(**guard).queue.enqueue(1)?;
+				(**guard).stack.push(1)?;
+				(**guard).hashtable.insert(&0, &0)?;
+				(**guard).hashset.insert(&0)?;
+				(**guard).list.push(0)?;
+				let mut matches = [Builder::build_match_default(); 10];
+				(**guard).suffix_tree.tmatch(b"test", &mut matches)?;
+			}
+			{
+				let mut array_list_sync = array_list_sync.wlock()?;
+				let guard = array_list_sync.guard();
+				(**guard).push(0)?;
+			}
+
+			{
+				let mut queue_sync = queue_sync.wlock()?;
+				let guard = queue_sync.guard();
+				(**guard).enqueue(0)?;
+			}
+
+			{
+				let mut stack_sync = stack_sync.wlock()?;
+				let guard = stack_sync.guard();
+				(**guard).push(0)?;
+			}
+
+			Ok(())
+		})?;
+
+		let mut count = 0;
+		loop {
+			count += 1;
+			sleep(Duration::from_millis(1));
+			let test_obj = test_obj_clone.rlock()?;
+			let guard = test_obj.guard();
+			if (**guard).array[0] != 1 && count < 2_000 {
+				continue;
+			}
+			assert_eq!((**guard).array[0], 1);
+			assert_eq!((**guard).array_list.iter().next().is_none(), false);
+			assert_eq!((**guard).queue.peek().is_some(), true);
+			assert_eq!((**guard).stack.peek().is_some(), true);
+			assert_eq!((**guard).hashtable.size(), 1);
+			assert_eq!((**guard).hashset.size(), 1);
+			assert_eq!((**guard).list.size(), 1);
+			break;
+		}
 
 		Ok(())
 	}

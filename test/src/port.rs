@@ -12,8 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This crate provides functions and other utilities that are used in the tests in other crates
-//! within the bmw repo.
+use bmw_deps::portpicker::is_free;
+use bmw_err::Error;
+use std::sync::atomic::{AtomicU16, Ordering};
 
-pub mod port;
-pub mod testdir;
+static GLOBAL_NEXT_PORT: AtomicU16 = AtomicU16::new(9000);
+
+pub fn pick_free_port() -> Result<u16, Error> {
+	loop {
+		let port = GLOBAL_NEXT_PORT.fetch_add(1, Ordering::SeqCst);
+
+		if is_free(port) {
+			return Ok(port);
+		}
+	}
+}

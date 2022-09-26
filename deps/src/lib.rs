@@ -15,16 +15,32 @@
 //! This is the dependency crate. All bmw dependencies are included in this crate as re-exports and
 //! used by the other crates within the repo.
 
+#[cfg(windows)]
+pub use wepoll_sys;
+
+#[cfg(target_os = "macos")]
+pub use kqueue_sys;
+
 pub use backtrace;
+pub use bitvec;
 pub use chrono;
 pub use colored;
 pub use dyn_clone;
+pub use errno;
 pub use failure;
 pub use failure_derive;
 pub use futures;
+pub use interprocess;
 pub use lazy_static;
+pub use libc;
+pub use nix;
 pub use num_format;
+pub use portpicker;
 pub use rand;
 pub use random_string;
+pub use rustls;
+pub use rustls_pemfile;
 pub use substring;
 pub use try_traits;
+pub use webpki_roots;
+pub use winapi;

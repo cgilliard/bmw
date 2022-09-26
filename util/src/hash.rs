@@ -97,6 +97,8 @@ where
 				match list.get_next_slot(&mut self.cur, self.direction, &mut slab_reader) {
 					Ok(ret) => {
 						if ret {
+							// seek the location in the list for this
+							// slot
 							slab_reader.seek(slot, list.ptr_size * 2);
 							match V::read(slab_reader) {
 								Ok(v) => Some(v),
@@ -1028,9 +1030,9 @@ where
 		debug!("free chain {}", slab_id)?;
 		let bytes_per_slab = self.bytes_per_slab;
 		let slab_size = self.slab_size;
-		let mut next_bytes = slab_id.clone();
+		let mut next_bytes = slab_id;
 		loop {
-			let id = next_bytes.clone();
+			let id = next_bytes;
 			let n = match &self.slabs {
 				Some(slabs) => {
 					let slabs: Ref<_> = slabs.borrow();
@@ -1043,7 +1045,7 @@ where
 					slice_to_usize(&slab.get()[bytes_per_slab..slab_size])
 				}),
 			}?;
-			next_bytes = n.clone();
+			next_bytes = n;
 			debug!("free id = {}, next_bytes={}", id, next_bytes)?;
 			self.free(id)?;
 
@@ -1631,7 +1633,8 @@ mod test {
 		let mut h = lock!(h)?;
 		let mut h_clone = h.clone();
 
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		{
 			let h2 = h_clone.rlock()?;
@@ -1696,7 +1699,8 @@ mod test {
 		let mut h = lock!(h)?;
 		let h_clone = h.clone();
 
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		{
 			let h2 = h_clone.rlock()?;
@@ -1737,7 +1741,8 @@ mod test {
 		let mut h_clone2 = h.clone();
 		let mut h_clone3 = h.clone();
 
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		{
 			let h = h_clone.rlock()?;

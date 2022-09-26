@@ -373,14 +373,14 @@ macro_rules! pattern {
 ///
 /// fn main() -> Result<(), Error> {
 ///         // build a suffix tree with three patterns
-///         let mut suffix_tree = Builder::build_suffix_tree(
+///         let mut suffix_tree = suffix_tree!(
 ///                 list![
 ///                         pattern!(Regex("p1"), Id(0))?,
 ///                         pattern!(Regex("p2"), Id(1))?,
 ///                         pattern!(Regex("p3"), Id(2))?
 ///                 ],
-///                 1_000,
-///                 100,
+///                 TerminationLength(1_000),
+///                 MaxWildcardLength(100)
 ///         )?;
 ///
 ///         // create a matches array for the suffix tree to return matches in
@@ -415,14 +415,14 @@ macro_rules! pattern {
 ///
 /// fn main() -> Result<(), Error> {
 ///         // build a suffix tree with a wild card
-///         let mut suffix_tree = Builder::build_suffix_tree(
+///         let mut suffix_tree = suffix_tree!(
 ///                 list![
 ///                         pattern!(Regex("p1"), Id(0))?,
 ///                         pattern!(Regex("p2.*test"), Id(1))?,
 ///                         pattern!(Regex("p3"), Id(2))?
 ///                 ],
-///                 1_000,
-///                 100,   
+///                 TerminationLength(1_000),
+///                 MaxWildcardLength(100)
 ///         )?;
 ///
 ///         // create a matches array for the suffix tree to return matches in
@@ -452,14 +452,14 @@ macro_rules! pattern {
 ///
 /// fn main() -> Result<(), Error> {
 ///         // build a suffix tree with a wild card
-///         let mut suffix_tree = Builder::build_suffix_tree(
+///         let mut suffix_tree = suffix_tree!(
 ///                 list![
 ///                         pattern!(Regex("p1"), Id(0))?,
 ///                         pattern!(Regex("p2.test"), Id(1))?,
 ///                         pattern!(Regex("p3"), Id(2))?
 ///                 ],
-///                 1_000,
-///                 100,
+///                 TerminationLength(1_000),
+///                 MaxWildcardLength(100)
 ///         )?;
 ///
 ///         // create a matches array for the suffix tree to return matches in
@@ -493,13 +493,13 @@ macro_rules! pattern {
 ///
 /// fn main() -> Result<(), Error> {      
 ///         // build a suffix tree with a wild card
-///         let mut suffix_tree = Builder::build_suffix_tree(
+///         let mut suffix_tree = suffix_tree!(
 ///                 list![
 ///                         pattern!(Regex("p1"), Id(0))?,
 ///                         pattern!(Regex("^p2"), Id(2))?
 ///                 ],
-///                 1_000,
-///                 100,
+///                 TerminationLength(1_000),
+///                 MaxWildcardLength(100)
 ///         )?;
 ///
 ///         // create a matches array for the suffix tree to return matches in
@@ -917,7 +917,7 @@ macro_rules! hashtable {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &slabs.clone()
+                        &slabs
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -969,7 +969,7 @@ macro_rules! hashtable_box {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &slabs.clone()
+                        &slabs
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -1039,9 +1039,10 @@ macro_rules! hashtable_sync {
                     }
                 )*
 
+                let slabs = slab_allocator!(SlabSize(256),SlabCount(256))?;
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &None
+                        &Some(&slabs)
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -1087,9 +1088,10 @@ macro_rules! hashtable_sync_box {
                     }
                 )*
 
+                let slabs = slab_allocator!(SlabSize(256),SlabCount(256))?;
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &None
+                        &Some(&slabs)
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -1200,7 +1202,7 @@ macro_rules! hashset {
 
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &slabs.clone()
+                        &slabs
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -1296,9 +1298,10 @@ macro_rules! hashset_sync {
                     }
                 )*
 
+                let slabs = slab_allocator!(SlabSize(256),SlabCount(256))?;
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &None
+                        &Some(&slabs)
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -1344,9 +1347,10 @@ macro_rules! hashset_sync_box {
                     }
                 )*
 
+                let slabs = slab_allocator!(SlabSize(256),SlabCount(256))?;
                 let mut config_list = bmw_util::Builder::build_list(
                         bmw_util::ListConfig::default(),
-                        &None
+                        &Some(&slabs)
                 )?;
 
                 // delete_head is called to remove compiler warning about not needing to be mutable.
@@ -1432,12 +1436,58 @@ macro_rules! list_box {
 macro_rules! list_sync {
     ( $( $x:expr ),* ) => {
         {
-            use bmw_util::List;
-            let mut temp_list = bmw_util::Builder::build_list_sync(bmw_util::ListConfig::default(), &None)?;
+            let mut config = bmw_util::SlabAllocatorConfig::default();
+            let mut error: Option<String> = None;
+            let mut slab_size_specified = false;
+            let mut slab_count_specified = false;
+
+            // compiler sees macro as not used if it's not used in one part of the code
+            // these lines make the warnings go away
+            if config.slab_size == 0 { config.slab_size = 0; }
+            if slab_count_specified { slab_count_specified = false; }
+            if slab_size_specified { slab_size_specified = false; }
+            if slab_count_specified {}
+            if slab_size_specified {}
+            if error.is_some() { error = None; }
+
             $(
-                temp_list.push($x)?;
+                match $x {
+                    bmw_util::ConfigOption::SlabSize(slab_size) => {
+                        config.slab_size = slab_size;
+
+                        if slab_size_specified {
+                            error = Some("SlabSize was specified more than once!".to_string());
+                        }
+                        slab_size_specified = true;
+                        if slab_size_specified {}
+
+                    },
+                    bmw_util::ConfigOption::SlabCount(slab_count) => {
+                        config.slab_count = slab_count;
+
+                        if slab_count_specified {
+                            error = Some("SlabCount was specified more than once!".to_string());
+                        }
+
+                        slab_count_specified = true;
+                        if slab_count_specified {}
+                    },
+                    _ => {
+                        error = Some(format!("'{:?}' is not allowed for sync_list", $x));
+                    }
+                }
             )*
-            temp_list
+            match error {
+                Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
+                None => {
+                    let mut temp_list = bmw_util::Builder::build_list_sync(bmw_util::ListConfig::default(), config)?;
+                    temp_list.delete_head()?;
+                    $(
+                        temp_list.push($x)?;
+                    )*
+                    Ok(temp_list)
+                },
+            }
         }
     };
 }
@@ -1447,12 +1497,58 @@ macro_rules! list_sync {
 macro_rules! list_sync_box {
     ( $( $x:expr ),* ) => {
         {
-            use bmw_util::List;
-            let mut temp_list = bmw_util::Builder::build_list_sync_box(bmw_util::ListConfig::default(), &None)?;
+            let mut config = bmw_util::SlabAllocatorConfig::default();
+            let mut error: Option<String> = None;
+            let mut slab_size_specified = false;
+            let mut slab_count_specified = false;
+
+            // compiler sees macro as not used if it's not used in one part of the code
+            // these lines make the warnings go away
+            if config.slab_size == 0 { config.slab_size = 0; }
+            if slab_count_specified { slab_count_specified = false; }
+            if slab_size_specified { slab_size_specified = false; }
+            if slab_count_specified {}
+            if slab_size_specified {}
+            if error.is_some() { error = None; }
+
             $(
-                temp_list.push($x)?;
+                match $x {
+                    bmw_util::ConfigOption::SlabSize(slab_size) => {
+                        config.slab_size = slab_size;
+
+                        if slab_size_specified {
+                            error = Some("SlabSize was specified more than once!".to_string());
+                        }
+                        slab_size_specified = true;
+                        if slab_size_specified {}
+
+                    },
+                    bmw_util::ConfigOption::SlabCount(slab_count) => {
+                        config.slab_count = slab_count;
+
+                        if slab_count_specified {
+                            error = Some("SlabCount was specified more than once!".to_string());
+                        }
+
+                        slab_count_specified = true;
+                        if slab_count_specified {}
+                    },
+                    _ => {
+                        error = Some(format!("'{:?}' is not allowed for sync_list", $x));
+                    }
+                }
             )*
-            temp_list
+            match error {
+                Some(error) => Err(bmw_err::err!(bmw_err::ErrKind::Configuration, error)),
+                None => {
+                    let mut temp_list = bmw_util::Builder::build_list_sync(bmw_util::ListConfig::default(), config)?;
+                    temp_list.delete_head()?;
+                    $(
+                        temp_list.push($x)?;
+                    )*
+                    Ok(Box::new(temp_list))
+                },
+            }
         }
     };
 }
@@ -1536,6 +1632,22 @@ macro_rules! array_list_box {
 	}};
 }
 
+/// sync version of [`crate::array_list`].
+#[macro_export]
+macro_rules! array_list_sync {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_array_list_sync($size, $default)
+	}};
+}
+
+/// sync box version of [`crate::array_list`].
+#[macro_export]
+macro_rules! array_list_sync_box {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_array_list_sync_box($size, $default)
+	}};
+}
+
 /// This macro creates a [`crate::Queue`]. The parameters are
 /// * size (required) - the size of the underlying array
 /// * default (required) - a reference to the value to initialize the array with
@@ -1584,6 +1696,24 @@ macro_rules! queue_box {
 	}};
 }
 
+/// This is the sync version of [`crate::queue`]. It is identical other than the returned value is
+/// with Sync/Send traits implemented.
+#[macro_export]
+macro_rules! queue_sync {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_queue_sync($size, $default)
+	}};
+}
+
+/// This is the box version of [`crate::queue`]. It is identical other than the returned value is
+/// in a box `(Box<dyn Queue>)` and Send/Sync traits implemented.
+#[macro_export]
+macro_rules! queue_sync_box {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_queue_sync_box($size, $default)
+	}};
+}
+
 /// This macro creates a [`crate::Stack`]. The parameters are
 /// * size (required) - the size of the underlying array
 /// * default (required) - a reference to the value to initialize the array with
@@ -1629,6 +1759,22 @@ macro_rules! stack {
 macro_rules! stack_box {
 	( $size:expr, $default:expr ) => {{
 		bmw_util::Builder::build_stack_box($size, $default)
+	}};
+}
+
+/// sync version of [`crate::stack`].
+#[macro_export]
+macro_rules! stack_sync {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_stack_sync($size, $default)
+	}};
+}
+
+/// box version of [`crate::stack`].
+#[macro_export]
+macro_rules! stack_sync_box {
+	( $size:expr, $default:expr ) => {{
+		bmw_util::Builder::build_stack_sync_box($size, $default)
 	}};
 }
 
@@ -1749,7 +1895,10 @@ macro_rules! thread_pool {
 #[macro_export]
 macro_rules! execute {
 	($thread_pool:expr, $program:expr) => {{
-		$thread_pool.execute(async move { $program })
+		$thread_pool.execute(async move { $program }, bmw_deps::rand::random())
+	}};
+	($thread_pool:expr, $id:expr, $program:expr) => {{
+		$thread_pool.execute(async move { $program }, $id)
 	}};
 }
 
@@ -1773,7 +1922,7 @@ mod test {
 	use crate::PatternParam::*;
 	use crate::{
 		lock, lock_box, thread_pool, Builder, Hashset, Hashtable, List, Lock, LockBox, PoolResult,
-		SortableList, SuffixTree, ThreadPool,
+		Queue, SortableList, Stack, SuffixTree, ThreadPool,
 	};
 	use bmw_err::{err, ErrKind, Error};
 	use bmw_log::*;
@@ -1957,6 +2106,44 @@ mod test {
 		assert_eq!(hashtable.size(), 1);
 		hashtable.insert(&"something".to_string(), &2)?;
 		info!("hashtable={:?}", hashtable)?;
+
+		let mut hashtable = hashtable_sync!()?;
+		hashtable.insert(&1, &2)?;
+		assert_eq!(hashtable.get(&1).unwrap().unwrap(), 2);
+		let mut hashtable = hashtable_sync!(
+			MaxEntries(100),
+			MaxLoadFactor(0.9),
+			SlabSize(100),
+			SlabCount(100)
+		)?;
+		hashtable.insert(&"test".to_string(), &1)?;
+		assert_eq!(hashtable.size(), 1);
+		hashtable.insert(&"something".to_string(), &2)?;
+		info!("hashtable={:?}", hashtable)?;
+
+		let mut hashtable = hashtable_box!()?;
+		hashtable.insert(&1, &2)?;
+		assert_eq!(hashtable.get(&1).unwrap().unwrap(), 2);
+		let mut hashtable = hashtable_box!(MaxEntries(100), MaxLoadFactor(0.9))?;
+		hashtable.insert(&"test".to_string(), &1)?;
+		assert_eq!(hashtable.size(), 1);
+		hashtable.insert(&"something".to_string(), &2)?;
+		info!("hashtable={:?}", hashtable)?;
+
+		let mut hashtable = hashtable_sync_box!()?;
+		hashtable.insert(&1, &2)?;
+		assert_eq!(hashtable.get(&1).unwrap().unwrap(), 2);
+		let mut hashtable = hashtable_sync_box!(
+			MaxEntries(100),
+			MaxLoadFactor(0.9),
+			SlabSize(100),
+			SlabCount(100)
+		)?;
+		hashtable.insert(&"test".to_string(), &1)?;
+		assert_eq!(hashtable.size(), 1);
+		hashtable.insert(&"something".to_string(), &2)?;
+		info!("hashtable={:?}", hashtable)?;
+
 		Ok(())
 	}
 
@@ -1974,6 +2161,56 @@ mod test {
 		hashset.insert(&"another item".to_string())?;
 		hashset.insert(&"third item".to_string())?;
 		info!("hashset={:?}", hashset)?;
+
+		let mut hashset = hashset_sync!()?;
+		hashset.insert(&1)?;
+		assert_eq!(hashset.contains(&1).unwrap(), true);
+		assert_eq!(hashset.contains(&2).unwrap(), false);
+		let mut hashset = hashset_sync!(
+			MaxEntries(100),
+			MaxLoadFactor(0.9),
+			SlabSize(100),
+			SlabCount(100)
+		)?;
+		hashset.insert(&"test".to_string())?;
+		assert_eq!(hashset.size(), 1);
+		assert!(hashset.contains(&"test".to_string())?);
+		info!("hashset={:?}", hashset)?;
+		hashset.insert(&"another item".to_string())?;
+		hashset.insert(&"third item".to_string())?;
+		info!("hashset={:?}", hashset)?;
+
+		let mut hashset = hashset_box!()?;
+		hashset.insert(&1)?;
+		assert_eq!(hashset.contains(&1).unwrap(), true);
+		assert_eq!(hashset.contains(&2).unwrap(), false);
+		let mut hashset = hashset_box!(MaxEntries(100), MaxLoadFactor(0.9))?;
+		hashset.insert(&"test".to_string())?;
+		assert_eq!(hashset.size(), 1);
+		assert!(hashset.contains(&"test".to_string())?);
+		info!("hashset={:?}", hashset)?;
+		hashset.insert(&"another item".to_string())?;
+		hashset.insert(&"third item".to_string())?;
+		info!("hashset={:?}", hashset)?;
+
+		let mut hashset = hashset_sync_box!()?;
+		hashset.insert(&1)?;
+		assert_eq!(hashset.contains(&1).unwrap(), true);
+		assert_eq!(hashset.contains(&2).unwrap(), false);
+		let mut hashset = hashset_sync_box!(
+			MaxEntries(100),
+			MaxLoadFactor(0.9),
+			SlabSize(100),
+			SlabCount(100)
+		)?;
+		hashset.insert(&"test".to_string())?;
+		assert_eq!(hashset.size(), 1);
+		assert!(hashset.contains(&"test".to_string())?);
+		info!("hashset={:?}", hashset)?;
+		hashset.insert(&"another item".to_string())?;
+		hashset.insert(&"third item".to_string())?;
+		info!("hashset={:?}", hashset)?;
+
 		Ok(())
 	}
 
@@ -1988,19 +2225,31 @@ mod test {
 
 		let list3 = list![1, 2, 3, 4, 5];
 		info!("list={:?}", list3)?;
+
+		let list4 = list_box![1, 2, 3, 4, 5];
+		let mut list5 = list_sync!()?;
+		let mut list6 = list_sync_box!()?;
+		list_append!(list5, list4);
+		list_append!(list6, list4);
+		assert!(list_eq!(list4, list3));
+		assert!(list_eq!(list4, list5));
+		assert!(list_eq!(list4, list6));
+
 		Ok(())
 	}
 
 	#[test]
 	fn test_thread_pool_macro() -> Result<(), bmw_err::Error> {
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		let resp = execute!(tp, {
 			info!("in thread pool")?;
 			Ok(123)
 		})?;
 		assert_eq!(block_on!(resp), PoolResult::Ok(123));
 
-		let tp = thread_pool!(MinSize(3))?;
+		let mut tp = thread_pool!(MinSize(3))?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		let resp: Receiver<PoolResult<u32, Error>> = execute!(tp, {
 			info!("thread pool2")?;
 			Err(err!(ErrKind::Test, "test err"))
@@ -2010,7 +2259,8 @@ mod test {
 			PoolResult::Err(err!(ErrKind::Test, "test err"))
 		);
 
-		let tp = thread_pool!(MinSize(3))?;
+		let mut tp = thread_pool!(MinSize(3))?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 		let resp: Receiver<PoolResult<u32, Error>> = execute!(tp, {
 			info!("thread pool panic")?;
 			let x: Option<u32> = None;
@@ -2028,7 +2278,8 @@ mod test {
 
 	#[test]
 	fn test_thread_pool_options() -> Result<(), Error> {
-		let tp = thread_pool!(MinSize(4), MaxSize(5), SyncChannelSize(10))?;
+		let mut tp = thread_pool!(MinSize(4), MaxSize(5), SyncChannelSize(10))?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		assert_eq!(tp.size()?, 4);
 		sleep(Duration::from_millis(2_000));
@@ -2070,6 +2321,51 @@ mod test {
 		let mut array = array!(10, &0)?;
 		array[1] = 2;
 		assert_eq!(array[1], 2);
+
+		let mut a = array_list_box!(10, &0)?;
+		a.push(1)?;
+		assert_eq!(a.size(), 1);
+
+		let mut a = array_list_sync!(10, &0)?;
+		a.push(1)?;
+		assert_eq!(a.size(), 1);
+
+		let mut a = array_list_sync!(10, &0)?;
+		a.push(1)?;
+		assert_eq!(a.size(), 1);
+
+		let mut q = queue!(10, &0)?;
+		q.enqueue(1)?;
+		assert_eq!(q.peek(), Some(&1));
+
+		let mut q = queue_sync!(10, &0)?;
+		q.enqueue(1)?;
+		assert_eq!(q.peek(), Some(&1));
+
+		let mut q = queue_box!(10, &0)?;
+		q.enqueue(1)?;
+		assert_eq!(q.peek(), Some(&1));
+
+		let mut q = queue_sync_box!(10, &0)?;
+		q.enqueue(1)?;
+		assert_eq!(q.peek(), Some(&1));
+
+		let mut s = stack!(10, &0)?;
+		s.push(1)?;
+		assert_eq!(s.peek(), Some(&1));
+
+		let mut s = stack_box!(10, &0)?;
+		s.push(1)?;
+		assert_eq!(s.peek(), Some(&1));
+
+		let mut s = stack_sync!(10, &0)?;
+		s.push(1)?;
+		assert_eq!(s.peek(), Some(&1));
+
+		let mut s = stack_sync_box!(10, &0)?;
+		s.push(1)?;
+		assert_eq!(s.peek(), Some(&1));
+
 		Ok(())
 	}
 
@@ -2113,6 +2409,19 @@ mod test {
 		// match
 		let match_count = suffix_tree.tmatch(b"aaa", &mut matches)?;
 		assert_eq!(match_count, 1);
+		Ok(())
+	}
+
+	#[test]
+	fn test_list_sync() -> Result<(), Error> {
+		let mut list = list_sync!()?;
+		//let mut hash = hashset_sync_box!()?;
+		list.push(1)?;
+		assert!(list_eq!(list, list![1]));
+
+		let mut list2: Box<dyn SortableList<_>> = list_sync_box!()?;
+		list2.push(1)?;
+		assert!(list_eq!(list2, list![1]));
 		Ok(())
 	}
 }

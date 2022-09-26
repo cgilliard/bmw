@@ -123,6 +123,10 @@ impl<T> Index<usize> for Array<T> {
 	}
 }
 
+unsafe impl<T> Send for ArrayList<T> where T: Send {}
+
+unsafe impl<T> Sync for ArrayList<T> where T: Sync {}
+
 impl<T> ArrayList<T>
 where
 	T: Clone,
@@ -358,8 +362,8 @@ where
 mod test {
 	use crate as bmw_util;
 	use crate::{
-		block_on, execute, list, list_eq, lock, thread_pool, Array, ArrayList, Builder, List, Lock,
-		PoolResult, Queue, Stack, ThreadPool,
+		array, block_on, execute, list, list_eq, lock, queue_box, thread_pool, Array, ArrayList,
+		Builder, List, Lock, PoolResult, Queue, SortableList, Stack, ThreadPool,
 	};
 	use bmw_deps::dyn_clone::clone_box;
 	use bmw_deps::rand::random;
@@ -422,7 +426,8 @@ mod test {
 
 	#[test]
 	fn test_array_index_out_of_bounds() -> Result<(), Error> {
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		let handle = execute!(tp, {
 			let mut x = Builder::build_array(10, &0)?;
@@ -450,7 +455,8 @@ mod test {
 
 		assert_eq!(block_on!(handle), PoolResult::Ok(()));
 
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		let handle = execute!(tp, {
 			let mut x = Builder::build_array(10, &0)?;
@@ -717,7 +723,8 @@ mod test {
 		let mut lock = lock!(array)?;
 		let lock_clone = lock.clone();
 
-		let tp = thread_pool!()?;
+		let mut tp = thread_pool!()?;
+		tp.set_on_panic(move |_id, _e| -> Result<(), Error> { Ok(()) })?;
 
 		let handle = execute!(tp, {
 			let mut array = lock.wlock()?;
@@ -766,7 +773,6 @@ mod test {
 
 	#[test]
 	fn test_sort() -> Result<(), Error> {
-		use crate::SortableList;
 		let mut list = Builder::build_array_list(10, &0)?;
 
 		list.push(1)?;
@@ -786,21 +792,24 @@ mod test {
 		Ok(())
 	}
 
-	/*
 	#[test]
-	fn test_large_memory_allocation() -> Result<(), Error> {
-		let res: Result<Array<u32>, Error> = Array::new(usize::MAX / 8, &0);
-		assert_eq!(
-			res.unwrap_err(),
-			err!(ErrKind::Alloc, "could not allocate memory for array")
-		);
-		let mut res: Array<u32> = Array::new(4, &0)?;
-		res[0] = 1;
-		res[1] = 2;
-		info!("res={:?}", res)?;
+	fn test_array_of_queues() -> Result<(), Error> {
+		let mut queues = array!(10, &queue_box!(10, &0)?)?;
+
+		for i in 0..10 {
+			queues[i].enqueue(i)?;
+		}
+
+		for i in 0..10 {
+			assert_eq!(queues[i].dequeue(), Some(&i));
+		}
+
+		for i in 0..10 {
+			assert_eq!(queues[i].dequeue(), None);
+		}
+
 		Ok(())
 	}
-		*/
 
 	#[test]
 	fn test_string_array() -> Result<(), Error> {

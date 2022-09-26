@@ -97,7 +97,7 @@ impl MacroState {
 		let ret = if self.is_enum {
 			format!("impl bmw_ser::Serializable for {} {{ \n\
                                         fn read<R>(reader: &mut R) -> Result<Self, bmw_err::Error> where R: bmw_ser::Reader {{\n\
-                                            Ok(match reader.read_usize()? {{ {} _ => {{\n\
+                                            Ok(match reader.read_u16()? {{ {} _ => {{\n\
                                             let fmt = \"unexpected type returned in reader\";\n\
                                             let e = bmw_err::err!(bmw_err::ErrKind::CorruptedData, fmt);\n\
                                             return Err(e);\n\
@@ -192,6 +192,7 @@ fn process_group(group: proc_macro::Group, state: &mut MacroState) -> Result<(),
 
 	let mut expect_name = true;
 	let mut name = "".to_string();
+	let mut has_inner = false;
 
 	for item in group.stream() {
 		match item {
@@ -200,12 +201,16 @@ fn process_group(group: proc_macro::Group, state: &mut MacroState) -> Result<(),
 				debug!("groupident={}", ident)?;
 				if expect_name && ident != "pub" && ident != "doc" && ident != "crate" {
 					expect_name = false;
+					has_inner = false;
 					name = ident.clone();
 				}
 			}
-			Group(_group) => {
+			Group(group) => {
 				// we don't need to process the inner group because the read function
-				// only requires the name
+				// only requires the name, we do use this to determine if there's
+				// an inner value
+				debug!("group={}", group)?;
+				has_inner = true;
 			}
 			Literal(literal) => {
 				debug!("groupliteral={}", literal)?;
@@ -213,8 +218,8 @@ fn process_group(group: proc_macro::Group, state: &mut MacroState) -> Result<(),
 			Punct(punct) => {
 				debug!("grouppunct={}", punct)?;
 				if punct.to_string() == ",".to_string() {
-					debug!("end a name")?;
-					process_field(&name, &group, state)?;
+					debug!("end a name: {}", name)?;
+					process_field(&name, &group, state, has_inner)?;
 					expect_name = true;
 				}
 			}
@@ -223,7 +228,8 @@ fn process_group(group: proc_macro::Group, state: &mut MacroState) -> Result<(),
 
 	// if there's no trailing comma.
 	if !expect_name {
-		process_field(&name, &group, state)?;
+		debug!("end name end loop: {}", name)?;
+		process_field(&name, &group, state, has_inner)?;
 	}
 
 	Ok(())
@@ -234,6 +240,7 @@ fn process_field(
 	name: &String,
 	group: &proc_macro::Group,
 	state: &mut MacroState,
+	has_inner: bool,
 ) -> Result<(), Error> {
 	if name.len() == 0 {
 		let fmt = format!("expected name for this group: {:?}", group);
@@ -241,25 +248,39 @@ fn process_field(
 		return Err(e);
 	}
 
-	debug!("state.is_enum={}", state.is_enum)?;
+	debug!("state.is_enum={},has_inner={}", state.is_enum, has_inner)?;
 	if state.is_enum {
 		debug!("do an append enum")?;
-		state.append_read(
-			&format!(
-				"{} => {}::{}(Serializable::read(reader)?),\n",
-				state.field_names.len(),
-				state.name,
-				name,
-			)[..],
-		);
-		state.append_write(
-			&format!(
-				"{}::{}(x) => {{ writer.write_usize({})?; Serializable::write(x, writer)?; }},\n",
-				state.name,
-				name,
-				state.field_names.len()
-			)[..],
-		);
+		if has_inner {
+			state.append_read(
+				&format!(
+					"{} => {}::{}(Serializable::read(reader)?),\n",
+					state.field_names.len(),
+					state.name,
+					name,
+				)[..],
+			);
+			state.append_write(
+				&format!(
+					"{}::{}(x) => {{ writer.write_u16({})?; Serializable::write(x, writer)?; }},\n",
+					state.name,
+					name,
+					state.field_names.len()
+				)[..],
+			);
+		} else {
+			state.append_read(
+				&format!("{} => {}::{},\n", state.field_names.len(), state.name, name)[..],
+			);
+			state.append_write(
+				&format!(
+					"{}::{} => {{ writer.write_u16({})?; }},\n",
+					state.name,
+					name,
+					state.field_names.len()
+				)[..],
+			);
+		}
 	} else {
 		state.append_read(&format!("let {} = bmw_ser::Serializable::read(reader)?;\n", name)[..]);
 		state

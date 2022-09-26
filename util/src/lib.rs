@@ -294,6 +294,7 @@
 //! fn main() -> Result<(), Error> {
 //!     // create a thread pool with the default settings
 //!     let mut tp = thread_pool!()?;
+//!     tp.set_on_panic(move |_id,_e| -> Result<(), Error> { Ok(()) })?;
 //!
 //!     // create a lock initializing it's value to 0
 //!     let x = lock!(0)?;
@@ -367,6 +368,7 @@
 //!
 //!     // create a thread pool with the default settings
 //!     let mut tp = thread_pool!()?;
+//!     tp.set_on_panic(move |_id,_e| -> Result<(), Error> { Ok(()) })?;
 //!
 //!     // put the hashtable into a lock and clone it
 //!     let mut lock = lock!(hashtable2)?;
@@ -542,7 +544,8 @@ pub use crate::types::{
 	ListConfig, ListIterator, Lock, LockBox, Match, Pattern, PatternParam, PoolResult, Queue,
 	RwLockReadGuardWrapper, RwLockWriteGuardWrapper, Slab, SlabAllocator, SlabAllocatorConfig,
 	SlabMut, SlabReader, SlabWriter, SortableList, Stack, SuffixParam, SuffixTree, ThreadPool,
-	ThreadPoolConfig,
+	ThreadPoolConfig, ThreadPoolExecutor, ThreadPoolStopper,
 };
 
+pub use crate::lock::lock_box_from_usize;
 pub use bmw_ser::{Reader, Serializable, Writer};

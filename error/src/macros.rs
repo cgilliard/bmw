@@ -124,6 +124,18 @@ macro_rules! err {
 					bmw_err::ErrorKind::OperationNotSupported($msg.to_string()).into();
 				error
 			}
+			bmw_err::ErrKind::SystemTime => {
+				let error: bmw_err::Error = bmw_err::ErrorKind::SystemTime($msg.to_string()).into();
+				error
+			}
+			bmw_err::ErrKind::Errno => {
+				let error: bmw_err::Error = bmw_err::ErrorKind::Errno($msg.to_string()).into();
+				error
+			}
+			bmw_err::ErrKind::Rustls => {
+				let error: bmw_err::Error = bmw_err::ErrorKind::Rustls($msg.to_string()).into();
+				error
+			}
 		}
 	}};
 }
@@ -206,6 +218,15 @@ macro_rules! map_err {
 				bmw_err::ErrKind::OperationNotSupported => {
 					bmw_err::ErrorKind::OperationNotSupported(format!("{}: {}", $msg, e)).into()
 				}
+				bmw_err::ErrKind::SystemTime => {
+					bmw_err::ErrorKind::SystemTime(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::Errno => {
+					bmw_err::ErrorKind::Errno(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::Rustls => {
+					bmw_err::ErrorKind::Rustls(format!("{}: {}", $msg, e)).into()
+				}
 			};
 			error
 		})
@@ -267,6 +288,11 @@ mod test {
 		let kind = map.unwrap_err().kind();
 		let _poison = crate::ErrorKind::Poison("".to_string());
 		assert!(matches!(kind, _poison));
+
+		let map = map_err!(x, ErrKind::IllegalArgument);
+		let kind = map.unwrap_err().kind();
+		let _arg = crate::ErrorKind::IllegalArgument("".to_string());
+		assert!(matches!(kind, _arg));
 
 		Ok(())
 	}

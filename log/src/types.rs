@@ -104,7 +104,8 @@ pub enum LogConfigOption {
 	/// Whether or not to display the log level with this log. The default value is true.
 	Level(bool),
 	/// Whether or not to display the line number information with this log. The default value
-	/// is true.
+	/// is true for all platforms except windows. On windows there are some potential
+	/// problems with the resolve_frame function as noted in the backtrace crate documentation.
 	LineNum(bool),
 	/// Whether or not to show milliseconds with this log. The default value is true.
 	ShowMillis(bool),

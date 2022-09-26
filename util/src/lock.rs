@@ -20,9 +20,30 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-#[cfg(not(tarpaulin_include))]
+impl<T> Clone for Box<dyn LockBox<T>>
+where
+	T: Send + Sync + 'static,
+{
+	fn clone(&self) -> Self {
+		Box::new(LockImpl {
+			id: self.id(),
+			t: self.inner().clone(),
+		})
+	}
+}
+
 thread_local! {
-	pub static LOCKS: RefCell<HashSet<u128>> = RefCell::new(HashSet::new());
+		pub static LOCKS: RefCell<HashSet<u128>> = RefCell::new(HashSet::new());
+}
+
+/// Rebuild a [`crate::LockBox`] from te usize which is returned from the
+/// [`crate::LockBox::danger_to_usize`] function.
+pub fn lock_box_from_usize<T>(value: usize) -> Box<dyn LockBox<T> + Send + Sync>
+where
+	T: Send + Sync + 'static,
+{
+	let t = unsafe { Arc::from_raw(value as *mut RwLock<T>) };
+	Box::new(LockImpl { id: random(), t })
 }
 
 impl<'a, T> RwLockReadGuardWrapper<'a, T>
@@ -84,7 +105,7 @@ where
 	T: Send + Sync,
 {
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
-		self.do_wlock()
+		self.do_wlock(false)
 	}
 
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
@@ -101,14 +122,30 @@ where
 
 impl<T> LockBox<T> for LockImpl<T>
 where
-	T: Send + Sync + Clone,
+	T: Send + Sync,
 {
 	fn wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
-		self.do_wlock()
+		self.do_wlock(false)
 	}
 
 	fn rlock(&self) -> Result<RwLockReadGuardWrapper<'_, T>, Error> {
 		self.do_rlock()
+	}
+
+	fn wlock_ignore_poison(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
+		self.do_wlock(true)
+	}
+
+	fn danger_to_usize(&self) -> usize {
+		Arc::into_raw(self.t.clone()) as usize
+	}
+
+	fn inner(&self) -> Arc<RwLock<T>> {
+		self.t.clone()
+	}
+
+	fn id(&self) -> u128 {
+		self.id
 	}
 }
 
@@ -120,7 +157,7 @@ impl<T> LockImpl<T> {
 		}
 	}
 
-	fn do_wlock(&mut self) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
+	fn do_wlock(&mut self, ignore_poison: bool) -> Result<RwLockWriteGuardWrapper<'_, T>, Error> {
 		let contains = LOCKS.with(|f| -> Result<bool, Error> {
 			let ret = (*f.borrow()).contains(&self.id);
 			(*f.borrow_mut()).insert(self.id);
@@ -130,7 +167,14 @@ impl<T> LockImpl<T> {
 		if contains {
 			Err(err!(ErrKind::Poison, "would deadlock"))
 		} else {
-			let guard = map_err!(self.t.write(), ErrKind::Poison)?;
+			let guard = if ignore_poison {
+				match self.t.write() {
+					Ok(guard) => guard,
+					Err(e) => e.into_inner(),
+				}
+			} else {
+				map_err!(self.t.write(), ErrKind::Poison)?
+			};
 			let id = self.id;
 			let debug_err = false;
 			let ret = RwLockWriteGuardWrapper {
@@ -172,11 +216,13 @@ mod test {
 	use crate::lock::LockBox;
 	use crate::Builder;
 	use crate::{lock, lock_box, RwLockReadGuardWrapper, RwLockWriteGuardWrapper};
-	use bmw_deps::dyn_clone::clone_box;
 	use bmw_err::Error;
+	use bmw_log::*;
 	use std::sync::{Arc, RwLock};
 	use std::thread::{sleep, spawn};
 	use std::time::Duration;
+
+	info!();
 
 	#[test]
 	fn test_locks() -> Result<(), Error> {
@@ -270,7 +316,7 @@ mod test {
 	#[test]
 	fn test_lock_box() -> Result<(), Error> {
 		let lock_box = lock_box!(1u32)?;
-		let mut lock_box2 = clone_box(&*lock_box);
+		let mut lock_box2 = lock_box.clone();
 		let mut tlb = TestLockBox { lock_box };
 		{
 			let mut tlb = tlb.lock_box.wlock()?;
@@ -320,6 +366,22 @@ mod test {
 			let guard = x.guard();
 			assert_eq!(**guard, 1);
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn test_to_usize() -> Result<(), Error> {
+		let v = {
+			let x: Box<dyn LockBox<u32>> = lock_box!(100u32)?;
+			let v = x.danger_to_usize();
+			v
+		};
+
+		let arc = Arc::new(unsafe { Arc::from_raw(v as *mut RwLock<u32>) });
+		let v = arc.read().unwrap();
+		info!("ptr_ret = {}", *v)?;
+		assert_eq!(*v, 100);
+
 		Ok(())
 	}
 }
