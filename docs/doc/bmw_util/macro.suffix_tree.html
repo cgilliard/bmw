@@ -33,14 +33,14 @@ or the length of the patterns list is 0.</li>
 
  <span class="kw">fn</span> <span class="ident">main</span>() -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {
          <span class="comment">// build a suffix tree with three patterns</span>
-         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">suffix_tree</span> <span class="op">=</span> <span class="ident">Builder::build_suffix_tree</span>(
+         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">suffix_tree</span> <span class="op">=</span> <span class="macro">suffix_tree!</span>(
                  <span class="macro">list!</span>[
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p1&quot;</span>), <span class="ident">Id</span>(<span class="number">0</span>))<span class="question-mark">?</span>,
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p2&quot;</span>), <span class="ident">Id</span>(<span class="number">1</span>))<span class="question-mark">?</span>,
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p3&quot;</span>), <span class="ident">Id</span>(<span class="number">2</span>))<span class="question-mark">?</span>
                  ],
-                 <span class="number">1_000</span>,
-                 <span class="number">100</span>,
+                 <span class="ident">TerminationLength</span>(<span class="number">1_000</span>),
+                 <span class="ident">MaxWildcardLength</span>(<span class="number">100</span>)
          )<span class="question-mark">?</span>;
 
          <span class="comment">// create a matches array for the suffix tree to return matches in</span>
@@ -72,14 +72,14 @@ or the length of the patterns list is 0.</li>
 
  <span class="kw">fn</span> <span class="ident">main</span>() -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {
          <span class="comment">// build a suffix tree with a wild card</span>
-         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">suffix_tree</span> <span class="op">=</span> <span class="ident">Builder::build_suffix_tree</span>(
+         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">suffix_tree</span> <span class="op">=</span> <span class="macro">suffix_tree!</span>(
                  <span class="macro">list!</span>[
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p1&quot;</span>), <span class="ident">Id</span>(<span class="number">0</span>))<span class="question-mark">?</span>,
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p2.*test&quot;</span>), <span class="ident">Id</span>(<span class="number">1</span>))<span class="question-mark">?</span>,
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p3&quot;</span>), <span class="ident">Id</span>(<span class="number">2</span>))<span class="question-mark">?</span>
                  ],
-                 <span class="number">1_000</span>,
-                 <span class="number">100</span>,   
+                 <span class="ident">TerminationLength</span>(<span class="number">1_000</span>),
+                 <span class="ident">MaxWildcardLength</span>(<span class="number">100</span>)
          )<span class="question-mark">?</span>;
 
          <span class="comment">// create a matches array for the suffix tree to return matches in</span>
@@ -106,14 +106,14 @@ or the length of the patterns list is 0.</li>
 
  <span class="kw">fn</span> <span class="ident">main</span>() -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {
          <span class="comment">// build a suffix tree with a wild card</span>
-         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">suffix_tree</span> <span class="op">=</span> <span class="ident">Builder::build_suffix_tree</span>(
+         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">suffix_tree</span> <span class="op">=</span> <span class="macro">suffix_tree!</span>(
                  <span class="macro">list!</span>[
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p1&quot;</span>), <span class="ident">Id</span>(<span class="number">0</span>))<span class="question-mark">?</span>,
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p2.test&quot;</span>), <span class="ident">Id</span>(<span class="number">1</span>))<span class="question-mark">?</span>,
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p3&quot;</span>), <span class="ident">Id</span>(<span class="number">2</span>))<span class="question-mark">?</span>
                  ],
-                 <span class="number">1_000</span>,
-                 <span class="number">100</span>,
+                 <span class="ident">TerminationLength</span>(<span class="number">1_000</span>),
+                 <span class="ident">MaxWildcardLength</span>(<span class="number">100</span>)
          )<span class="question-mark">?</span>;
 
          <span class="comment">// create a matches array for the suffix tree to return matches in</span>
@@ -144,13 +144,13 @@ or the length of the patterns list is 0.</li>
 
  <span class="kw">fn</span> <span class="ident">main</span>() -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {      
          <span class="comment">// build a suffix tree with a wild card</span>
-         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">suffix_tree</span> <span class="op">=</span> <span class="ident">Builder::build_suffix_tree</span>(
+         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">suffix_tree</span> <span class="op">=</span> <span class="macro">suffix_tree!</span>(
                  <span class="macro">list!</span>[
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;p1&quot;</span>), <span class="ident">Id</span>(<span class="number">0</span>))<span class="question-mark">?</span>,
                          <span class="macro">pattern!</span>(<span class="ident">Regex</span>(<span class="string">&quot;^p2&quot;</span>), <span class="ident">Id</span>(<span class="number">2</span>))<span class="question-mark">?</span>
                  ],
-                 <span class="number">1_000</span>,
-                 <span class="number">100</span>,
+                 <span class="ident">TerminationLength</span>(<span class="number">1_000</span>),
+                 <span class="ident">MaxWildcardLength</span>(<span class="number">100</span>)
          )<span class="question-mark">?</span>;
 
          <span class="comment">// create a matches array for the suffix tree to return matches in</span>
