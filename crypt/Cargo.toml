@@ -17,3 +17,4 @@ bmw_err =    { path = "../error"  }
 bmw_ser =    { path = "../ser"    }
 bmw_log =    { path = "../log"    }
 bmw_derive = { path = "../derive" }
+bmw_deps   = { path = "../deps"   }

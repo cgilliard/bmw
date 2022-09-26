@@ -104,6 +104,9 @@ pub enum ErrorKind {
 	/// Rustls Error
 	#[fail(display = "rustls error: {}", _0)]
 	Rustls(String),
+	/// BMW Crypt Error
+	#[fail(display = "bmw_crypt error: {}", _0)]
+	Crypt(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
@@ -152,6 +155,8 @@ pub enum ErrKind {
 	Errno,
 	/// Rustls error
 	Rustls,
+	/// Crypt error
+	Crypt,
 }
 
 impl Display for Error {

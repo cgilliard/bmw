@@ -136,6 +136,10 @@ macro_rules! err {
 				let error: bmw_err::Error = bmw_err::ErrorKind::Rustls($msg.to_string()).into();
 				error
 			}
+			bmw_err::ErrKind::Crypt => {
+				let error: bmw_err::Error = bmw_err::ErrorKind::Crypt($msg.to_string()).into();
+				error
+			}
 		}
 	}};
 }
@@ -226,6 +230,9 @@ macro_rules! map_err {
 				}
 				bmw_err::ErrKind::Rustls => {
 					bmw_err::ErrorKind::Rustls(format!("{}: {}", $msg, e)).into()
+				}
+				bmw_err::ErrKind::Crypt => {
+					bmw_err::ErrorKind::Crypt(format!("{}: {}", $msg, e)).into()
 				}
 			};
 			error
