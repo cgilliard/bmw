@@ -20,6 +20,7 @@ use bmw_deps::failure::{Backtrace, Context, Fail};
 use bmw_deps::rustls::client::InvalidDnsNameError;
 use bmw_deps::rustls::sign::SignError;
 use std::alloc::LayoutError;
+use std::array::TryFromSliceError;
 use std::convert::Infallible;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
@@ -338,6 +339,14 @@ impl From<InvalidDnsNameError> for Error {
 				"Rustls Invalid DnsNameError: {}",
 				e
 			))),
+		}
+	}
+}
+
+impl From<TryFromSliceError> for Error {
+	fn from(e: TryFromSliceError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("tryfromsliceerror: {}", e))),
 		}
 	}
 }

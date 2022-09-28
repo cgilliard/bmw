@@ -16,13 +16,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[allow(dead_code)]
-mod constants;
-#[allow(dead_code)]
-mod crypt;
-#[allow(dead_code)]
-mod types;
+use crate::Channel;
 
-pub use crate::types::{Channel, Node};
-
-use crate::types::SecretBytes;
+impl Channel {
+	pub fn new() -> Self {
+		Self {}
+	}
+}

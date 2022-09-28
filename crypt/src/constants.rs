@@ -16,13 +16,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[allow(dead_code)]
-mod constants;
-#[allow(dead_code)]
-mod crypt;
-#[allow(dead_code)]
-mod types;
+/// Number of bytes in an RSA id.
+pub const RSA_ID_LEN: usize = 20;
 
-pub use crate::types::{Channel, Node};
-
-use crate::types::SecretBytes;
+///  Number of bytes in an ed25519 id.
+pub const ED25519_ID_LEN: usize = 32;

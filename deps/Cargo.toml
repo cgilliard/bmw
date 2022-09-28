@@ -19,6 +19,7 @@ aes = { version = "0.7.0", features = ["ctr"] }
 colored = "2.0.0"
 zeroize = "1"
 subtle = "2"
+x25519-dalek = "1.2.0"
 rand = "0.8.4"
 lazy_static = "1.4.0"
 arrayref = "0.3.6"

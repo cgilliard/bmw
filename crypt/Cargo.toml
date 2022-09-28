@@ -18,3 +18,5 @@ bmw_ser =    { path = "../ser"    }
 bmw_log =    { path = "../log"    }
 bmw_derive = { path = "../derive" }
 bmw_deps   = { path = "../deps"   }
+
+zeroize = "1"

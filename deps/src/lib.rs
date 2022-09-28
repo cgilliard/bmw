@@ -56,4 +56,5 @@ pub use try_traits;
 pub use typenum;
 pub use webpki_roots;
 pub use winapi;
+pub use x25519_dalek;
 pub use zeroize;
