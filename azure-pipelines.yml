@@ -73,25 +73,3 @@ jobs:
         choco install -y openssl
       displayName: Windows Install Dependencies
     - template: '.ci/all.yml'
-      #- job: docs
-      #timeoutInMinutes: 60
-      #pool:
-      #vmImage: ubuntu-latest
-      #strategy:
-      #matrix:
-      #release:
-      #CI_JOB: release
-      #PLATFORM: linux-amd64
-      #steps:
-      #- template: '.ci/pushdocs.yml'
-      #- job: tarpaulin
-      #timeoutInMinutes: 60
-      #pool:
-      #vmImage: ubuntu-latest
-      #strategy:
-      #matrix:
-      #release:
-      #  CI_JOB: release
-      #PLATFORM: linux-amd64
-      #steps:
-      #- template: '.ci/tarpaulin.yml'

@@ -1,6 +1,8 @@
 steps:
   - script: |
-      refreshenv && cargo test --all
+      SET OPENSSL_DIR=C:\\Program\ Files\\OpenSSL-Win64
+      echo "OpenSSL = %OPENSSL_DIR%"
+      cargo test --all
     displayName: Windows Cargo Test
     condition: eq( variables['Agent.OS'], 'Windows_NT' )
   - script: 'cargo test --all'
