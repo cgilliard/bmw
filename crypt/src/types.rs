@@ -16,12 +16,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::constants::*;
+use bmw_deps::old_rand_core::RngCore as OldRngCore;
+use bmw_deps::rand_core::RngCore;
 use bmw_deps::rustls::{ClientConnection, ServerConnection};
 use bmw_deps::x25519_dalek::PublicKey;
 use bmw_err::*;
+
 use std::io::{Read, Write};
 use std::net::SocketAddr;
+
+/// Extension trait for the _current_ versions of [`RngCore`]; adds a
+/// compatibility-wrapper function.
+pub trait RngCompatExt: RngCore {
+	/// Wrapper type returned by this trait.
+	type Wrapper: RngCore + OldRngCore;
+	/// Return a version of this Rng that can be used with older versions
+	/// of the rand_core and rand libraries, as well as the current
+	/// version.
+	fn rng_compat(self) -> Self::Wrapper;
+}
+
+/// A new-style Rng, wrapped for backward compatibility.
+///
+/// This object implements both the current (0.6.2) version of [`RngCore`],
+/// as well as the version from 0.5.1 that the dalek-crypto functions expect.
+///
+/// To get an RngWrapper, use the [`RngCompatExt`] extension trait:
+/// ```
+/// use bmw_crypt::RngCompatExt;
+///
+/// let mut wrapped_rng = bmw_deps::rand::thread_rng().rng_compat();
+/// ```
+pub struct RngWrapper<T>(pub(crate) T);
+
+pub struct TlsVerifier {}
 
 pub struct Cell {}
 
@@ -39,34 +67,25 @@ pub enum ChannelDirection {
 }
 
 pub(crate) struct ChannelImpl {
-	tls_client: Option<ClientConnection>,
-	tls_server: Option<ServerConnection>,
-	dest: Node,
-	verified: bool,
-	remote_certs: Option<Vec<Cert>>,
+	pub(crate) tls_client: Option<ClientConnection>,
+	pub(crate) tls_server: Option<ServerConnection>,
+	pub(crate) peer: Option<Peer>,
+	pub(crate) verified: bool,
 }
 
 pub trait Channel {
 	fn direction(&self) -> ChannelDirection;
 	fn is_verified(&self) -> bool;
-	fn start() -> Result<(), Error>;
-	fn read_tor(&mut self, rd: &mut dyn Read) -> Result<usize, Error>;
-	fn write_tor(&mut self, wr: &mut dyn Write) -> Result<usize, Error>;
+	fn read_crypt(&mut self, rd: &mut dyn Read) -> Result<usize, Error>;
+	fn write_crypt(&mut self, wr: &mut dyn Write) -> Result<usize, Error>;
 	fn send_cell(&mut self, cell: Cell) -> Result<(), Error>;
 	fn process_new_packets(&mut self, state: &mut CryptState) -> Result<(), Error>;
 }
 
-pub struct Node {
+#[derive(Debug, Clone)]
+pub struct Peer {
 	pub(crate) sockaddr: SocketAddr,
-	pub(crate) ed_identity: Ed25519Identity,
-	pub(crate) onion_pubkey: PublicKey,
-}
-
-/// A relay's identity, as an unchecked, unvalidated Ed25519 key.
-#[derive(Clone, Copy, Hash)]
-pub struct Ed25519Identity {
-	/// A raw unchecked Ed25519 public key.
-	id: [u8; ED25519_ID_LEN],
+	pub(crate) pubkey: PublicKey,
 }
 
 /// A vector of bytes that gets cleared when it's dropped.

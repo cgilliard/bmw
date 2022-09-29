@@ -16,6 +16,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Ed25519 certificate type
+pub const CERT_TYPE_ED25519: u8 = 0x0;
+
+/// Tls certificate type
+pub const CERT_TYPE_TLS: u8 = 0x1;
+
 /// Number of bytes in an RSA id.
 pub const RSA_ID_LEN: usize = 20;
 

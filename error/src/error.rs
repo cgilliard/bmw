@@ -17,6 +17,9 @@
 // limitations under the License.
 
 use bmw_deps::failure::{Backtrace, Context, Fail};
+use bmw_deps::openssl::error::ErrorStack;
+use bmw_deps::pem::PemError;
+use bmw_deps::rcgen::RcgenError;
 use bmw_deps::rustls::client::InvalidDnsNameError;
 use bmw_deps::rustls::sign::SignError;
 use std::alloc::LayoutError;
@@ -24,8 +27,10 @@ use std::array::TryFromSliceError;
 use std::convert::Infallible;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
+use std::net::AddrParseError;
 use std::num::{ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
+use std::string::FromUtf8Error;
 use std::sync::mpsc::{RecvError, SendError};
 use std::sync::MutexGuard;
 use std::sync::{PoisonError, RwLockReadGuard, RwLockWriteGuard};
@@ -297,6 +302,14 @@ impl From<SystemTimeError> for Error {
 	}
 }
 
+impl From<ErrorStack> for Error {
+	fn from(e: ErrorStack) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("openssl error: {}", e))),
+		}
+	}
+}
+
 // infallible cannot happen
 #[cfg(not(tarpaulin_include))]
 impl From<Infallible> for Error {
@@ -347,6 +360,38 @@ impl From<TryFromSliceError> for Error {
 	fn from(e: TryFromSliceError) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::Misc(format!("tryfromsliceerror: {}", e))),
+		}
+	}
+}
+
+impl From<FromUtf8Error> for Error {
+	fn from(e: FromUtf8Error) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("utf8 error: {}", e))),
+		}
+	}
+}
+
+impl From<RcgenError> for Error {
+	fn from(e: RcgenError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("rcgen error: {}", e))),
+		}
+	}
+}
+
+impl From<AddrParseError> for Error {
+	fn from(e: AddrParseError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("addr parse error: {}", e))),
+		}
+	}
+}
+
+impl From<PemError> for Error {
+	fn from(e: PemError) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("pem parse error: {}", e))),
 		}
 	}
 }
