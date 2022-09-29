@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {};
+window.SIDEBAR_ITEMS = {"struct":[["Peer",""]],"trait":[["Channel",""],["RngCompatExt","Extension trait for the current versions of [`RngCore`]; adds a compatibility-wrapper function."]]};
