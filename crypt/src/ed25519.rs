@@ -15,22 +15,3 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-#[allow(dead_code)]
-mod channel;
-#[allow(dead_code)]
-mod constants;
-#[allow(dead_code)]
-mod crypt;
-#[allow(dead_code)]
-mod ed25519;
-#[allow(dead_code)]
-mod rand;
-#[allow(dead_code)]
-mod tls;
-#[allow(dead_code)]
-mod types;
-
-pub use crate::types::{Channel, Peer, RngCompatExt};
-
-use crate::types::SecretBytes;

@@ -59,9 +59,6 @@ jobs:
         CI_JOB: all
         PLATFORM: macos
   steps:
-    - script: |
-        brew uninstall llvm
-      displayName: macOS Uninstall LLVM
     - template: '.ci/all.yml'
 - job: windows
   pool:

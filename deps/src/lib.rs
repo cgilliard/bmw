@@ -1,4 +1,8 @@
 // Copyright (c) 2022, 37 Miners, LLC
+// Some code and concepts from:
+// * Grin: https://github.com/mimblewimble/grin
+// * Arti: https://gitlab.torproject.org/tpo/core/arti
+// * BitcoinMW: https://github.com/bitcoinmw/bitcoinmw
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -40,9 +44,14 @@ pub use lazy_static;
 pub use libc;
 pub use nix;
 pub use num_format;
+pub use old_rand_core;
+pub use openssl;
+pub use pem;
 pub use portpicker;
 pub use rand;
+pub use rand_core;
 pub use random_string;
+pub use rcgen;
 pub use rustls;
 pub use rustls_pemfile;
 pub use sha3;
@@ -52,4 +61,6 @@ pub use try_traits;
 pub use typenum;
 pub use webpki_roots;
 pub use winapi;
+pub use x25519_dalek;
+pub use x509_signature;
 pub use zeroize;

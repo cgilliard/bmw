@@ -1,4 +1,8 @@
 // Copyright (c) 2022, 37 Miners, LLC
+// Some code and concepts from:
+// * Grin: https://github.com/mimblewimble/grin
+// * Arti: https://gitlab.torproject.org/tpo/core/arti
+// * BitcoinMW: https://github.com/bitcoinmw/bitcoinmw
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -92,8 +96,8 @@ pub struct InboundClientCrypt {
 	layers: Vec<Box<dyn InboundClientLayer + Send>>,
 }
 
-impl std::fmt::Debug for InboundClientCrypt {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl Debug for InboundClientCrypt {
+	fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
 		write!(f, "[inboundclientcrypt,layers={}]", self.layers.len())
 	}
 }
@@ -124,12 +128,12 @@ impl OutboundClientCrypt {
 		for layer in layers {
 			layer.encrypt_outbound(cell);
 		}
-		Ok(tag.try_into().expect("wrong SENDME digest size"))
+		Ok(tag.try_into()?)
 	}
 
 	/// Add a new layer to this OutboundClientCrypt
 	pub fn add_layer(&mut self, layer: Box<dyn OutboundClientLayer + Send>) {
-		assert!(self.layers.len() < std::u8::MAX as usize);
+		assert!(self.layers.len() < u8::MAX as usize);
 		self.layers.push(layer);
 	}
 
@@ -150,7 +154,7 @@ impl InboundClientCrypt {
 	pub fn decrypt(&mut self, cell: &mut RelayCellBody) -> Result<(HopNum, &[u8]), Error> {
 		for (hopnum, layer) in self.layers.iter_mut().enumerate() {
 			if let Some(tag) = layer.decrypt_inbound(cell) {
-				assert!(hopnum <= std::u8::MAX as usize);
+				assert!(hopnum <= u8::MAX as usize);
 				return Ok(((hopnum as u8).into(), tag));
 			}
 		}
@@ -158,7 +162,7 @@ impl InboundClientCrypt {
 	}
 	/// Add a new layer to this InboundClientCrypt
 	pub fn add_layer(&mut self, layer: Box<dyn InboundClientLayer + Send>) {
-		assert!(self.layers.len() < std::u8::MAX as usize);
+		assert!(self.layers.len() < u8::MAX as usize);
 		self.layers.push(layer);
 	}
 

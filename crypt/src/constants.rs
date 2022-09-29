@@ -16,21 +16,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[allow(dead_code)]
-mod channel;
-#[allow(dead_code)]
-mod constants;
-#[allow(dead_code)]
-mod crypt;
-#[allow(dead_code)]
-mod ed25519;
-#[allow(dead_code)]
-mod rand;
-#[allow(dead_code)]
-mod tls;
-#[allow(dead_code)]
-mod types;
+/// Ed25519 certificate type
+pub const CERT_TYPE_ED25519: u8 = 0x0;
 
-pub use crate::types::{Channel, Peer, RngCompatExt};
+/// Tls certificate type
+pub const CERT_TYPE_TLS: u8 = 0x1;
 
-use crate::types::SecretBytes;
+/// Number of bytes in an RSA id.
+pub const RSA_ID_LEN: usize = 20;
+
+///  Number of bytes in an ed25519 id.
+pub const ED25519_ID_LEN: usize = 32;

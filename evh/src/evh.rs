@@ -1,4 +1,8 @@
 // Copyright (c) 2022, 37 Miners, LLC
+// Some code and concepts from:
+// * Grin: https://github.com/mimblewimble/grin
+// * Arti: https://gitlab.torproject.org/tpo/core/arti
+// * BitcoinMW: https://github.com/bitcoinmw/bitcoinmw
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -73,10 +77,10 @@ use std::os::windows::io::{FromRawSocket, IntoRawSocket};
 
 /// The size of the data which is stored in read slabs. This data is followed by 4 bytes which is a
 /// pointer to the next slab in the list.
-pub const READ_SLAB_DATA_SIZE: usize = 508;
+pub const READ_SLAB_DATA_SIZE: usize = 514;
 
-const READ_SLAB_SIZE: usize = 512;
-const READ_SLAB_NEXT_OFFSET: usize = 508;
+const READ_SLAB_SIZE: usize = 518;
+const READ_SLAB_NEXT_OFFSET: usize = 514;
 
 const HANDLE_SLAB_SIZE: usize = 42;
 const CONNECTION_SLAB_SIZE: usize = 90;
@@ -3781,15 +3785,15 @@ mod test {
 		sleep(Duration::from_millis(1000));
 
 		let mut connection = TcpStream::connect(addr)?;
-		let mut message = ['a' as u8; 1024];
-		for i in 0..1024 {
+		let mut message = ['a' as u8; 1036];
+		for i in 0..1036 {
 			message[i] = 'a' as u8 + (i % 26) as u8;
 		}
 		connection.write(&message)?;
 		let mut buf = vec![];
 		buf.resize(2000, 0u8);
 		let len = connection.read(&mut buf)?;
-		assert_eq!(len, 1024);
+		assert_eq!(len, 1036);
 		for i in 0..len {
 			assert_eq!(buf[i], 'a' as u8 + (i % 26) as u8);
 		}
@@ -3799,18 +3803,18 @@ mod test {
 		buf.resize(5000, 0u8);
 		let len = connection.read(&mut buf)?;
 		// there are some remaining bytes left in the last of the three slabs.
-		// only 8 bytes so we have 8 + 1024 = 1032.
-		assert_eq!(len, 1032);
+		// only 8 bytes so we have 8 + 1036 = 1044.
+		assert_eq!(len, 1044);
 
-		assert_eq!(buf[0], 99);
-		assert_eq!(buf[1], 100);
-		assert_eq!(buf[2], 101);
-		assert_eq!(buf[3], 102);
-		assert_eq!(buf[4], 103);
-		assert_eq!(buf[5], 104);
-		assert_eq!(buf[6], 105);
-		assert_eq!(buf[7], 106);
-		for i in 8..1032 {
+		assert_eq!(buf[0], 111);
+		assert_eq!(buf[1], 112);
+		assert_eq!(buf[2], 113);
+		assert_eq!(buf[3], 114);
+		assert_eq!(buf[4], 115);
+		assert_eq!(buf[5], 116);
+		assert_eq!(buf[6], 117);
+		assert_eq!(buf[7], 118);
+		for i in 8..1044 {
 			assert_eq!(buf[i], 'a' as u8 + ((i - 8) % 26) as u8);
 		}
 
