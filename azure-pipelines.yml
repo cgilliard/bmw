@@ -71,6 +71,7 @@ jobs:
   steps:
     - script: |
         choco install -y llvm
+        choco install openssl
       displayName: Windows Install Dependencies
     - template: '.ci/all.yml'
       #- job: docs

@@ -3031,7 +3031,7 @@ mod test {
 			evh.set_housekeeper(move |_thread_context| Ok(()))?;
 			evh.start()?;
 
-			let handles = create_listeners(threads, addr, 10, true)?;
+			let handles = create_listeners(threads, addr, 10, false)?;
 			info!("handles.size={},handles={:?}", handles.size(), handles)?;
 			let sc = ServerConnection {
 				tls_config: vec![],
@@ -3092,7 +3092,7 @@ mod test {
 			evh.set_housekeeper(move |_thread_context| Ok(()))?;
 			evh.start()?;
 
-			let handles = create_listeners(threads, addr, 10, true)?;
+			let handles = create_listeners(threads, addr, 10, false)?;
 			info!("handles.size={},handles={:?}", handles.size(), handles)?;
 			let sc = ServerConnection {
 				tls_config: vec![TlsServerConfig {
@@ -3179,7 +3179,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -3295,7 +3295,7 @@ mod test {
 
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -3390,7 +3390,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
 			handles,
@@ -3493,7 +3493,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -3527,7 +3527,7 @@ mod test {
 				&& **(server_received_abc_clone.rlock()?.guard()))
 			{
 				count += 1;
-				if count < 5_000 {
+				if count < 25_000 {
 					continue;
 				}
 			}
@@ -3602,12 +3602,12 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
 			handles,
-			is_reuse_port: true,
+			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
 
@@ -3687,7 +3687,7 @@ mod test {
 
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -3772,7 +3772,7 @@ mod test {
 
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -3878,7 +3878,7 @@ mod test {
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -3959,7 +3959,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		debug!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -4111,7 +4111,7 @@ mod test {
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -4207,7 +4207,7 @@ mod test {
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -4266,7 +4266,7 @@ mod test {
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -4333,7 +4333,7 @@ mod test {
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -4404,7 +4404,7 @@ mod test {
 			Ok(())
 		})?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		let server_handle = handles[0];
 
 		evh.set_on_accept(move |conn_data, _thread_context| {
@@ -4506,7 +4506,7 @@ mod test {
 			Ok(())
 		})?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		let server_handle = handles[0];
 
 		evh.set_on_accept(move |conn_data, _thread_context| {
@@ -4618,7 +4618,7 @@ mod test {
 		})?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -4756,7 +4756,7 @@ mod test {
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -4857,12 +4857,12 @@ mod test {
 
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
 			handles,
-			is_reuse_port: true,
+			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
 
@@ -4922,7 +4922,7 @@ mod test {
 
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -4979,7 +4979,7 @@ mod test {
 
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -5041,7 +5041,7 @@ mod test {
 
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -5146,7 +5146,7 @@ mod test {
 			Ok(())
 		})?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -5272,7 +5272,7 @@ mod test {
 		evh.set_on_panic(move |_, _| Ok(()))?;
 		evh.set_housekeeper(move |_| Ok(()))?;
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -5540,7 +5540,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![TlsServerConfig {
@@ -5719,7 +5719,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![TlsServerConfig {
@@ -5895,7 +5895,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![TlsServerConfig {
@@ -6052,7 +6052,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -6126,7 +6126,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -6233,7 +6233,7 @@ mod test {
 		})?;
 
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -6250,7 +6250,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("other_situations2 Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -6438,7 +6438,7 @@ mod test {
 		evh.set_on_read_none();
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -6474,7 +6474,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.set_on_read_none();
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -6533,7 +6533,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![TlsServerConfig {
@@ -6564,7 +6564,7 @@ mod test {
 
 		evh.add_client(client)?;
 		sleep(Duration::from_millis(1_000));
-		let handles = create_listeners(threads, addr2, 10, true)?;
+		let handles = create_listeners(threads, addr2, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![TlsServerConfig {
@@ -6629,7 +6629,7 @@ mod test {
 		evh.set_debug_read_error(true);
 
 		evh.start()?;
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -6641,7 +6641,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("basic Using port: {}", port)?;
 		let addr2 = &format!("127.0.0.1:{}", port)[..];
-		let handles = create_listeners(threads + 1, addr2, 10, true)?;
+		let handles = create_listeners(threads + 1, addr2, 10, false)?;
 		info!("handles={:?}", handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![],
@@ -6653,7 +6653,7 @@ mod test {
 		let port = pick_free_port()?;
 		info!("basic Using port: {}", port)?;
 		let addr2 = &format!("127.0.0.1:{}", port)[..];
-		let mut handles = create_listeners(threads, addr2, 10, true)?;
+		let mut handles = create_listeners(threads, addr2, 10, false)?;
 		handles[0] = 0;
 		info!("handles={:?}", handles)?;
 		let sc = ServerConnection {
@@ -6814,7 +6814,7 @@ mod test {
 		evh.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh.start()?;
 
-		let handles = create_listeners(threads, addr, 10, true)?;
+		let handles = create_listeners(threads, addr, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
 		let sc = ServerConnection {
 			tls_config: vec![TlsServerConfig {
