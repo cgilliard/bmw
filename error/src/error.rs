@@ -16,6 +16,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bmw_deps::ed25519_dalek::ed25519;
 use bmw_deps::failure::{Backtrace, Context, Fail};
 use bmw_deps::openssl::error::ErrorStack;
 use bmw_deps::pem::PemError;
@@ -392,6 +393,14 @@ impl From<PemError> for Error {
 	fn from(e: PemError) -> Error {
 		Error {
 			inner: Context::new(ErrorKind::Misc(format!("pem parse error: {}", e))),
+		}
+	}
+}
+
+impl From<ed25519::Error> for Error {
+	fn from(e: ed25519::Error) -> Error {
+		Error {
+			inner: Context::new(ErrorKind::Misc(format!("ed25519 error: {}", e))),
 		}
 	}
 }

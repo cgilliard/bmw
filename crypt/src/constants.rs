@@ -27,3 +27,11 @@ pub const RSA_ID_LEN: usize = 20;
 
 ///  Number of bytes in an ed25519 id.
 pub const ED25519_ID_LEN: usize = 32;
+
+/// Length of a bmw_crypt cell
+pub const CELL_LEN: usize = 514;
+
+/// Maximum length of a nickname
+pub const MAX_NICKNAME_LEN: usize = 100;
+
+pub const CELL_TYPE_INFO: u8 = 0;

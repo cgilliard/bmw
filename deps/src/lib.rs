@@ -34,6 +34,7 @@ pub use cipher;
 pub use colored;
 pub use digest;
 pub use dyn_clone;
+pub use ed25519_dalek;
 pub use errno;
 pub use failure;
 pub use failure_derive;
