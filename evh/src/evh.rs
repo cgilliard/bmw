@@ -3139,7 +3139,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_evh_close() -> Result<(), Error> {
+	fn test_evh_close1() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("close Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
