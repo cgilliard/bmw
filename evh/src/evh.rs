@@ -1047,13 +1047,27 @@ where
 		Ok(())
 	}
 
-	fn close_handles(&self, ctx: &mut EventHandlerContext) -> Result<(), Error> {
+	fn close_handles(&mut self, ctx: &mut EventHandlerContext) -> Result<(), Error> {
 		debug!("close handles")?;
 		// do a final iteration through the connection hashtable to deserialize each of the
 		// listeners to remain consistent
-		for _ in ctx.connection_hashtable.iter() {}
-		for (handle, _id) in ctx.handle_hashtable.iter() {
-			close_handle_impl(handle)?;
+		for (_id, conn_info) in ctx.connection_hashtable.iter() {
+			match conn_info {
+				ConnectionInfo::ListenerInfo(li) => {
+					close_handle_impl(li.handle)?;
+				}
+				ConnectionInfo::StreamInfo(mut rw) => {
+					// set write state to close to avoid other threads writing
+					{
+						let mut state = rw.write_state.wlock()?;
+						let guard = state.guard();
+						(**guard).set_flag(WRITE_STATE_FLAG_CLOSE);
+					}
+
+					rw.clear_through_impl(rw.last_slab, &mut ctx.read_slabs)?;
+					close_handle_impl(rw.handle)?;
+				}
+			}
 		}
 		ctx.handle_hashtable.clear()?;
 		ctx.connection_hashtable.clear()?;
@@ -1805,10 +1819,7 @@ where
 		callback_context: &mut ThreadContext,
 	) -> Result<(), Error> {
 		debug!("proc close {}", rw.handle)?;
-		// we must do an insert before removing to keep our arc's consistent
-		ctx.connection_hashtable
-			.insert(&rw.id, &ConnectionInfo::StreamInfo(rw.clone()))?;
-		ctx.connection_hashtable.remove(&rw.id)?;
+
 		// set the close flag to true so if another thread tries to
 		// write there will be an error
 		{
@@ -1816,6 +1827,11 @@ where
 			let guard = state.guard();
 			(**guard).set_flag(WRITE_STATE_FLAG_CLOSE);
 		}
+
+		// we must do an insert before removing to keep our arc's consistent
+		ctx.connection_hashtable
+			.insert(&rw.id, &ConnectionInfo::StreamInfo(rw.clone()))?;
+		ctx.connection_hashtable.remove(&rw.id)?;
 		ctx.handle_hashtable.remove(&rw.handle)?;
 		rw.clear_through_impl(rw.last_slab, &mut ctx.read_slabs)?;
 		close_impl(ctx, rw.handle, false)?;
@@ -3188,6 +3204,8 @@ mod test {
 		};
 		evh.add_server(sc)?;
 
+		sleep(Duration::from_millis(5_000));
+
 		{
 			let mut connection = TcpStream::connect(addr)?;
 			connection.write(b"test1")?;
@@ -3218,7 +3236,7 @@ mod test {
 			count_count += 1;
 			sleep(Duration::from_millis(1));
 			let count = **((close_count_clone.rlock()?).guard());
-			if count != total + 1 && count_count < 1_000 {
+			if count != total + 1 && count_count < 10_000 {
 				continue;
 			}
 			assert_eq!((**((close_count_clone.rlock()?).guard())), total + 1);
@@ -4320,7 +4338,7 @@ mod test {
 			spawn(move || -> Result<(), Error> {
 				info!("new thread")?;
 				sleep(Duration::from_millis(1000));
-				wh.write(b"5678")?;
+				wh.write(b"5679")?;
 				sleep(Duration::from_millis(1000));
 				wh.trigger_on_read()?;
 				Ok(())
@@ -4354,7 +4372,7 @@ mod test {
 
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 4);
-		assert_eq!(&buf[0..len], b"5678");
+		assert_eq!(&buf[0..len], b"5679");
 
 		let len = stream.read(&mut buf)?;
 		assert_eq!(len, 4);
@@ -4987,6 +5005,8 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 
