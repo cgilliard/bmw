@@ -21,7 +21,7 @@ use crate::types::{Info, Padding};
 use crate::{Cell, Peer};
 use bmw_deps::ed25519_dalek::PublicKey;
 use bmw_err::*;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 impl Info {
 	fn to_bytes(&self, buf: &mut [u8]) -> Result<(), Error> {
@@ -64,8 +64,6 @@ impl Info {
 	}
 
 	fn from_bytes(buf: &[u8]) -> Result<Self, Error> {
-		let mut challenge = [0u8; 16];
-		challenge.clone_from_slice(&buf[1..17]);
 		let pubkey = PublicKey::from_bytes(&buf[17..49])?;
 		let sockaddr;
 		let nickname;
@@ -79,9 +77,20 @@ impl Info {
 				nickname = std::str::from_utf8(&buf[57..57 + name_len])?.to_string();
 			}
 			1 => {
-				sockaddr = SocketAddr::V4(SocketAddrV4::new(
-					Ipv4Addr::new(buf[50], buf[51], buf[52], buf[53]),
-					u16::from_be_bytes(buf[54..56].try_into()?),
+				sockaddr = SocketAddr::V6(SocketAddrV6::new(
+					Ipv6Addr::new(
+						u16::from_be_bytes(buf[50..52].try_into()?),
+						u16::from_be_bytes(buf[52..54].try_into()?),
+						u16::from_be_bytes(buf[54..56].try_into()?),
+						u16::from_be_bytes(buf[56..58].try_into()?),
+						u16::from_be_bytes(buf[58..60].try_into()?),
+						u16::from_be_bytes(buf[60..62].try_into()?),
+						u16::from_be_bytes(buf[62..64].try_into()?),
+						u16::from_be_bytes(buf[64..66].try_into()?),
+					),
+					u16::from_be_bytes(buf[66..68].try_into()?),
+					0,
+					0,
 				));
 				let name_len = buf[68] as usize;
 				nickname = std::str::from_utf8(&buf[68..68 + name_len])?.to_string();
