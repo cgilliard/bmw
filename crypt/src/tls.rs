@@ -16,15 +16,80 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::TlsVerifier;
+use crate::types::{TlsClientCertVerifier, TlsServerCertVerifier};
+use bmw_deps::ed25519_dalek::PublicKey;
 use bmw_deps::rustls::client::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use bmw_deps::rustls::internal::msgs::base::PayloadU16;
 use bmw_deps::rustls::internal::msgs::handshake::DigitallySignedStruct;
+use bmw_deps::rustls::server::{ClientCertVerified, ClientCertVerifier};
 use bmw_deps::rustls::{internal, Certificate, Error, ServerName, SignatureScheme};
 use bmw_deps::x509_signature::{self, parse_certificate, X509Certificate};
 use bmw_err::ErrorKind;
+use bmw_log::*;
 use std::time::SystemTime;
 
-impl ServerCertVerifier for TlsVerifier {
+info!();
+
+impl ClientCertVerifier for TlsClientCertVerifier {
+	fn client_auth_root_subjects(&self) -> Option<Vec<PayloadU16>> {
+		Some(vec![])
+	}
+	fn verify_client_cert(
+		&self,
+		cert: &Certificate,
+		_: &[Certificate],
+		_: SystemTime,
+	) -> Result<ClientCertVerified, bmw_deps::rustls::Error> {
+		let cert = get_cert(cert).map_err(|_e| Error::InvalidCertificateSignature)?;
+		let pubkey = cert.subject_public_key_info().key();
+		let pubkey = match PublicKey::from_bytes(pubkey) {
+			Ok(p) => p,
+			Err(e) => {
+				return Err(Error::InvalidCertificateData(format!(
+					"invalid pubkey: {}",
+					e
+				)));
+			}
+		};
+		let mut lock = self.found_pubkey.clone();
+		let mut lock = lock.wlock().unwrap();
+		**lock.guard() = Some(pubkey);
+
+		Ok(ClientCertVerified::assertion())
+	}
+
+	fn verify_tls12_signature(
+		&self,
+		message: &[u8],
+		cert: &Certificate,
+		dss: &DigitallySignedStruct,
+	) -> Result<HandshakeSignatureValid, Error> {
+		let cert = get_cert(cert).map_err(|_e| Error::InvalidCertificateSignature)?;
+
+		let scheme = convert_scheme(dss.scheme)?;
+		let signature = dss.sig.0.as_ref();
+
+		cert.check_signature(scheme, message, signature)
+			.map(|_| HandshakeSignatureValid::assertion())
+			.map_err(|_| Error::InvalidCertificateSignature)
+	}
+	fn verify_tls13_signature(
+		&self,
+		message: &[u8],
+		cert: &Certificate,
+		dss: &DigitallySignedStruct,
+	) -> Result<HandshakeSignatureValid, Error> {
+		let cert = get_cert(cert).map_err(|_e| Error::InvalidCertificateSignature)?;
+		let scheme = convert_scheme(dss.scheme)?;
+		let signature = dss.sig.0.as_ref();
+
+		cert.check_tls13_signature(scheme, message, signature)
+			.map(|_| HandshakeSignatureValid::assertion())
+			.map_err(|_| Error::InvalidCertificateSignature)
+	}
+}
+
+impl ServerCertVerifier for TlsServerCertVerifier {
 	fn verify_server_cert(
 		&self,
 		end_entity: &Certificate,
@@ -34,8 +99,18 @@ impl ServerCertVerifier for TlsVerifier {
 		_ocsp_response: &[u8],
 		_now: SystemTime,
 	) -> Result<ServerCertVerified, Error> {
-		let _ = get_cert(end_entity)
+		let cert = get_cert(end_entity)
 			.map_err(|e| Error::InvalidCertificateData(format!("InvalidCertificateData: {}", e)))?;
+		let pubkey = cert.subject_public_key_info().key();
+		let expected = self.expected_pubkey.as_bytes();
+
+		if pubkey != expected {
+			return Err(Error::InvalidCertificateData(format!(
+				"InvalidCertificateData: Expected Pubkey: {:?}, Found Pubkey: {:?}",
+				expected, pubkey
+			)));
+		}
+
 		Ok(ServerCertVerified::assertion())
 	}
 

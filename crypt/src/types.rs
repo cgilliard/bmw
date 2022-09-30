@@ -16,14 +16,61 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bmw_deps::ed25519_dalek::PublicKey;
 use bmw_deps::old_rand_core::RngCore as OldRngCore;
 use bmw_deps::rand_core::RngCore;
 use bmw_deps::rustls::{ClientConnection, ServerConnection};
-use bmw_deps::x25519_dalek::PublicKey;
 use bmw_err::*;
+use bmw_util::*;
+use std::sync::Arc;
 
 use std::io::{Read, Write};
 use std::net::SocketAddr;
+
+#[derive(Debug)]
+pub struct ChannelState {
+	pub(crate) has_closed: bool,
+	pub(crate) bytes_to_write: usize,
+	pub(crate) cells: Vec<Cell>,
+	pub(crate) in_buf: Vec<u8>,
+	pub(crate) offset: usize,
+}
+
+pub enum ChannelDirection {
+	Inbound,
+	Outbound,
+	NotConnected,
+}
+
+pub trait Channel {
+	fn direction(&self) -> ChannelDirection;
+	fn is_verified(&self) -> bool;
+	fn read_crypt(&mut self, rd: &mut dyn Read) -> Result<usize, Error>;
+	fn write_crypt(&mut self, wr: &mut dyn Write) -> Result<usize, Error>;
+	fn send_cell(&mut self, cell: Cell) -> Result<(), Error>;
+	fn process_new_packets(&mut self, state: &mut ChannelState) -> Result<(), Error>;
+}
+
+#[derive(Debug, Clone)]
+pub struct Peer {
+	pub(crate) sockaddr: SocketAddr,
+	pub(crate) pubkey: PublicKey,
+	pub(crate) nickname: String,
+}
+
+#[derive(Debug)]
+pub struct Info {
+	pub(crate) local_peer: Peer,
+}
+
+#[derive(Debug)]
+pub struct Padding {}
+
+#[derive(Debug)]
+pub enum Cell {
+	Info(Info),
+	Padding(Padding),
+}
 
 /// Extension trait for the _current_ versions of [`RngCore`]; adds a
 /// compatibility-wrapper function.
@@ -49,44 +96,24 @@ pub trait RngCompatExt: RngCore {
 /// ```
 pub struct RngWrapper<T>(pub(crate) T);
 
-pub struct TlsVerifier {}
-
-pub struct Cell {}
-
-#[derive(Debug, Clone)]
-pub struct Cert {
-	pub cert_type: u8,
-	pub cert_bytes: Vec<u8>,
-}
-
-pub struct CryptState {}
-
-pub enum ChannelDirection {
-	Inbound,
-	Outbound,
-}
+// crate local types
 
 pub(crate) struct ChannelImpl {
 	pub(crate) tls_client: Option<ClientConnection>,
 	pub(crate) tls_server: Option<ServerConnection>,
-	pub(crate) peer: Option<Peer>,
+	pub(crate) remote_peer: Option<Peer>,
+	pub(crate) local_peer: Peer,
 	pub(crate) verified: bool,
+	pub(crate) tls_client_verifier: Arc<TlsClientCertVerifier>,
 }
 
-pub trait Channel {
-	fn direction(&self) -> ChannelDirection;
-	fn is_verified(&self) -> bool;
-	fn read_crypt(&mut self, rd: &mut dyn Read) -> Result<usize, Error>;
-	fn write_crypt(&mut self, wr: &mut dyn Write) -> Result<usize, Error>;
-	fn send_cell(&mut self, cell: Cell) -> Result<(), Error>;
-	fn process_new_packets(&mut self, state: &mut CryptState) -> Result<(), Error>;
+pub(crate) struct TlsServerCertVerifier {
+	pub(crate) expected_pubkey: PublicKey,
 }
 
-#[derive(Debug, Clone)]
-pub struct Peer {
-	pub(crate) sockaddr: SocketAddr,
-	pub(crate) pubkey: PublicKey,
+pub(crate) struct TlsClientCertVerifier {
+	pub(crate) found_pubkey: Box<dyn LockBox<Option<PublicKey>>>,
 }
 
-/// A vector of bytes that gets cleared when it's dropped.
+// A vector of bytes that gets cleared when it's dropped.
 pub(crate) type SecretBytes = bmw_deps::zeroize::Zeroizing<Vec<u8>>;

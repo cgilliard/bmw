@@ -16,9 +16,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::{ChannelImpl, TlsVerifier};
-use crate::Peer;
-use bmw_deps::lazy_static::lazy_static;
+use crate::constants::*;
+use crate::types::{ChannelImpl, Info, TlsClientCertVerifier, TlsServerCertVerifier};
+use crate::{Cell, Channel, ChannelDirection, ChannelState, Peer};
+use bmw_deps::ed25519_dalek::{PublicKey, SecretKey};
+use bmw_deps::openssl::pkey::Id;
 use bmw_deps::openssl::pkey::PKey;
 use bmw_deps::pem;
 use bmw_deps::rcgen::{
@@ -32,64 +34,263 @@ use bmw_deps::rustls::{
 };
 use bmw_err::*;
 use bmw_log::*;
-use std::sync::{Arc, RwLock};
+use bmw_util::*;
+use std::io::{Read, Write};
+use std::sync::Arc;
 
-debug!();
+info!();
 
-lazy_static! {
-	pub(crate) static ref SERVER_CONFIG: Arc<RwLock<Option<Arc<ServerConfig>>>> =
-		Arc::new(RwLock::new(None));
-	pub(crate) static ref CLIENT_CONFIG: Arc<RwLock<Option<Arc<ClientConfig>>>> =
-		Arc::new(RwLock::new(None));
-}
-
-pub fn reset_tls_configs() -> Result<(), Error> {
-	let mut guard = SERVER_CONFIG.write()?;
-	*guard = None;
-
-	let mut guard = CLIENT_CONFIG.write()?;
-	*guard = None;
-
-	Ok(())
-}
-
-impl ChannelImpl {
+impl ChannelState {
 	pub fn new() -> Self {
 		Self {
-			tls_client: None,
-			tls_server: None,
-			peer: None,
-			verified: false,
+			bytes_to_write: 0,
+			cells: vec![],
+			has_closed: false,
+			in_buf: vec![],
+			offset: 0,
+		}
+	}
+}
+
+impl Channel for ChannelImpl {
+	fn direction(&self) -> ChannelDirection {
+		match self.tls_client {
+			Some(_) => ChannelDirection::Outbound,
+			_ => match self.tls_server {
+				Some(_) => ChannelDirection::Inbound,
+				_ => ChannelDirection::NotConnected,
+			},
 		}
 	}
 
-	pub fn connect(&mut self, peer: Peer) -> Result<(), Error> {
+	fn is_verified(&self) -> bool {
+		self.verified
+	}
+
+	fn read_crypt(&mut self, rd: &mut dyn Read) -> Result<usize, Error> {
+		match &mut self.tls_client {
+			Some(client) => map_err!(client.read_tls(rd), ErrKind::Rustls),
+			_ => match &mut self.tls_server {
+				Some(server) => map_err!(server.read_tls(rd), ErrKind::Rustls),
+				_ => Err(err!(ErrKind::Crypt, "channel not connected")),
+			},
+		}
+	}
+
+	fn write_crypt(&mut self, wr: &mut dyn Write) -> Result<usize, Error> {
+		match &mut self.tls_client {
+			Some(client) => map_err!(client.write_tls(wr), ErrKind::Rustls),
+			_ => match &mut self.tls_server {
+				Some(server) => map_err!(server.write_tls(wr), ErrKind::Rustls),
+				_ => Err(err!(ErrKind::Crypt, "channel not connected")),
+			},
+		}
+	}
+
+	fn send_cell(&mut self, cell: Cell) -> Result<(), Error> {
+		let mut cell_bytes = [0u8; CELL_LEN];
+		cell.to_bytes(&mut cell_bytes)?;
+		match &mut self.tls_client {
+			Some(client) => client.writer().write(&cell_bytes),
+			_ => match &mut self.tls_server {
+				Some(server) => server.writer().write(&cell_bytes),
+				_ => return Err(err!(ErrKind::Crypt, "channel not connected")),
+			},
+		}?;
+		Ok(())
+	}
+
+	fn process_new_packets(&mut self, state: &mut ChannelState) -> Result<(), Error> {
+		let io_state = match &mut self.tls_client {
+			Some(client) => map_err!(
+				client.process_new_packets(),
+				ErrKind::Rustls,
+				"process_new_packets generated error"
+			),
+			None => match &mut self.tls_server {
+				Some(server) => map_err!(
+					server.process_new_packets(),
+					ErrKind::Rustls,
+					"process_new_packets generated error"
+				),
+				None => return Err(err!(ErrKind::Crypt, "channel not connected")),
+			},
+		}?;
+
+		let len = io_state.plaintext_bytes_to_read();
+		if len > 0 {
+			self.process_cells(len, state)?;
+		}
+		state.has_closed = io_state.peer_has_closed();
+		state.bytes_to_write = io_state.tls_bytes_to_write();
+
+		Ok(())
+	}
+}
+
+impl ChannelImpl {
+	pub fn new(local_peer: Peer) -> Self {
+		Self {
+			tls_client: None,
+			tls_server: None,
+			remote_peer: None,
+			local_peer,
+			verified: false,
+			tls_client_verifier: Arc::new(TlsClientCertVerifier {
+				found_pubkey: lock_box!(None).unwrap(),
+			}),
+		}
+	}
+
+	pub fn connect(&mut self, peer: Peer, secret: SecretKey) -> Result<(), Error> {
 		debug!("connecting to peer: {:?}", peer)?;
 
 		// localhost is used because we don't validate hostnames.
 		self.tls_client = Some(ClientConnection::new(
-			self.make_client_config()?,
+			self.make_client_config(secret, peer.pubkey)?,
 			"localhost".try_into()?,
 		)?);
-		self.peer = Some(peer.clone());
 		Ok(())
 	}
 
-	pub fn accept(&mut self) -> Result<(), Error> {
-		debug!("accepting a connection1")?;
-		self.tls_server = Some(ServerConnection::new(self.make_server_config()?)?);
-		debug!("complete")?;
+	pub fn accept(&mut self, secret: SecretKey) -> Result<(), Error> {
+		debug!("accepting a connection")?;
+		self.tls_server = Some(ServerConnection::new(self.make_server_config(secret)?)?);
 		Ok(())
+	}
+
+	pub fn start(&mut self) -> Result<(), Error> {
+		let info = Cell::Info(Info {
+			local_peer: self.local_peer.clone(),
+		});
+		let mut cell = [0u8; CELL_LEN];
+		info.to_bytes(&mut cell)?;
+
+		match &mut self.tls_server {
+			Some(server) => {
+				// server
+				debug!("start server")?;
+				server.writer().write(&cell)?;
+				Ok(())
+			}
+			None => match &mut self.tls_client {
+				Some(client) => {
+					// client
+					client.writer().write(&cell)?;
+					Ok(())
+				}
+				None => Err(err!(
+					ErrKind::IllegalState,
+					"start must be called after connect or accept"
+				)),
+			},
+		}
+	}
+
+	fn process_cells(&mut self, len: usize, state: &mut ChannelState) -> Result<(), Error> {
+		let mut reader = match &mut self.tls_client {
+			Some(client) => client.reader(),
+			_ => match &mut self.tls_server {
+				Some(server) => server.reader(),
+				_ => return Err(err!(ErrKind::IllegalState, "channel not connected")),
+			},
+		};
+
+		debug!("reading len = {}", len)?;
+		state.in_buf.resize(len, 0u8);
+		reader.read_exact(&mut state.in_buf[state.offset..state.offset + len])?;
+		state.offset += len;
+
+		loop {
+			if state.offset < CELL_LEN {
+				debug!("Not enough data to verify. Current len = {}", state.offset)?;
+				// return ok and try again later when we have a full cell
+				return Ok(());
+			}
+
+			let cell = Cell::from_bytes(&state.in_buf[0..CELL_LEN])?;
+			debug!("cell = {:?}", cell)?;
+
+			let mut info_peer: Option<Peer> = None;
+
+			match &cell {
+				Cell::Info(info) => {
+					info_peer = Some(info.local_peer.clone());
+				}
+				Cell::Padding(_padding) => {
+					if !self.verified {
+						return Err(err!(
+							ErrKind::IllegalState,
+							"only Info is allowed when not verified"
+						));
+					}
+				}
+			}
+
+			if !self.verified {
+				// check for remote peer
+				if self.tls_server.is_some() {
+					if info_peer.is_none() {
+						return Err(err!(ErrKind::IllegalState, "info data not found"));
+					}
+					let lock = Arc::get_mut(&mut self.tls_client_verifier);
+					let lock = lock.as_ref();
+					if lock.is_some() {
+						let lock = &*lock.unwrap();
+						let pubkey = lock.found_pubkey.rlock()?;
+						let guard = pubkey.guard();
+						debug!("pubkey={:?}", **guard)?;
+						if (**guard).as_ref().unwrap() != &info_peer.as_ref().unwrap().pubkey {
+							return Err(err!(
+								ErrKind::IllegalState,
+								"tls pubkey did not match the pubkey sent by peer"
+							));
+						}
+						self.remote_peer = info_peer.clone();
+						self.verified = true;
+					}
+					debug!("server verified")?;
+				} else if self.tls_client.is_some() {
+					// we can't get here unless the pubkey matches our expectations due to the client verifier
+					self.verified = true;
+					self.remote_peer = info_peer.clone();
+					debug!("client verified")?;
+				}
+
+				if self.verified {
+					debug!("channel verified")?;
+				}
+			} else {
+				state.cells.push(cell);
+			}
+
+			state.in_buf.drain(0..CELL_LEN);
+			state.offset -= CELL_LEN;
+		}
 	}
 
 	// make a client config that only verifies the signatures and not hostname.
 	// Identity is verified after tls tunnel is created.
-	fn make_client_config(&self) -> Result<Arc<ClientConfig>, Error> {
-		// only need to build this once. If it exists return it.
-		match &*CLIENT_CONFIG.read()? {
-			Some(config) => return Ok(config.clone()),
-			None => {}
-		}
+	fn make_client_config(
+		&self,
+		secret: SecretKey,
+		expected_pubkey: PublicKey,
+	) -> Result<Arc<ClientConfig>, Error> {
+		let mut params: CertificateParams = Default::default();
+		params.not_before = date_time_ymd(2021, 05, 19);
+		params.not_after = date_time_ymd(4096, 01, 01);
+		params.distinguished_name = DistinguishedName::new();
+		params.alg = &PKCS_ED25519;
+		let pkey = PKey::private_key_from_raw_bytes(&secret.to_bytes(), Id::ED25519)?;
+		let private_key = pkey.private_key_to_pem_pkcs8()?;
+		let key_pair_pem = String::from_utf8(private_key.clone())?;
+		let key_pair = KeyPair::from_pem(&key_pair_pem)?;
+		params.key_pair = Some(key_pair);
+		let private_key_der = pkey.private_key_to_der()?;
+		let cert = Certificate::from_params(params)?;
+		let pem_serialized = cert.serialize_pem()?;
+		let der_serialized = pem::parse(&pem_serialized)?.contents;
+
 		let root_store = RootCertStore::empty();
 
 		let mut config = ClientConfig::builder()
@@ -97,33 +298,27 @@ impl ChannelImpl {
 			.with_safe_default_kx_groups()
 			.with_safe_default_protocol_versions()?
 			.with_root_certificates(root_store)
-			.with_no_client_auth();
+			.with_single_cert(
+				vec![RustlsCertificate(der_serialized)],
+				RustlsPrivateKey(private_key_der),
+			)?;
 
 		config
 			.dangerous()
-			.set_certificate_verifier(Arc::new(TlsVerifier {}));
+			.set_certificate_verifier(Arc::new(TlsServerCertVerifier { expected_pubkey }));
 
-		let mut guard = CLIENT_CONFIG.write()?;
 		let ret = Arc::new(config);
-		*guard = Some(ret.clone());
-
 		Ok(ret)
 	}
 
 	// make a server config
-	fn make_server_config(&self) -> Result<Arc<ServerConfig>, Error> {
-		// only need to build this once. If it exists return it.
-		match &*SERVER_CONFIG.read()? {
-			Some(config) => return Ok(config.clone()),
-			None => {}
-		}
-
+	fn make_server_config(&self, secret: SecretKey) -> Result<Arc<ServerConfig>, Error> {
 		let mut params: CertificateParams = Default::default();
 		params.not_before = date_time_ymd(2021, 05, 19);
 		params.not_after = date_time_ymd(4096, 01, 01);
 		params.distinguished_name = DistinguishedName::new();
 		params.alg = &PKCS_ED25519;
-		let pkey: PKey<_> = PKey::generate_ed25519()?.try_into()?;
+		let pkey = PKey::private_key_from_raw_bytes(&secret.to_bytes(), Id::ED25519)?;
 		let private_key = pkey.private_key_to_pem_pkcs8()?;
 		let key_pair_pem = String::from_utf8(private_key.clone())?;
 		let key_pair = KeyPair::from_pem(&key_pair_pem)?;
@@ -134,16 +329,13 @@ impl ChannelImpl {
 		let der_serialized = pem::parse(&pem_serialized)?.contents;
 		let config = ServerConfig::builder()
 			.with_safe_defaults()
-			.with_no_client_auth()
+			.with_client_cert_verifier(self.tls_client_verifier.clone())
 			.with_single_cert(
 				vec![RustlsCertificate(der_serialized)],
 				RustlsPrivateKey(private_key_der),
 			)?;
 
-		let mut guard = SERVER_CONFIG.write()?;
 		let ret = Arc::new(config);
-		*guard = Some(ret.clone());
-
 		Ok(ret)
 	}
 }
@@ -151,26 +343,40 @@ impl ChannelImpl {
 #[cfg(test)]
 mod test {
 	use super::*;
-	use bmw_deps::x25519_dalek::PublicKey;
-	use bmw_test::port::pick_free_port;
+	use crate::types::RngCompatExt;
+	use bmw_deps::ed25519_dalek::Keypair;
+	use bmw_deps::rand::thread_rng;
 	use std::io::{Read, Write};
 
 	#[test]
-	fn test_crypt_channel() -> Result<(), Error> {
-		let port = pick_free_port()?;
-		let addr = &format!("127.0.0.1:{}", port)[..];
-		let server_pubkey = PublicKey::from([0u8; 32]);
-		let _client_pubkey = PublicKey::from([1u8; 32]);
-		let mut server = ChannelImpl::new();
-		let mut client = ChannelImpl::new();
+	fn test_crypt_channel_tls_msgs() -> Result<(), Error> {
+		let mut rng = thread_rng().rng_compat();
+		let server_keypair = Keypair::generate(&mut rng);
+		let client_keypair = Keypair::generate(&mut rng);
+		let secret_client = client_keypair.secret;
+		let secret_server = server_keypair.secret;
+		let server_pubkey = server_keypair.public;
+		let client_pubkey = client_keypair.public;
+
+		let mut server = ChannelImpl::new(Peer {
+			sockaddr: "127.0.0.1:1234".parse()?,
+			pubkey: server_pubkey,
+			nickname: "test1".to_string(),
+		});
+		let mut client = ChannelImpl::new(Peer {
+			sockaddr: "127.0.0.1:4567".parse()?,
+			pubkey: client_pubkey,
+			nickname: "test2".to_string(),
+		});
 
 		let peer = Peer {
-			sockaddr: addr.parse()?,
+			sockaddr: "127.0.0.1:1234".parse()?,
 			pubkey: server_pubkey,
+			nickname: "test1".to_string(),
 		};
 
-		client.connect(peer)?;
-		server.accept()?;
+		client.connect(peer, secret_client)?;
+		server.accept(secret_server)?;
 
 		let mut tls_client = client.tls_client.unwrap();
 		let mut tls_server = server.tls_server.unwrap();
@@ -209,6 +415,89 @@ mod test {
 		buf.resize(msg.len(), 0u8);
 		tls_server.reader().read(&mut buf)?;
 		assert_eq!(&buf[..], msg);
+
+		Ok(())
+	}
+
+	#[test]
+	fn test_crypt_channel_with_start() -> Result<(), Error> {
+		let mut rng = thread_rng().rng_compat();
+		let server_keypair = Keypair::generate(&mut rng);
+		let client_keypair = Keypair::generate(&mut rng);
+		let secret_client = client_keypair.secret;
+		let secret_server = server_keypair.secret;
+		let server_pubkey = server_keypair.public;
+		let client_pubkey = client_keypair.public;
+
+		info!("server_pubkey={:?}", server_pubkey.as_bytes())?;
+		info!("client_pubkey={:?}", client_pubkey.as_bytes())?;
+
+		let mut server = ChannelImpl::new(Peer {
+			sockaddr: "127.0.0.1:1234".parse()?,
+			pubkey: server_pubkey,
+			nickname: "test1".to_string(),
+		});
+		let mut client = ChannelImpl::new(Peer {
+			sockaddr: "127.0.0.1:4567".parse()?,
+			pubkey: client_pubkey,
+			nickname: "test2".to_string(),
+		});
+
+		let peer = Peer {
+			sockaddr: "127.0.0.1:1234".parse()?,
+			pubkey: server_pubkey,
+			nickname: "test1".to_string(),
+		};
+
+		client.connect(peer, secret_client)?;
+		server.accept(secret_server)?;
+
+		client.start()?;
+		server.start()?;
+
+		assert!(!client.is_verified());
+		assert!(!server.is_verified());
+
+		let mut client_state = ChannelState::new();
+		let mut server_state = ChannelState::new();
+
+		client.process_new_packets(&mut client_state)?;
+		info!("client_state={:?}", client_state)?;
+		let mut buf = vec![];
+		client.write_crypt(&mut buf)?;
+		info!("buf.len() = {}", buf.len())?;
+
+		// read the bytes into the server
+		server.read_crypt(&mut &buf[..])?;
+		server.process_new_packets(&mut server_state)?;
+		info!("server_state={:?}", server_state)?;
+		let mut buf = vec![];
+		server.write_crypt(&mut buf)?;
+		info!("buf.len() = {}", buf.len())?;
+
+		// read the bytes into the client
+		client.read_crypt(&mut &buf[..])?;
+		client.process_new_packets(&mut client_state)?;
+		info!("client_state={:?}", client_state)?;
+		let mut buf = vec![];
+		client.write_crypt(&mut buf)?;
+		info!("buf.len() = {}", buf.len())?;
+
+		// write the bytes into the server
+		server.read_crypt(&mut &buf[..])?;
+		server.process_new_packets(&mut server_state)?;
+		info!("server_state={:?}", server_state)?;
+		let mut buf = vec![];
+		server.write_crypt(&mut buf)?;
+		info!("buf.len() = {}", buf.len())?;
+
+		// write the bytes into the client
+		client.read_crypt(&mut &buf[..])?;
+		client.process_new_packets(&mut client_state)?;
+		info!("client_state={:?}", client_state)?;
+
+		assert!(client.is_verified());
+		assert!(server.is_verified());
 
 		Ok(())
 	}

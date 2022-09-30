@@ -17,6 +17,8 @@
 // limitations under the License.
 
 #[allow(dead_code)]
+mod cell;
+#[allow(dead_code)]
 mod channel;
 #[allow(dead_code)]
 mod constants;
@@ -31,6 +33,6 @@ mod tls;
 #[allow(dead_code)]
 mod types;
 
-pub use crate::types::{Channel, Peer, RngCompatExt};
+pub use crate::types::{Cell, Channel, ChannelDirection, ChannelState, Peer, RngCompatExt};
 
 use crate::types::SecretBytes;
