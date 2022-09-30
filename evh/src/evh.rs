@@ -4951,8 +4951,18 @@ mod test {
 
 		let mut stream = TcpStream::connect(addr)?;
 		stream.write(b"12345")?;
-		sleep(Duration::from_millis(5_000));
-		assert!(**(success_clone.rlock()?.guard()));
+
+		let mut count = 0;
+		loop {
+			sleep(Duration::from_millis(1));
+			count += 1;
+			if !**(success_clone.rlock()?.guard()) && count < 25_000 {
+				continue;
+			}
+			assert!(**(success_clone.rlock()?.guard()));
+
+			break;
+		}
 
 		Ok(())
 	}
