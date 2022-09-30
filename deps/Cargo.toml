@@ -17,7 +17,7 @@ failure_derive = "0.1.0"
 substring = "1.4.5"
 openssl = "0.10.42"
 pem = "1.1.0"
-rcgen = "0.9.4"
+rcgen = "0.10.0"
 aes = { version = "0.7.0", features = ["ctr"] }
 colored = "2.0.0"
 x509-signature = "0.5.0"
