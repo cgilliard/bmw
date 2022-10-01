@@ -16,32 +16,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[allow(dead_code)]
-mod builder;
-#[allow(dead_code)]
-mod cell;
-#[allow(dead_code)]
-mod channel;
-#[allow(dead_code)]
-mod circuit;
-#[allow(dead_code)]
-mod constants;
-#[allow(dead_code)]
-mod crypt;
-#[allow(dead_code)]
-mod ed25519;
-#[allow(dead_code)]
-mod rand;
-#[allow(dead_code)]
-mod stream;
-#[allow(dead_code)]
-mod tls;
-#[allow(dead_code)]
-mod types;
+#[cfg(test)]
+mod test {
+	use bmw_err::*;
 
-pub use crate::types::{
-	Builder, Cell, Channel, ChannelDirection, ChannelState, Circuit, CircuitPlan, CircuitState,
-	Peer, RngCompatExt, Stream,
-};
-
-use crate::types::SecretBytes;
+	#[test]
+	fn test_crypt_stream_basic() -> Result<(), Error> {
+		Ok(())
+	}
+}
