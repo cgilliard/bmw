@@ -126,40 +126,24 @@ impl Channel for ChannelImpl {
 
 		Ok(())
 	}
-}
-
-impl ChannelImpl {
-	pub fn new(local_peer: Peer) -> Self {
-		Self {
-			tls_client: None,
-			tls_server: None,
-			remote_peer: None,
-			local_peer,
-			verified: false,
-			tls_client_verifier: Arc::new(TlsClientCertVerifier {
-				found_pubkey: lock_box!(None).unwrap(),
-			}),
-		}
-	}
-
-	pub fn connect(&mut self, peer: Peer, secret: SecretKey) -> Result<(), Error> {
+	fn connect(&mut self, peer: &Peer, secret: &SecretKey) -> Result<(), Error> {
 		debug!("connecting to peer: {:?}", peer)?;
 
 		// localhost is used because we don't validate hostnames.
 		self.tls_client = Some(ClientConnection::new(
-			self.make_client_config(secret, peer.pubkey)?,
+			self.make_client_config(secret, peer.pubkey.clone())?,
 			"localhost".try_into()?,
 		)?);
 		Ok(())
 	}
 
-	pub fn accept(&mut self, secret: SecretKey) -> Result<(), Error> {
+	fn accept(&mut self, secret: SecretKey) -> Result<(), Error> {
 		debug!("accepting a connection")?;
 		self.tls_server = Some(ServerConnection::new(self.make_server_config(secret)?)?);
 		Ok(())
 	}
 
-	pub fn start(&mut self) -> Result<(), Error> {
+	fn start(&mut self) -> Result<(), Error> {
 		let info = Cell::Info(Info {
 			local_peer: self.local_peer.clone(),
 		});
@@ -184,6 +168,21 @@ impl ChannelImpl {
 					"start must be called after connect or accept"
 				)),
 			},
+		}
+	}
+}
+
+impl ChannelImpl {
+	pub fn new(local_peer: Peer) -> Self {
+		Self {
+			tls_client: None,
+			tls_server: None,
+			remote_peer: None,
+			local_peer,
+			verified: false,
+			tls_client_verifier: Arc::new(TlsClientCertVerifier {
+				found_pubkey: lock_box!(None).unwrap(),
+			}),
 		}
 	}
 
@@ -273,7 +272,7 @@ impl ChannelImpl {
 	// Identity is verified after tls tunnel is created.
 	fn make_client_config(
 		&self,
-		secret: SecretKey,
+		secret: &SecretKey,
 		expected_pubkey: PublicKey,
 	) -> Result<Arc<ClientConfig>, Error> {
 		let mut params: CertificateParams = Default::default();
@@ -375,7 +374,7 @@ mod test {
 			nickname: "test1".to_string(),
 		};
 
-		client.connect(peer, secret_client)?;
+		client.connect(&peer, &secret_client)?;
 		server.accept(secret_server)?;
 
 		let mut tls_client = client.tls_client.unwrap();
@@ -449,7 +448,7 @@ mod test {
 			nickname: "test1".to_string(),
 		};
 
-		client.connect(peer, secret_client)?;
+		client.connect(&peer, &secret_client)?;
 		server.accept(secret_server)?;
 
 		client.start()?;

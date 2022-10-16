@@ -3139,7 +3139,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_evh_close() -> Result<(), Error> {
+	fn test_evh_close1() -> Result<(), Error> {
 		let port = pick_free_port()?;
 		info!("close Using port: {}", port)?;
 		let addr = &format!("127.0.0.1:{}", port)[..];
@@ -3218,7 +3218,7 @@ mod test {
 			assert_eq!(&buf[0..len], b"test2");
 		}
 
-		let total = 1_000;
+		let total = 10;
 		for _ in 0..total {
 			let mut connection = TcpStream::connect(addr)?;
 			connection.write(b"test1")?;

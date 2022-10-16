@@ -16,7 +16,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmw_deps::ed25519_dalek::PublicKey;
+use bmw_deps::ed25519_dalek::{PublicKey, SecretKey};
 use bmw_deps::old_rand_core::RngCore as OldRngCore;
 use bmw_deps::rand_core::RngCore;
 use bmw_deps::rustls::{ClientConnection, ServerConnection};
@@ -27,6 +27,13 @@ use std::sync::Arc;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 
+pub struct Builder {}
+
+#[derive(Debug)]
+pub struct CircuitPlan {
+	pub(crate) hops: Vec<Peer>,
+}
+
 #[derive(Debug)]
 pub struct ChannelState {
 	pub(crate) has_closed: bool,
@@ -35,6 +42,9 @@ pub struct ChannelState {
 	pub(crate) in_buf: Vec<u8>,
 	pub(crate) offset: usize,
 }
+
+#[derive(Debug)]
+pub struct CircuitState {}
 
 pub enum ChannelDirection {
 	Inbound,
@@ -49,6 +59,28 @@ pub trait Channel {
 	fn write_crypt(&mut self, wr: &mut dyn Write) -> Result<usize, Error>;
 	fn send_cell(&mut self, cell: Cell) -> Result<(), Error>;
 	fn process_new_packets(&mut self, state: &mut ChannelState) -> Result<(), Error>;
+	fn connect(&mut self, peer: &Peer, secret: &SecretKey) -> Result<(), Error>;
+	fn start(&mut self) -> Result<(), Error>;
+	fn accept(&mut self, secret: SecretKey) -> Result<(), Error>;
+}
+
+pub trait Circuit {
+	fn open_stream(&mut self) -> Result<Box<dyn Stream>, Error>;
+	fn get_stream(&self, sid: u16) -> Result<Box<dyn Stream>, Error>;
+	fn close_stream(&mut self, sid: u16) -> Result<(), Error>;
+	fn close_circuit(&mut self) -> Result<(), Error>;
+	fn read_crypt(&mut self, rd: &mut dyn Read) -> Result<usize, Error>;
+	fn write_crypt(&mut self, wr: &mut dyn Write) -> Result<usize, Error>;
+	fn send_cell(&mut self, cell: Cell) -> Result<(), Error>;
+	fn process_new_packets(&mut self, state: &mut CircuitState) -> Result<(), Error>;
+	fn start(&mut self) -> Result<(), Error>;
+}
+
+pub trait Stream {
+	fn write(&mut self, wr: &mut dyn Write) -> Result<(), Error>;
+	fn read(&mut self, rd: &mut dyn Read) -> Result<usize, Error>;
+	fn close(&mut self) -> Result<(), Error>;
+	fn id(&self) -> u16;
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +137,13 @@ pub(crate) struct ChannelImpl {
 	pub(crate) local_peer: Peer,
 	pub(crate) verified: bool,
 	pub(crate) tls_client_verifier: Arc<TlsClientCertVerifier>,
+}
+
+pub(crate) struct CircuitImpl {
+	pub(crate) plan: CircuitPlan,
+	pub(crate) channel: Option<Box<dyn Channel>>,
+	pub(crate) local_peer: Peer,
+	pub(crate) secret_key: SecretKey,
 }
 
 pub(crate) struct TlsServerCertVerifier {

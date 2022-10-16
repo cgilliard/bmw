@@ -16,32 +16,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[allow(dead_code)]
-mod builder;
-#[allow(dead_code)]
-mod cell;
-#[allow(dead_code)]
-mod channel;
-#[allow(dead_code)]
-mod circuit;
-#[allow(dead_code)]
-mod constants;
-#[allow(dead_code)]
-mod crypt;
-#[allow(dead_code)]
-mod ed25519;
-#[allow(dead_code)]
-mod rand;
-#[allow(dead_code)]
-mod stream;
-#[allow(dead_code)]
-mod tls;
-#[allow(dead_code)]
-mod types;
+use crate::types::ChannelImpl;
+use crate::{Builder, Channel, Peer};
+use bmw_err::*;
 
-pub use crate::types::{
-	Builder, Cell, Channel, ChannelDirection, ChannelState, Circuit, CircuitPlan, CircuitState,
-	Peer, RngCompatExt, Stream,
-};
-
-use crate::types::SecretBytes;
+impl Builder {
+	pub fn channel(local_peer: Peer) -> Result<Box<dyn Channel>, Error> {
+		Ok(Box::new(ChannelImpl::new(local_peer)))
+	}
+}
