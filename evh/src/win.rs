@@ -44,8 +44,16 @@ pub(crate) const MAX_EVENTS: usize = 100;
 info!();
 
 pub(crate) fn socket_pipe(fds: *mut i32) -> Result<(TcpStream, TcpStream), Error> {
-	let port = bmw_deps::portpicker::pick_unused_port().unwrap_or(9999);
-	let listener = TcpListener::bind(format!("127.0.0.1:{}", port))?;
+	let (port, listener) = loop {
+		let port = bmw_deps::portpicker::pick_unused_port().unwrap_or(9999);
+		let listener = TcpListener::bind(format!("127.0.0.1:{}", port));
+		match listener {
+			Ok(listener) => {
+				break (port, listener);
+			}
+			Err(_) => {} // error binding to a port, try again
+		}
+	};
 	let stream = TcpStream::connect(format!("127.0.0.1:{}", port))?;
 	debug!("port={}", port)?;
 	let listener = listener.accept()?;
