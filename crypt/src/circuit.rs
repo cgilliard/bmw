@@ -83,10 +83,36 @@ impl Circuit for CircuitImpl {
 #[cfg(test)]
 mod test {
 	use crate::types::{CircuitImpl, RngCompatExt};
-	use crate::{Circuit, CircuitPlan, Peer};
+	use crate::{Circuit, CircuitPlan, CircuitState, Peer};
 	use bmw_deps::ed25519_dalek::Keypair;
+	use bmw_deps::ed25519_dalek::SecretKey;
 	use bmw_deps::rand::thread_rng;
 	use bmw_err::*;
+	use std::io::{Read, Write};
+
+	struct RouteSimulator {
+		secrets: Vec<SecretKey>,
+		peers: Vec<Peer>,
+	}
+
+	impl RouteSimulator {
+		fn new(secrets: Vec<SecretKey>, peers: Vec<Peer>) -> Self {
+			Self { secrets, peers }
+		}
+		fn start(&mut self) -> Result<(), Error> {
+			Ok(())
+		}
+		fn read_crypt(&mut self, rd: &mut dyn Read) -> Result<usize, Error> {
+			todo!()
+		}
+		fn write_crypt(&mut self, wr: &mut dyn Write) -> Result<usize, Error> {
+			todo!()
+		}
+
+		fn process_new_packets(&mut self, _state: &mut CircuitState) -> Result<(), Error> {
+			todo!()
+		}
+	}
 
 	#[test]
 	fn test_crypt_circuit_basic() -> Result<(), Error> {
@@ -99,22 +125,29 @@ mod test {
 			pubkey: local.public,
 			nickname: "test0".to_string(),
 		};
+		let peer1 = Peer {
+			sockaddr: "127.0.0.1:8081".parse()?,
+			pubkey: hop1.public,
+			nickname: "test1".to_string(),
+		};
+		let peer2 = Peer {
+			sockaddr: "127.0.0.1:8082".parse()?,
+			pubkey: hop2.public,
+			nickname: "test2".to_string(),
+		};
 		let plan = CircuitPlan {
-			hops: vec![
-				Peer {
-					sockaddr: "127.0.0.1:8081".parse()?,
-					pubkey: hop1.public,
-					nickname: "test1".to_string(),
-				},
-				Peer {
-					sockaddr: "127.0.0.1:8082".parse()?,
-					pubkey: hop2.public,
-					nickname: "test2".to_string(),
-				},
-			],
+			hops: vec![peer1.clone(), peer2.clone()],
 		};
 		let mut circuit = CircuitImpl::new(plan, local_peer, local.secret)?;
 		circuit.start()?;
+
+		let mut secrets = vec![];
+		secrets.push(hop1.secret);
+		secrets.push(hop2.secret);
+		let mut peers = vec![];
+		peers.push(peer1);
+		peers.push(peer2);
+		let mut route_simulartor = RouteSimulator::new(secrets, peers);
 
 		Ok(())
 	}

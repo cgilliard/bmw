@@ -3218,7 +3218,7 @@ mod test {
 			assert_eq!(&buf[0..len], b"test2");
 		}
 
-		let total = 1_000;
+		let total = 10;
 		for _ in 0..total {
 			let mut connection = TcpStream::connect(addr)?;
 			connection.write(b"test1")?;
