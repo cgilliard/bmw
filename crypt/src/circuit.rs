@@ -102,10 +102,10 @@ mod test {
 		fn start(&mut self) -> Result<(), Error> {
 			Ok(())
 		}
-		fn read_crypt(&mut self, rd: &mut dyn Read) -> Result<usize, Error> {
+		fn read_crypt(&mut self, _rd: &mut dyn Read) -> Result<usize, Error> {
 			todo!()
 		}
-		fn write_crypt(&mut self, wr: &mut dyn Write) -> Result<usize, Error> {
+		fn write_crypt(&mut self, _wr: &mut dyn Write) -> Result<usize, Error> {
 			todo!()
 		}
 
@@ -147,7 +147,7 @@ mod test {
 		let mut peers = vec![];
 		peers.push(peer1);
 		peers.push(peer2);
-		let mut route_simulartor = RouteSimulator::new(secrets, peers);
+		let _route_simulator = RouteSimulator::new(secrets, peers);
 
 		Ok(())
 	}
