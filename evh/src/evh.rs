@@ -3211,8 +3211,6 @@ mod test {
 		};
 		evh.add_server(sc)?;
 
-		sleep(Duration::from_millis(5_000));
-
 		let mut handle = lock_box!(None)?;
 		let handle_clone = handle.clone();
 
@@ -3230,7 +3228,7 @@ mod test {
 			Ok(())
 		});
 
-		let total = 10;
+		let total = 1_000;
 		for i in 0..total {
 			info!("loop {}", i)?;
 			let mut connection = TcpStream::connect(addr)?;
