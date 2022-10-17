@@ -2535,9 +2535,16 @@ mod test {
 	use std::time::Duration;
 
 	#[cfg(unix)]
-	use std::os::unix::io::FromRawFd;
+	use std::os::unix::io::{AsRawFd, FromRawFd};
 	#[cfg(windows)]
-	use std::os::windows::io::FromRawSocket;
+	use std::os::windows::io::{AsRawSocket, FromRawSocket};
+
+	#[cfg(target_os = "linux")]
+	use crate::linux::*;
+	#[cfg(target_os = "macos")]
+	use crate::mac::*;
+	#[cfg(windows)]
+	use crate::win::*;
 
 	info!();
 
@@ -3146,7 +3153,7 @@ mod test {
 		let threads = 2;
 		let config = EventHandlerConfig {
 			threads,
-			housekeeping_frequency_millis: 10_000,
+			housekeeping_frequency_millis: 1_000_000,
 			read_slab_count: 30,
 			max_handles_per_thread: 3,
 			..Default::default()
@@ -3206,30 +3213,61 @@ mod test {
 
 		sleep(Duration::from_millis(5_000));
 
-		{
-			let mut connection = TcpStream::connect(addr)?;
-			connection.write(b"test1")?;
-			let mut buf = vec![];
-			buf.resize(100, 0u8);
-			let len = connection.read(&mut buf)?;
-			assert_eq!(&buf[0..len], b"test1");
-			connection.write(b"test2")?;
-			let len = connection.read(&mut buf)?;
-			assert_eq!(&buf[0..len], b"test2");
-		}
+		let mut handle = lock_box!(None)?;
+		let handle_clone = handle.clone();
+
+		std::thread::spawn(move || -> Result<(), Error> {
+			std::thread::sleep(Duration::from_millis(60_000));
+			let handle = handle_clone.rlock()?;
+			let guard = handle.guard();
+			match **guard {
+				Some(handle) => {
+					info!("due to timeout closing handle = {}", handle)?;
+					close_handle_impl(handle)?;
+				}
+				_ => {}
+			}
+			Ok(())
+		});
 
 		let total = 10;
-		for _ in 0..total {
+		for i in 0..total {
+			info!("loop {}", i)?;
 			let mut connection = TcpStream::connect(addr)?;
+			#[cfg(unix)]
+			let rhandle = connection.as_raw_fd();
+			#[cfg(windows)]
+			let rhandle = connection.as_raw_handle();
+
+			{
+				let mut handle = handle.wlock()?;
+				let guard = handle.guard();
+				**guard = Some(rhandle);
+			}
+
+			info!("loop {} connected", i)?;
 			connection.write(b"test1")?;
+			info!("loop {} write complete", i)?;
 			let mut buf = vec![];
 			buf.resize(100, 0u8);
+			info!("loop {} about to read", i)?;
 			let len = connection.read(&mut buf)?;
+			info!("loop {} about read complete", i)?;
 			assert_eq!(&buf[0..len], b"test1");
 			connection.write(b"test2")?;
+			info!("loop {} about to read2", i)?;
 			let len = connection.read(&mut buf)?;
 			assert_eq!(&buf[0..len], b"test2");
+			info!("loop {} complete", i)?;
+
+			{
+				let mut handle = handle.wlock()?;
+				let guard = handle.guard();
+				**guard = None;
+			}
 		}
+
+		info!("complete")?;
 
 		let mut count_count = 0;
 		loop {
@@ -3239,7 +3277,7 @@ mod test {
 			if count != total + 1 && count_count < 10_000 {
 				continue;
 			}
-			assert_eq!((**((close_count_clone.rlock()?).guard())), total + 1);
+			assert_eq!((**((close_count_clone.rlock()?).guard())), total);
 			break;
 		}
 
