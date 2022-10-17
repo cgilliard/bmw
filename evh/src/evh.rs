@@ -2649,6 +2649,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let port = pick_free_port()?;
 		info!("basic Using port: {}", port)?;
@@ -2674,6 +2675,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		assert!(evh.add_server(sc).is_ok());
+		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
 		info!("about to write")?;
@@ -2732,6 +2734,7 @@ mod test {
 				is_reuse_port: false,
 			};
 			evh.add_server(sc)?;
+			sleep(Duration::from_millis(5_000));
 			let mut connection = TcpStream::connect(addr)?;
 			connection.write(b"test")?;
 			let mut buf = vec![];
@@ -2786,6 +2789,7 @@ mod test {
 				is_reuse_port: false,
 			};
 			evhserver.add_server(sc)?;
+			sleep(Duration::from_millis(5_000));
 
 			let connection = TcpStream::connect(addr2)?;
 			connection.set_nonblocking(true)?;
@@ -2848,6 +2852,7 @@ mod test {
 				is_reuse_port: false,
 			};
 			evh.add_server(sc)?;
+			sleep(Duration::from_millis(5_000));
 
 			let mut connection = TcpStream::connect(addr)?;
 			let mut buf = vec![];
@@ -2963,6 +2968,7 @@ mod test {
 				is_reuse_port: false,
 			};
 			evh.add_server(sc)?;
+			sleep(Duration::from_millis(5_000));
 
 			let connection = TcpStream::connect(addr)?;
 			connection.set_nonblocking(true)?;
@@ -3062,6 +3068,7 @@ mod test {
 				is_reuse_port: false,
 			};
 			evh.add_server(sc)?;
+			sleep(Duration::from_millis(5_000));
 
 			let connection = TcpStream::connect(addr)?;
 			connection.set_nonblocking(true)?;
@@ -3128,6 +3135,7 @@ mod test {
 				is_reuse_port: false,
 			};
 			evh.add_server(sc)?;
+			sleep(Duration::from_millis(5_000));
 
 			// connect and send clear text. Internally an error should occur and
 			// warning printed. Processing continues though.
@@ -3210,6 +3218,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut handle = lock_box!(None)?;
 		let handle_clone = handle.clone();
@@ -3359,6 +3368,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		{
 			let mut connection = TcpStream::connect(addr)?;
@@ -3453,6 +3463,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
 		let mut message = ['a' as u8; 1024];
@@ -3557,6 +3568,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
 		#[cfg(unix)]
@@ -3666,6 +3678,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		{
 			let mut connection = TcpStream::connect(addr)?;
@@ -3751,6 +3764,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
 		sleep(Duration::from_millis(1000));
@@ -3838,7 +3852,7 @@ mod test {
 
 		sleep(Duration::from_millis(1000));
 		evh.add_server(sc)?;
-		sleep(Duration::from_millis(1000));
+		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
 		let mut message = ['a' as u8; 1036];
@@ -4024,6 +4038,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let config = EventHandlerConfig {
 			threads,
@@ -4176,6 +4191,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 
@@ -4272,6 +4288,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 
@@ -4331,6 +4348,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 
@@ -4398,6 +4416,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 
@@ -4491,6 +4510,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 
@@ -4582,6 +4602,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 
@@ -4683,6 +4704,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		// make 4 connections
 		let mut stream1 = TcpStream::connect(addr)?;
@@ -4821,6 +4843,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		{
 			let mut stream1 = TcpStream::connect(addr)?;
@@ -4922,6 +4945,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 
@@ -4987,6 +5011,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 		stream.write(b"12345")?;
@@ -5118,6 +5143,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
 
@@ -5223,6 +5249,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		{
 			let v = **(x_clone.rlock()?.guard());
@@ -5349,6 +5376,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		{
 			let mut connection = TcpStream::connect(addr)?;
@@ -5622,6 +5650,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
 		connection.set_nonblocking(true)?;
@@ -5801,6 +5830,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
 		connection.set_nonblocking(true)?;
@@ -5977,6 +6007,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
 		connection.set_nonblocking(true)?;
@@ -6129,6 +6160,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
 		connection.write(b"1panic")?;
@@ -6203,6 +6235,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
 		info!("about to write")?;
@@ -6310,6 +6343,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let _connection = TcpStream::connect(addr)?;
 		sleep(Duration::from_millis(1_000));
@@ -6332,7 +6366,7 @@ mod test {
 			let _connection = TcpStream::connect(addr)?;
 		}
 
-		sleep(Duration::from_millis(1_000));
+		sleep(Duration::from_millis(5_000));
 
 		// last connection on close handler panics, but we should be able to still send
 		// requests.
@@ -6551,6 +6585,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
 		info!("about to write")?;
@@ -6615,6 +6650,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
 		connection.set_nonblocking(true)?;
@@ -6646,7 +6682,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
-		sleep(Duration::from_millis(1_000));
+		sleep(Duration::from_millis(5_000));
 
 		// connection 2 closed so this will fail
 		assert!(TcpStream::connect(addr2).is_err());
@@ -6706,6 +6742,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let port = pick_free_port()?;
 		info!("basic Using port: {}", port)?;
@@ -6731,6 +6768,7 @@ mod test {
 			is_reuse_port: false,
 		};
 		assert!(evh.add_server(sc).is_ok());
+		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
 		info!("about to write")?;
@@ -6896,6 +6934,7 @@ mod test {
 			is_reuse_port: true,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect("example.com:443")?;
 		connection.set_nonblocking(true)?;
