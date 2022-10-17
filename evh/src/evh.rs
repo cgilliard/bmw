@@ -3214,6 +3214,8 @@ mod test {
 		let mut handle = lock_box!(None)?;
 		let handle_clone = handle.clone();
 
+		sleep(Duration::from_millis(5_000));
+
 		std::thread::spawn(move || -> Result<(), Error> {
 			std::thread::sleep(Duration::from_millis(600_000));
 			let handle = handle_clone.rlock()?;
