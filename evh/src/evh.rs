@@ -3941,6 +3941,7 @@ mod test {
 		};
 		evh.add_server(sc)?;
 
+		sleep(Duration::from_millis(5_000));
 		let mut stream = TcpStream::connect(addr)?;
 
 		let mut bytes = [0u8; 10240];
@@ -3952,8 +3953,8 @@ mod test {
 			info!("i={}", i)?;
 			stream.write(&bytes[0..i])?;
 			let mut buf = vec![];
-			buf.resize(i, 0u8);
-			let len = stream.read(&mut buf[0..i])?;
+			buf.resize(i + 2_000, 0u8);
+			let len = stream.read(&mut buf[0..i + 2_000])?;
 			assert_eq!(len, i);
 			assert_eq!(&buf[0..len], &bytes[0..len]);
 		}
