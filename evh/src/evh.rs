@@ -3237,12 +3237,12 @@ mod test {
 			#[cfg(unix)]
 			let rhandle = connection.as_raw_fd();
 			#[cfg(windows)]
-			let rhandle = connection.as_raw_handle();
+			let rhandle = connection.as_raw_socket();
 
 			{
 				let mut handle = handle.wlock()?;
 				let guard = handle.guard();
-				**guard = Some(rhandle);
+				**guard = Some(rhandle.try_into().unwrap());
 			}
 
 			info!("loop {} connected", i)?;
@@ -3274,7 +3274,7 @@ mod test {
 			count_count += 1;
 			sleep(Duration::from_millis(1));
 			let count = **((close_count_clone.rlock()?).guard());
-			if count != total + 1 && count_count < 10_000 {
+			if count != total && count_count < 10_000 {
 				continue;
 			}
 			assert_eq!((**((close_count_clone.rlock()?).guard())), total);
