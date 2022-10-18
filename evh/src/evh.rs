@@ -3239,7 +3239,7 @@ mod test {
 			Ok(())
 		});
 
-		let total = 1_000;
+		let total = 500;
 		for i in 0..total {
 			info!("loop {}", i)?;
 			let mut connection = TcpStream::connect(addr)?;
