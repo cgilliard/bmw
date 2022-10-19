@@ -30,6 +30,7 @@ use std::time::SystemTime;
 
 info!();
 
+#[allow(deprecated)]
 impl ClientCertVerifier for TlsClientCertVerifier {
 	fn client_auth_root_subjects(&self) -> Option<Vec<PayloadU16>> {
 		Some(vec![])
@@ -89,6 +90,7 @@ impl ClientCertVerifier for TlsClientCertVerifier {
 	}
 }
 
+#[allow(deprecated)]
 impl ServerCertVerifier for TlsServerCertVerifier {
 	fn verify_server_cert(
 		&self,
