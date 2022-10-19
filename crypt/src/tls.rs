@@ -22,7 +22,7 @@ use bmw_deps::rustls::client::{HandshakeSignatureValid, ServerCertVerified, Serv
 use bmw_deps::rustls::internal::msgs::base::PayloadU16;
 use bmw_deps::rustls::internal::msgs::handshake::DigitallySignedStruct;
 use bmw_deps::rustls::server::{ClientCertVerified, ClientCertVerifier};
-use bmw_deps::rustls::{internal, Certificate, Error, ServerName, SignatureScheme};
+use bmw_deps::rustls::{Certificate, Error, ServerName, SignatureScheme};
 use bmw_deps::x509_signature::{self, parse_certificate, X509Certificate};
 use bmw_err::ErrorKind;
 use bmw_log::*;
@@ -152,7 +152,7 @@ fn get_cert(c: &Certificate) -> Result<X509Certificate, bmw_err::Error> {
 /// Convert from the signature scheme type used in `rustls` to the one used in
 /// `x509_signature`.
 fn convert_scheme(scheme: SignatureScheme) -> Result<x509_signature::SignatureScheme, Error> {
-	use internal::msgs::enums::SignatureScheme as R;
+	use bmw_deps::rustls::SignatureScheme as R;
 	use x509_signature::SignatureScheme as X;
 	// Yes, we do allow PKCS1 here.  That's fine in practice when PKCS1 is only
 	// used (as in TLS 1.2) for signatures; the attacks against correctly
