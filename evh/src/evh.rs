@@ -6361,12 +6361,11 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
+		sleep(Duration::from_millis(5_000));
 
 		{
 			let _connection = TcpStream::connect(addr)?;
 		}
-
-		sleep(Duration::from_millis(5_000));
 
 		// last connection on close handler panics, but we should be able to still send
 		// requests.
@@ -6549,8 +6548,8 @@ mod test {
 			is_reuse_port: false,
 		};
 		evh.add_server(sc)?;
-		let _connection = TcpStream::connect(addr)?;
 		sleep(Duration::from_millis(5_000));
+		let _connection = TcpStream::connect(addr)?;
 
 		Ok(())
 	}
