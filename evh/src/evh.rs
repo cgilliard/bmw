@@ -6366,6 +6366,7 @@ mod test {
 		{
 			let _connection = TcpStream::connect(addr)?;
 		}
+		sleep(Duration::from_millis(5_000));
 
 		// last connection on close handler panics, but we should be able to still send
 		// requests.
