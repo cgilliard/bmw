@@ -173,7 +173,7 @@
 //! # Use cases
 //!
 //! The main use case for these data structures is in server applications to avoid making dynamic
-//! heap allocations as runtime, but they also offer some other interesting properties. For instance, with
+//! heap allocations at runtime, but they also offer some other interesting properties. For instance, with
 //! the standard rust collections, the entries in the hashmap are just references so they must
 //! stay in scope while they are in the hashmap. With this implementation, that is not required.
 //! The inserted items can be dropped and they will remain in the hashtable/hashset. Also,
