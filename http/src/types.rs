@@ -16,14 +16,37 @@
 // limitations under the License.
 
 use bmw_err::*;
+use bmw_evh::EventHandlerConfig;
 
 pub trait HttpServer {
 	fn start(&mut self) -> Result<(), Error>;
 	fn stop(&mut self) -> Result<(), Error>;
 }
 
+pub struct PlainConfig {
+	pub domainnames: Vec<String>,
+}
+
+pub struct TlsConfig {
+	pub cert_file: String,
+	pub privkey_file: String,
+	pub domainnames: Vec<String>,
+}
+
+pub enum HttpInstanceType {
+	Plain(PlainConfig),
+	Tls(TlsConfig),
+}
+
+pub struct HttpInstance {
+	pub port: u16,
+	pub http_dir: String,
+	pub instance_type: HttpInstanceType,
+}
+
 pub struct HttpConfig {
-	pub threads: usize,
+	pub evh_config: EventHandlerConfig,
+	pub instances: Vec<HttpInstance>,
 }
 
 pub struct HttpHeaders {}
@@ -31,4 +54,6 @@ pub struct HttpHeaders {}
 pub struct Builder {}
 
 // Crate local types
-pub(crate) struct HttpServerImpl {}
+pub(crate) struct HttpServerImpl {
+	pub(crate) config: HttpConfig,
+}

@@ -16,24 +16,73 @@
 // limitations under the License.
 
 use crate::types::{HttpHeaders, HttpServerImpl};
-use crate::{HttpConfig, HttpServer};
+use crate::{HttpConfig, HttpInstance, HttpInstanceType, HttpServer, PlainConfig};
 use bmw_err::*;
+use bmw_evh::{Builder, ConnectionData, EventHandler, EventHandlerConfig, ThreadContext};
+use std::any::Any;
 
 impl Default for HttpConfig {
 	fn default() -> Self {
-		Self { threads: 6 }
+		Self {
+			evh_config: EventHandlerConfig::default(),
+			instances: vec![HttpInstance {
+				instance_type: HttpInstanceType::Plain(PlainConfig {
+					domainnames: vec![],
+				}),
+				port: 8080,
+				http_dir: "~/.bmw/www".to_string(),
+			}],
+		}
 	}
 }
 
 impl HttpServerImpl {
-	pub(crate) fn new(_config: HttpConfig) -> Result<HttpServerImpl, Error> {
-		let _headers = HttpHeaders {};
-		Ok(Self {})
+	pub(crate) fn new(config: HttpConfig) -> Result<HttpServerImpl, Error> {
+		Ok(Self { config })
+	}
+
+	fn process_on_read(
+		conn_data: &mut ConnectionData,
+		ctx: &mut ThreadContext,
+	) -> Result<(), Error> {
+		Ok(())
+	}
+
+	fn process_on_accept(
+		conn_data: &mut ConnectionData,
+		ctx: &mut ThreadContext,
+	) -> Result<(), Error> {
+		Ok(())
+	}
+
+	fn process_on_close(
+		conn_data: &mut ConnectionData,
+		ctx: &mut ThreadContext,
+	) -> Result<(), Error> {
+		Ok(())
+	}
+
+	fn process_on_panic(ctx: &mut ThreadContext, e: Box<dyn Any + Send>) -> Result<(), Error> {
+		Ok(())
+	}
+
+	fn process_housekeeper(ctx: &mut ThreadContext) -> Result<(), Error> {
+		Ok(())
 	}
 }
 
 impl HttpServer for HttpServerImpl {
 	fn start(&mut self) -> Result<(), Error> {
+		let mut evh = Builder::build_evh(self.config.evh_config.clone())?;
+
+		evh.set_on_read(move |conn_data, ctx| Self::process_on_read(conn_data, ctx))?;
+		evh.set_on_accept(move |conn_data, ctx| Self::process_on_accept(conn_data, ctx))?;
+		evh.set_on_close(move |conn_data, ctx| Self::process_on_close(conn_data, ctx))?;
+		evh.set_on_panic(move |ctx, e| Self::process_on_panic(ctx, e))?;
+		evh.set_housekeeper(move |ctx| Self::process_housekeeper(ctx))?;
+
+		evh.start()?;
+
 		Ok(())
 	}
 

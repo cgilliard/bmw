@@ -33,7 +33,7 @@ mod test {
 
 	#[test]
 	fn test_http_builder() -> Result<(), Error> {
-		let config = HttpConfig { threads: 6 };
+		let config = HttpConfig::default();
 		let mut server = Builder::build_http_server(config)?;
 		server.start()?;
 		Ok(())
