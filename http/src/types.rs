@@ -40,6 +40,8 @@ pub enum HttpInstanceType {
 
 pub struct HttpInstance {
 	pub port: u16,
+	pub addr: String,
+	pub listen_queue_size: usize,
 	pub http_dir: String,
 	pub instance_type: HttpInstanceType,
 }
