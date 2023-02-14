@@ -47,6 +47,7 @@ pub use nix;
 pub use num_format;
 pub use old_rand_core;
 pub use openssl;
+pub use path_clean;
 pub use pem;
 pub use portpicker;
 pub use rand;

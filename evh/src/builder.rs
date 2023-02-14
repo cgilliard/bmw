@@ -16,7 +16,9 @@
 // limitations under the License.
 
 use crate::types::EventHandlerImpl;
-use crate::{Builder, ConnectionData, EventHandler, EventHandlerConfig, ThreadContext};
+use crate::{
+	AttachmentHolder, Builder, ConnectionData, EventHandler, EventHandlerConfig, ThreadContext,
+};
 use bmw_err::*;
 use std::any::Any;
 
@@ -27,7 +29,11 @@ impl Builder {
 		config: EventHandlerConfig,
 	) -> Result<impl EventHandler<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>, Error>
 	where
-		OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+		OnRead: FnMut(
+				&mut ConnectionData,
+				&mut ThreadContext,
+				Option<AttachmentHolder>,
+			) -> Result<(), Error>
 			+ Send
 			+ 'static
 			+ Clone

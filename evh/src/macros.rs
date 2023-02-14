@@ -39,7 +39,7 @@ mod test {
 	fn test_evh_macros() -> Result<(), Error> {
 		let mut evh = eventhandler!()?;
 		evh.start()?;
-		evh.set_on_read(move |_, _| Ok(()))?;
+		evh.set_on_read(move |_, _, _| Ok(()))?;
 		evh.set_on_accept(move |_, _| Ok(()))?;
 		evh.set_on_close(move |_, _| Ok(()))?;
 		evh.set_on_panic(move |_, _| Ok(()))?;
@@ -51,7 +51,7 @@ mod test {
 		};
 		let mut evh2 = eventhandler!(config)?;
 		evh2.start()?;
-		evh2.set_on_read(move |_, _| Ok(()))?;
+		evh2.set_on_read(move |_, _, _| Ok(()))?;
 		evh2.set_on_accept(move |_, _| Ok(()))?;
 		evh2.set_on_close(move |_, _| Ok(()))?;
 		evh2.set_on_panic(move |_, _| Ok(()))?;

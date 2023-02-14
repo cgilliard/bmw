@@ -17,27 +17,40 @@
 
 use bmw_err::*;
 use bmw_evh::EventHandlerConfig;
+use bmw_util::*;
+
+pub struct HttpHeaders<'a> {
+	pub(crate) termination_point: usize,
+	pub(crate) start: usize,
+	pub(crate) req: &'a Vec<u8>,
+	pub(crate) start_uri: usize,
+	pub(crate) end_uri: usize,
+}
 
 pub trait HttpServer {
 	fn start(&mut self) -> Result<(), Error>;
 	fn stop(&mut self) -> Result<(), Error>;
 }
 
+#[derive(Clone, Debug)]
 pub struct PlainConfig {
 	pub domainnames: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
 pub struct TlsConfig {
 	pub cert_file: String,
 	pub privkey_file: String,
 	pub domainnames: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
 pub enum HttpInstanceType {
 	Plain(PlainConfig),
 	Tls(TlsConfig),
 }
 
+#[derive(Clone, Debug)]
 pub struct HttpInstance {
 	pub port: u16,
 	pub addr: String,
@@ -46,16 +59,21 @@ pub struct HttpInstance {
 	pub instance_type: HttpInstanceType,
 }
 
+#[derive(Clone)]
 pub struct HttpConfig {
 	pub evh_config: EventHandlerConfig,
 	pub instances: Vec<HttpInstance>,
 }
-
-pub struct HttpHeaders {}
 
 pub struct Builder {}
 
 // Crate local types
 pub(crate) struct HttpServerImpl {
 	pub(crate) config: HttpConfig,
+}
+
+pub(crate) struct HttpContext {
+	pub(crate) suffix_tree: Box<dyn SuffixTree + Send + Sync>,
+	pub(crate) matches: [Match; 1_000],
+	pub(crate) offset: usize,
 }

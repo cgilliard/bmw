@@ -15,35 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::types::HttpServerImpl;
-use crate::Builder;
-use crate::{HttpConfig, HttpServer};
-use bmw_err::*;
-
-impl Builder {
-	pub fn build_http_server(config: HttpConfig) -> Result<Box<dyn HttpServer>, Error> {
-		Ok(Box::new(HttpServerImpl::new(config)?))
-	}
-}
-
-#[cfg(test)]
-mod test {
-	use crate::{Builder, HttpConfig, HttpInstance};
-	use bmw_err::*;
-	use bmw_test::port::pick_free_port;
-
-	#[test]
-	fn test_http_builder() -> Result<(), Error> {
-		let port = pick_free_port()?;
-		let config = HttpConfig {
-			instances: vec![HttpInstance {
-				port,
-				..Default::default()
-			}],
-			..Default::default()
-		};
-		let mut server = Builder::build_http_server(config)?;
-		server.start()?;
-		Ok(())
-	}
-}
+pub(crate) const SUFFIX_TREE_TERMINATE_HEADERS_ID: usize = 0;
+pub(crate) const SUFFIX_TREE_GET_ID: usize = 1;
+pub(crate) const SUFFIX_TREE_POST_ID: usize = 2;
+pub(crate) const SUFFIX_TREE_HEADER: usize = 3;
