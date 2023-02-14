@@ -118,6 +118,8 @@ pub enum ErrorKind {
 	/// BMW Crypt Error
 	#[fail(display = "bmw_crypt error: {}", _0)]
 	Crypt(String),
+	#[fail(display = "http_error: {}", _0)]
+	Http(String),
 }
 
 /// The names of ErrorKinds in this crate. This enum is used to map to error
@@ -168,6 +170,8 @@ pub enum ErrKind {
 	Rustls,
 	/// Crypt error
 	Crypt,
+	/// Http error
+	Http,
 }
 
 impl Display for Error {

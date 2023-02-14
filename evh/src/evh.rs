@@ -16,8 +16,9 @@
 // limitations under the License.
 
 use crate::types::{
-	ConnectionInfo, Event, EventHandlerContext, EventHandlerData, EventHandlerImpl, EventIn,
-	EventType, EventTypeIn, Handle, LastProcessType, ListenerInfo, StreamInfo, Wakeup, WriteState,
+	AttachmentHolder, ConnectionInfo, Event, EventHandlerContext, EventHandlerData,
+	EventHandlerImpl, EventIn, EventType, EventTypeIn, Handle, LastProcessType, ListenerInfo,
+	StreamInfo, Wakeup, WriteState,
 };
 use crate::{
 	ClientConnection, ConnData, ConnectionData, EventHandler, EventHandlerConfig, ServerConnection,
@@ -36,7 +37,9 @@ use bmw_deps::webpki_roots::TLS_SERVER_ROOTS;
 use bmw_err::*;
 use bmw_log::*;
 use bmw_util::*;
+use std::any::type_name;
 use std::any::Any;
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
@@ -196,6 +199,7 @@ impl Serializable for ConnectionInfo {
 			debug!("deserrw for id = {}", id)?;
 			let handle = Handle::read(reader)?;
 			let accept_handle: Option<Handle> = Option::read(reader)?;
+			let accept_id: Option<u128> = Option::read(reader)?;
 			let v = reader.read_usize()?;
 			let write_state: Box<dyn LockBox<WriteState>> = lock_box_from_usize(v);
 			let first_slab = reader.read_u32()?;
@@ -222,6 +226,7 @@ impl Serializable for ConnectionInfo {
 				id,
 				handle,
 				accept_handle,
+				accept_id,
 				write_state,
 				first_slab,
 				last_slab,
@@ -268,6 +273,7 @@ impl Serializable for ConnectionInfo {
 				writer.write_u128(ri.id)?;
 				ri.handle.write(writer)?;
 				ri.accept_handle.write(writer)?;
+				ri.accept_id.write(writer)?;
 				writer.write_usize(ri.write_state.danger_to_usize())?;
 				writer.write_u32(ri.first_slab)?;
 				writer.write_u32(ri.last_slab)?;
@@ -427,6 +433,7 @@ impl EventHandlerContext {
 			selector: unsafe { epoll_create(1) } as usize,
 			buffer: vec![],
 			do_write_back: true,
+			attachments: HashMap::new(),
 		})
 	}
 }
@@ -785,6 +792,7 @@ impl EventHandlerData {
 			nhandles: queue_sync_box!(nhandles_queue_size, &connection_info)?,
 			stop: false,
 			stopped: false,
+			attachments: HashMap::new(),
 		};
 		Ok(evhd)
 	}
@@ -793,7 +801,11 @@ impl EventHandlerData {
 impl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 	EventHandlerImpl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 where
-	OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnRead: FnMut(
+			&mut ConnectionData,
+			&mut ThreadContext,
+			Option<AttachmentHolder>,
+		) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -1075,6 +1087,10 @@ where
 		Ok(())
 	}
 
+	fn type_of<T>(_: T) -> &'static str {
+		type_name::<T>()
+	}
+
 	#[cfg(not(tarpaulin_include))]
 	fn process_write_queue(&mut self, ctx: &mut EventHandlerContext) -> Result<(), Error> {
 		debug!("process write queue")?;
@@ -1168,13 +1184,14 @@ where
 		debug!("handles={},tid={}", (**guard).nhandles.length(), ctx.tid)?;
 		loop {
 			let mut next = (**guard).nhandles.dequeue();
+			let id;
+			let mut attachment: Option<AttachmentHolder>;
 			match next {
 				Some(ref mut nhandle) => {
 					debug!("handle={:?} on tid={}", nhandle, ctx.tid)?;
 					match nhandle {
 						ConnectionInfo::ListenerInfo(li) => {
-							let id = random();
-							match Self::insert_hashtables(ctx, id, li.handle, nhandle) {
+							match Self::insert_hashtables(ctx, li.id, li.handle, nhandle) {
 								Ok(_) => {
 									let ev_in = EventIn {
 										handle: li.handle,
@@ -1187,6 +1204,9 @@ where
 									close_impl(ctx, li.handle, true)?;
 								}
 							}
+							id = li.id;
+							attachment = (**guard).attachments.remove(&id);
+							debug!("id={},att={:?}", id, attachment)?;
 						}
 						ConnectionInfo::StreamInfo(rw) => {
 							match Self::insert_hashtables(ctx, rw.id, rw.handle, nhandle) {
@@ -1202,10 +1222,27 @@ where
 									close_impl(ctx, rw.handle, true)?;
 								}
 							}
+							id = rw.id;
+							let acc_id = rw.accept_id;
+							attachment = (**guard).attachments.remove(&id);
+							if attachment.is_none() {
+								match acc_id {
+									Some(id) => attachment = (**guard).attachments.remove(&id),
+									None => {}
+								}
+							}
 						}
 					}
 				}
 				None => break,
+			}
+
+			debug!("process att = {:?} on tid = {}", attachment, ctx.tid)?;
+			match attachment {
+				Some(attachment) => {
+					ctx.attachments.insert(id, attachment);
+				}
+				None => {}
 			}
 		}
 		Ok(false)
@@ -1359,6 +1396,20 @@ where
 				Some(on_read) => {
 					ctx.last_process_type = LastProcessType::OnRead;
 					ctx.last_rw = Some(rw.clone());
+					let attachment: Option<AttachmentHolder> = match ctx.attachments.get(&rw.id) {
+						Some(attachment) => Some(attachment.clone()),
+						None => None,
+					};
+					let attachment = match attachment {
+						Some(attachment) => Some(attachment),
+						None => match rw.accept_id {
+							Some(id) => match ctx.attachments.get(&id) {
+								Some(attachment) => Some(attachment.clone()),
+								None => None,
+							},
+							None => None,
+						},
+					};
 					match on_read(
 						&mut ConnectionData::new(
 							rw,
@@ -1372,6 +1423,7 @@ where
 							self.debug_suspended,
 						),
 						callback_context,
+						attachment,
 					) {
 						Ok(_) => {}
 						Err(e) => {
@@ -1780,6 +1832,23 @@ where
 				Some(on_read) => {
 					ctx.last_process_type = LastProcessType::OnRead;
 					ctx.last_rw = Some(rw.clone());
+					debug!("trying id = {}, rid = {:?}", rw.id, rw.accept_id)?;
+					let attachment: Option<AttachmentHolder> = match ctx.attachments.get(&rw.id) {
+						Some(attachment) => Some(attachment.clone()),
+						None => None,
+					};
+					let attachment = match attachment {
+						Some(attachment) => Some(attachment),
+						None => match rw.accept_id {
+							Some(id) => match ctx.attachments.get(&id) {
+								Some(attachment) => Some(attachment.clone()),
+								None => None,
+							},
+							None => None,
+						},
+					};
+
+					debug!("att set = {:?}", attachment)?;
 					match on_read(
 						&mut ConnectionData::new(
 							rw,
@@ -1793,6 +1862,7 @@ where
 							self.debug_suspended,
 						),
 						callback_context,
+						attachment,
 					) {
 						Ok(_) => {}
 						Err(e) => {
@@ -1832,6 +1902,7 @@ where
 		ctx.connection_hashtable
 			.insert(&rw.id, &ConnectionInfo::StreamInfo(rw.clone()))?;
 		ctx.connection_hashtable.remove(&rw.id)?;
+		ctx.attachments.remove(&rw.id);
 		ctx.handle_hashtable.remove(&rw.handle)?;
 		rw.clear_through_impl(rw.last_slab, &mut ctx.read_slabs)?;
 		close_impl(ctx, rw.handle, false)?;
@@ -1918,6 +1989,7 @@ where
 			id,
 			handle,
 			accept_handle: Some(li.handle),
+			accept_id: Some(li.id),
 			write_state: lock_box!(WriteState {
 				write_buffer: vec![],
 				flags: 0
@@ -1969,10 +2041,27 @@ where
 			}
 
 			{
+				let id = if rwi.accept_id.is_some() {
+					rwi.accept_id.unwrap()
+				} else {
+					0
+				};
+				let attachment = if id != 0 {
+					ctx.attachments.get(&rwi.accept_id.unwrap())
+				} else {
+					None
+				};
 				let mut data = self.data[tid].wlock()?;
 				let guard = data.guard();
 				let ci = ConnectionInfo::StreamInfo(rwi);
 				(**guard).nhandles.enqueue(ci)?;
+
+				match attachment {
+					Some(attachment) => {
+						(**guard).attachments.insert(id, attachment.clone());
+					}
+					None => {}
+				}
 			}
 
 			debug!("wakeup called on tid = {}", tid)?;
@@ -2052,7 +2141,11 @@ impl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 	EventHandler<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 	for EventHandlerImpl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 where
-	OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnRead: FnMut(
+			&mut ConnectionData,
+			&mut ThreadContext,
+			Option<AttachmentHolder>,
+		) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -2272,7 +2365,14 @@ where
 	}
 
 	#[cfg(not(tarpaulin_include))]
-	fn add_client(&mut self, connection: ClientConnection) -> Result<WriteHandle, Error> {
+	fn add_client(
+		&mut self,
+		connection: ClientConnection,
+		attachment: Box<dyn Any + Send + Sync>,
+	) -> Result<WriteHandle, Error> {
+		let attachment = AttachmentHolder {
+			attachment: Arc::new(attachment),
+		};
 		let tid: usize = random::<usize>() % self.data.size();
 		let id: u128 = random::<u128>();
 		let handle = connection.handle;
@@ -2309,6 +2409,7 @@ where
 			id,
 			handle,
 			accept_handle: None,
+			accept_id: None,
 			write_state,
 			first_slab: u32::MAX,
 			last_slab: u32::MAX,
@@ -2323,13 +2424,23 @@ where
 			let guard = data.guard();
 			let ci = ConnectionInfo::StreamInfo(rwi);
 			(**guard).nhandles.enqueue(ci)?;
+			(**guard).attachments.insert(id, attachment);
 		}
 
 		self.wakeup[tid].wakeup()?;
 		Ok(wh)
 	}
-	fn add_server(&mut self, connection: ServerConnection) -> Result<(), Error> {
-		debug!("add server")?;
+
+	fn add_server(
+		&mut self,
+		connection: ServerConnection,
+		attachment: Box<dyn Any + Send + Sync>,
+	) -> Result<(), Error> {
+		let attachment = AttachmentHolder {
+			attachment: Arc::new(attachment),
+		};
+		debug!("type in add_ser = {:?}", Self::type_of(attachment.clone()))?;
+		debug!("add server: {:?}", attachment)?;
 
 		let tls_config = if connection.tls_config.len() == 0 {
 			None
@@ -2360,6 +2471,8 @@ where
 			return Err(err);
 		}
 
+		let attachment = Arc::new(attachment);
+
 		for i in 0..connection.handles.size() {
 			let handle = connection.handles[i];
 			// check for 0 which means to skip this handle (port not reused)
@@ -2367,15 +2480,24 @@ where
 				let mut data = self.data[i].wlock()?;
 				let wakeup = &mut self.wakeup[i];
 				let guard = data.guard();
+				let id = random();
 				let li = ListenerInfo {
-					id: random(),
+					id,
 					handle,
 					is_reuse_port: connection.is_reuse_port,
 					tls_config: tls_config.clone(),
 				};
 				let ci = ConnectionInfo::ListenerInfo(li);
 				(**guard).nhandles.enqueue(ci)?;
-				debug!("add handle: {}", handle)?;
+				(**guard)
+					.attachments
+					.insert(id, attachment.as_ref().clone());
+				debug!(
+					"add handle: {}, id={}, att={:?}",
+					handle,
+					id,
+					attachment.clone()
+				)?;
 				wakeup.wakeup()?;
 			}
 		}
@@ -2613,7 +2735,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -2648,7 +2770,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let port = pick_free_port()?;
@@ -2661,7 +2783,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		assert!(evh.add_server(sc).is_err());
+		assert!(evh.add_server(sc, Box::new("")).is_err());
 
 		let port = pick_free_port()?;
 		info!("basic Using port: {}", port)?;
@@ -2674,7 +2796,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		assert!(evh.add_server(sc).is_ok());
+		assert!(evh.add_server(sc, Box::new("")).is_ok());
 		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
@@ -2705,12 +2827,12 @@ mod test {
 				threads,
 				housekeeping_frequency_millis: 100_000,
 				read_slab_count: 100,
-				max_handles_per_thread: 3,
+				max_handles_per_thread: 10,
 				..Default::default()
 			};
 			let mut evh = EventHandlerImpl::new(config)?;
 
-			evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 			evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 			evh.set_on_close(move |conn_data, _thread_context| {
 				info!("on close: {}", conn_data.get_handle())?;
@@ -2733,7 +2855,7 @@ mod test {
 				handles,
 				is_reuse_port: false,
 			};
-			evh.add_server(sc)?;
+			evh.add_server(sc, Box::new(""))?;
 			sleep(Duration::from_millis(5_000));
 			let mut connection = TcpStream::connect(addr)?;
 			connection.write(b"test")?;
@@ -2753,7 +2875,7 @@ mod test {
 				..Default::default()
 			};
 			let mut evhserver = EventHandlerImpl::new(config)?;
-			evhserver.set_on_read(move |conn_data, _thread_context| {
+			evhserver.set_on_read(move |conn_data, _thread_context, _attachment| {
 				debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 				let first_slab = conn_data.first_slab();
 				let last_slab = conn_data.last_slab();
@@ -2788,7 +2910,7 @@ mod test {
 				handles,
 				is_reuse_port: false,
 			};
-			evhserver.add_server(sc)?;
+			evhserver.add_server(sc, Box::new(""))?;
 			sleep(Duration::from_millis(5_000));
 
 			let connection = TcpStream::connect(addr2)?;
@@ -2804,7 +2926,7 @@ mod test {
 					trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
 				}),
 			};
-			let mut wh = evh.add_client(client)?;
+			let mut wh = evh.add_client(client, Box::new(""))?;
 			wh.write(b"test")?;
 			sleep(Duration::from_millis(2000));
 
@@ -2831,7 +2953,7 @@ mod test {
 			};
 			let mut evh = EventHandlerImpl::new(config)?;
 
-			evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 			evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 			evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 			evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -2851,7 +2973,7 @@ mod test {
 				handles,
 				is_reuse_port: false,
 			};
-			evh.add_server(sc)?;
+			evh.add_server(sc, Box::new(""))?;
 			sleep(Duration::from_millis(5_000));
 
 			let mut connection = TcpStream::connect(addr)?;
@@ -2895,7 +3017,7 @@ mod test {
 			let server_received_test1_clone = server_received_test1.clone();
 			let server_received_abc_clone = server_received_abc.clone();
 
-			evh.set_on_read(move |conn_data, _thread_context| {
+			evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 				info!(
 					"on read handle={},id={}",
 					conn_data.get_handle(),
@@ -2967,7 +3089,7 @@ mod test {
 				handles,
 				is_reuse_port: false,
 			};
-			evh.add_server(sc)?;
+			evh.add_server(sc, Box::new(""))?;
 			sleep(Duration::from_millis(5_000));
 
 			let connection = TcpStream::connect(addr)?;
@@ -2988,7 +3110,7 @@ mod test {
 					trusted_cert_full_chain_file: Some("./resources/cert.pem".to_string()),
 				}),
 			};
-			let mut wh = evh.add_client(client)?;
+			let mut wh = evh.add_client(client, Box::new(""))?;
 
 			wh.write(b"test1")?;
 			let mut count = 0;
@@ -3033,7 +3155,7 @@ mod test {
 			};
 			let mut evh = EventHandlerImpl::new(config)?;
 
-			evh.set_on_read(move |conn_data, _thread_context| {
+			evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 				debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 				let first_slab = conn_data.first_slab();
 				let last_slab = conn_data.last_slab();
@@ -3067,7 +3189,7 @@ mod test {
 				handles,
 				is_reuse_port: false,
 			};
-			evh.add_server(sc)?;
+			evh.add_server(sc, Box::new(""))?;
 			sleep(Duration::from_millis(5_000));
 
 			let connection = TcpStream::connect(addr)?;
@@ -3085,7 +3207,7 @@ mod test {
 				}),
 			};
 			info!("client handle = {}", connection_handle)?;
-			let mut wh = evh.add_client(client)?;
+			let mut wh = evh.add_client(client, Box::new(""))?;
 
 			let _ = wh.write(b"test1");
 			sleep(Duration::from_millis(1_000));
@@ -3115,7 +3237,7 @@ mod test {
 			};
 			let mut evh = EventHandlerImpl::new(config)?;
 
-			evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+			evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 			evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 			evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 			evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -3134,7 +3256,7 @@ mod test {
 				handles,
 				is_reuse_port: false,
 			};
-			evh.add_server(sc)?;
+			evh.add_server(sc, Box::new(""))?;
 			sleep(Duration::from_millis(5_000));
 
 			// connect and send clear text. Internally an error should occur and
@@ -3171,7 +3293,7 @@ mod test {
 		let mut close_count = lock_box!(0)?;
 		let close_count_clone = close_count.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read fs = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
@@ -3217,7 +3339,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut handle = lock_box!(None)?;
@@ -3313,7 +3435,7 @@ mod test {
 		let mut close_count = lock_box!(0)?;
 		let close_count_clone = close_count.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read fs = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
@@ -3367,7 +3489,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		{
@@ -3416,7 +3538,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read fs = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -3462,7 +3584,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
@@ -3510,7 +3632,7 @@ mod test {
 		let server_received_test1_clone = server_received_test1.clone();
 		let server_received_abc_clone = server_received_abc.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read handle={}", conn_data.get_handle())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -3567,7 +3689,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
@@ -3584,7 +3706,7 @@ mod test {
 			handle: connection_handle,
 			tls_config: None,
 		};
-		let mut wh = evh.add_client(client)?;
+		let mut wh = evh.add_client(client, Box::new(""))?;
 
 		wh.write(b"test1")?;
 		let mut count = 0;
@@ -3628,7 +3750,7 @@ mod test {
 		let mut close_count = lock_box!(0)?;
 		let close_count_clone = close_count.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read fs = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
@@ -3677,7 +3799,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		{
@@ -3746,7 +3868,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -3763,7 +3885,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
@@ -3795,7 +3917,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -3851,7 +3973,7 @@ mod test {
 		};
 
 		sleep(Duration::from_millis(1000));
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
@@ -3908,7 +4030,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -3955,7 +4077,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 
 		sleep(Duration::from_millis(5_000));
 		let mut stream = TcpStream::connect(addr)?;
@@ -3994,7 +4116,7 @@ mod test {
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -4037,7 +4159,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let config = EventHandlerConfig {
@@ -4053,7 +4175,7 @@ mod test {
 		let mut expected_clone = expected.clone();
 		let (tx, rx) = sync_channel(1);
 
-		evh2.set_on_read(move |conn_data, _thread_context| {
+		evh2.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
@@ -4110,7 +4232,7 @@ mod test {
 			handle: connection_handle,
 			tls_config: None,
 		};
-		let mut wh = evh2.add_client(client)?;
+		let mut wh = evh2.add_client(client, Box::new(""))?;
 
 		let mut bytes = [0u8; 2000];
 		for i in 0..2000 {
@@ -4157,7 +4279,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -4190,7 +4312,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
@@ -4247,7 +4369,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, thread_context| {
+		evh.set_on_read(move |conn_data, thread_context, _attachment| {
 			assert_eq!(
 				thread_context.user_data.downcast_ref::<String>().unwrap(),
 				&"something".to_string()
@@ -4287,7 +4409,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
@@ -4320,7 +4442,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			conn_data.write_handle().write(b"1234")?;
 			let mut wh = conn_data.write_handle();
 
@@ -4347,7 +4469,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
@@ -4388,7 +4510,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			conn_data.write_handle().write(b"1234")?;
 			let mut wh = conn_data.write_handle();
 
@@ -4415,7 +4537,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
@@ -4456,7 +4578,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config.clone())?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			let mut wh = conn_data.write_handle();
 
 			let first_slab = conn_data.first_slab();
@@ -4509,7 +4631,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
@@ -4559,7 +4681,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config.clone())?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			let mut wh = conn_data.write_handle();
 
 			let first_slab = conn_data.first_slab();
@@ -4601,7 +4723,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
@@ -4654,7 +4776,7 @@ mod test {
 		let x = lock_box!(0)?;
 		let mut x_clone = x.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			let mut wh = conn_data.write_handle();
 
 			let first_slab = conn_data.first_slab();
@@ -4703,7 +4825,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		// make 4 connections
@@ -4804,7 +4926,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			let mut wh = conn_data.write_handle();
 
 			let first_slab = conn_data.first_slab();
@@ -4842,7 +4964,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		{
@@ -4908,7 +5030,7 @@ mod test {
 		let mut count = lock_box!(0)?;
 		let count_clone = count.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
@@ -4944,7 +5066,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
@@ -4978,7 +5100,7 @@ mod test {
 		let mut success = lock_box!(false)?;
 		let success_clone = success.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read fs = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
@@ -5010,7 +5132,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
@@ -5047,7 +5169,7 @@ mod test {
 		let mut evh = EventHandlerImpl::new(config)?;
 		evh.set_debug_pending(true);
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read fs = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
@@ -5078,7 +5200,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 
 		sleep(Duration::from_millis(5_000));
 
@@ -5111,7 +5233,7 @@ mod test {
 		let mut evh = EventHandlerImpl::new(config)?;
 		evh.set_debug_write_queue(true);
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read fs = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let slab_offset = conn_data.slab_offset();
@@ -5142,7 +5264,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut stream = TcpStream::connect(addr)?;
@@ -5218,7 +5340,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 		evh.set_on_accept(move |_, _| Ok(()))?;
 		evh.set_on_close(move |_, _| Ok(()))?;
 		evh.set_on_panic(move |_, _| Ok(()))?;
@@ -5248,7 +5370,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		{
@@ -5294,7 +5416,7 @@ mod test {
 		let complete = lock_box!(0)?;
 		let complete_clone = complete.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read fs = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -5375,7 +5497,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		{
@@ -5500,6 +5622,7 @@ mod test {
 
 		let ci2 = ConnectionInfo::StreamInfo(StreamInfo {
 			accept_handle: None,
+			accept_id: None,
 			id: 0,
 			handle: 0,
 			first_slab: 0,
@@ -5536,7 +5659,7 @@ mod test {
 			threads,
 			housekeeping_frequency_millis: 100_000,
 			read_slab_count: 100,
-			max_handles_per_thread: 3,
+			max_handles_per_thread: 10,
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
@@ -5558,7 +5681,7 @@ mod test {
 		let mut server_accumulator = lock_box!(vec![])?;
 		let mut client_accumulator = lock_box!(vec![])?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read slab offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -5649,7 +5772,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
@@ -5671,7 +5794,7 @@ mod test {
 			}),
 		};
 
-		let mut wh = evh.add_client(client)?;
+		let mut wh = evh.add_client(client, Box::new(""))?;
 
 		wh.write(&big_msg_clone)?;
 		info!("big write complete")?;
@@ -5714,7 +5837,7 @@ mod test {
 			threads,
 			housekeeping_frequency_millis: 100_000,
 			read_slab_count: 100,
-			max_handles_per_thread: 3,
+			max_handles_per_thread: 10,
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
@@ -5736,7 +5859,7 @@ mod test {
 		let mut server_accumulator = lock_box!(vec![])?;
 		let mut client_accumulator = lock_box!(vec![])?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read slab offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -5829,7 +5952,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
@@ -5851,7 +5974,7 @@ mod test {
 			}),
 		};
 
-		let mut wh = evh.add_client(client)?;
+		let mut wh = evh.add_client(client, Box::new(""))?;
 
 		wh.write(&big_msg_clone)?;
 		info!("big write complete")?;
@@ -5891,7 +6014,7 @@ mod test {
 			threads,
 			housekeeping_frequency_millis: 100_000,
 			read_slab_count: 100,
-			max_handles_per_thread: 3,
+			max_handles_per_thread: 10,
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
@@ -5913,7 +6036,7 @@ mod test {
 		let mut server_accumulator = lock_box!(vec![])?;
 		let mut client_accumulator = lock_box!(vec![])?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			info!("on read slab offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -6006,7 +6129,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
@@ -6028,7 +6151,7 @@ mod test {
 			}),
 		};
 
-		let mut wh = evh.add_client(client)?;
+		let mut wh = evh.add_client(client, Box::new(""))?;
 
 		wh.write(&big_msg_clone)?;
 		info!("big write complete")?;
@@ -6075,7 +6198,7 @@ mod test {
 				assert!(evhs[i].is_err());
 			} else {
 				let evh = evhs[i].as_mut().unwrap();
-				evh.set_on_read(move |_, _| Ok(()))?;
+				evh.set_on_read(move |_, _, _| Ok(()))?;
 				evh.set_on_accept(move |_, _| Ok(()))?;
 				evh.set_on_close(move |_, _| Ok(()))?;
 				evh.set_housekeeper(move |_| Ok(()))?;
@@ -6122,7 +6245,7 @@ mod test {
 		let mut evh = EventHandlerImpl::new(config)?;
 		evh.set_debug_fatal_error(true);
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -6159,7 +6282,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
@@ -6201,7 +6324,7 @@ mod test {
 		let mut evh = EventHandlerImpl::new(config)?;
 		evh.set_debug_fatal_error(true);
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -6234,7 +6357,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
@@ -6272,7 +6395,7 @@ mod test {
 		let mut evh = EventHandlerImpl::new(config)?;
 		evh.set_debug_fatal_error(true);
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("on read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -6342,7 +6465,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let _connection = TcpStream::connect(addr)?;
@@ -6360,7 +6483,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		{
@@ -6403,7 +6526,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -6428,7 +6551,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -6476,7 +6599,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -6490,6 +6613,7 @@ mod test {
 			id: 1_000,
 			handle: 0,
 			accept_handle: None,
+			accept_id: None,
 			write_state: lock_box!(WriteState {
 				write_buffer: vec![],
 				flags: 0
@@ -6524,7 +6648,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 		evh.set_on_accept(move |conn_data, _thread_context| {
 			let mut wh = conn_data.write_handle();
 
@@ -6548,7 +6672,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 		let _connection = TcpStream::connect(addr)?;
 
@@ -6570,7 +6694,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -6584,7 +6708,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
@@ -6603,7 +6727,7 @@ mod test {
 			handle: connection_handle,
 			tls_config: None,
 		};
-		let mut wh = evh.add_client(client)?;
+		let mut wh = evh.add_client(client, Box::new(""))?;
 
 		wh.trigger_on_read()?;
 		sleep(Duration::from_millis(1_000));
@@ -6628,7 +6752,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 
 		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 
@@ -6649,7 +6773,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect(addr)?;
@@ -6667,7 +6791,7 @@ mod test {
 			}),
 		};
 
-		evh.add_client(client)?;
+		evh.add_client(client, Box::new(""))?;
 		sleep(Duration::from_millis(1_000));
 		let handles = create_listeners(threads, addr2, 10, false)?;
 		info!("handles.size={},handles={:?}", handles.size(), handles)?;
@@ -6681,7 +6805,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		// connection 2 closed so this will fail
@@ -6705,7 +6829,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("debug read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -6741,7 +6865,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let port = pick_free_port()?;
@@ -6754,7 +6878,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		assert!(evh.add_server(sc).is_err());
+		assert!(evh.add_server(sc, Box::new("")).is_err());
 
 		let port = pick_free_port()?;
 		info!("basic Using port: {}", port)?;
@@ -6767,7 +6891,7 @@ mod test {
 			handles,
 			is_reuse_port: false,
 		};
-		assert!(evh.add_server(sc).is_ok());
+		assert!(evh.add_server(sc, Box::new("")).is_ok());
 		sleep(Duration::from_millis(5_000));
 
 		let mut connection = TcpStream::connect(addr)?;
@@ -6800,7 +6924,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -6840,7 +6964,7 @@ mod test {
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
 
-		evh.set_on_read(move |_conn_data, _thread_context| Ok(()))?;
+		evh.set_on_read(move |_conn_data, _thread_context, _attachment| Ok(()))?;
 		evh.set_on_accept(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_close(move |_conn_data, _thread_context| Ok(()))?;
 		evh.set_on_panic(move |_thread_context, _e| Ok(()))?;
@@ -6853,6 +6977,7 @@ mod test {
 			id: 1001,
 			handle: 1001,
 			accept_handle: None,
+			accept_id: None,
 			write_state: lock_box!(WriteState {
 				write_buffer: vec!['a' as u8],
 				flags: 0
@@ -6890,7 +7015,7 @@ mod test {
 		let mut found = lock_box!(false)?;
 		let found_clone = found.clone();
 
-		evh.set_on_read(move |conn_data, _thread_context| {
+		evh.set_on_read(move |conn_data, _thread_context, _attachment| {
 			debug!("examplecom read slab_offset = {}", conn_data.slab_offset())?;
 			let first_slab = conn_data.first_slab();
 			let last_slab = conn_data.last_slab();
@@ -6933,7 +7058,7 @@ mod test {
 			handles,
 			is_reuse_port: true,
 		};
-		evh.add_server(sc)?;
+		evh.add_server(sc, Box::new(""))?;
 		sleep(Duration::from_millis(5_000));
 
 		let connection = TcpStream::connect("example.com:443")?;
@@ -6951,7 +7076,7 @@ mod test {
 			}),
 		};
 
-		let mut wh = evh.add_client(client)?;
+		let mut wh = evh.add_client(client, Box::new(""))?;
 
 		wh.write(b"GET / HTTP/1.0\r\n\r\n")?;
 		let mut count = 0;

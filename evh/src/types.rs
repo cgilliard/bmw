@@ -21,6 +21,7 @@ use bmw_derive::Serializable;
 use bmw_err::*;
 use bmw_util::*;
 use std::any::Any;
+use std::collections::HashMap;
 use std::net::TcpStream;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -180,7 +181,11 @@ pub struct EventHandlerConfig {
 /// examples.
 pub trait EventHandler<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 where
-	OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnRead: FnMut(
+			&mut ConnectionData,
+			&mut ThreadContext,
+			Option<AttachmentHolder>,
+		) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -228,13 +233,26 @@ where
 	/// Start the [`crate::EventHandler`].
 	fn start(&mut self) -> Result<(), Error>;
 	/// Add a [`crate::ClientConnection`] to this [`crate::EventHandler`].
-	fn add_client(&mut self, connection: ClientConnection) -> Result<WriteHandle, Error>;
+	fn add_client(
+		&mut self,
+		connection: ClientConnection,
+		attachment: Box<dyn Any + Send + Sync>,
+	) -> Result<WriteHandle, Error>;
 	/// Add a [`crate::ServerConnection`] to this [`crate::EventHandler`].
-	fn add_server(&mut self, connection: ServerConnection) -> Result<(), Error>;
+	fn add_server(
+		&mut self,
+		connection: ServerConnection,
+		attachment: Box<dyn Any + Send + Sync>,
+	) -> Result<(), Error>;
 }
 
 /// The structure that builds eventhandlers.
 pub struct Builder {}
+
+#[derive(Debug, Clone)]
+pub struct AttachmentHolder {
+	pub attachment: Arc<Box<dyn Any + Send + Sync>>,
+}
 
 // pub(crate) types
 
@@ -271,12 +289,17 @@ pub(crate) struct EventHandlerContext {
 	pub(crate) last_rw: Option<StreamInfo>,
 	pub(crate) buffer: Vec<u8>,
 	pub(crate) do_write_back: bool,
+	pub(crate) attachments: HashMap<u128, AttachmentHolder>,
 }
 
 #[derive(Clone)]
 pub(crate) struct EventHandlerImpl<OnRead, OnAccept, OnClose, HouseKeeper, OnPanic>
 where
-	OnRead: FnMut(&mut ConnectionData, &mut ThreadContext) -> Result<(), Error>
+	OnRead: FnMut(
+			&mut ConnectionData,
+			&mut ThreadContext,
+			Option<AttachmentHolder>,
+		) -> Result<(), Error>
 		+ Send
 		+ 'static
 		+ Clone
@@ -354,6 +377,7 @@ pub(crate) struct StreamInfo {
 	pub(crate) id: u128,
 	pub(crate) handle: Handle,
 	pub(crate) accept_handle: Option<Handle>,
+	pub(crate) accept_id: Option<u128>,
 	pub(crate) write_state: Box<dyn LockBox<WriteState>>,
 	pub(crate) first_slab: u32,
 	pub(crate) last_slab: u32,
@@ -375,6 +399,7 @@ pub(crate) struct EventHandlerData {
 	pub(crate) nhandles: Box<dyn Queue<ConnectionInfo> + Send + Sync>,
 	pub(crate) stop: bool,
 	pub(crate) stopped: bool,
+	pub(crate) attachments: HashMap<u128, AttachmentHolder>,
 }
 
 #[derive(Debug, Clone, Serializable, PartialEq)]

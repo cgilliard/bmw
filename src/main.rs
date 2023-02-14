@@ -17,8 +17,11 @@
 // limitations under the License.
 
 use bmw_err::{err, ErrKind, Error};
+use bmw_http::{Builder, HttpConfig, HttpInstance};
 use bmw_log::*;
 use std::mem::size_of;
+#[cfg(not(test))]
+use std::thread::park;
 
 info!();
 
@@ -34,7 +37,20 @@ fn real_main(debug_startup_32: bool) -> Result<(), Error> {
 		false => return Err(err!(ErrKind::IllegalState, "Only 64 bit arch supported")),
 	}
 
-	info!("not implemented yet")?;
+	let port = 8080;
+	let config = HttpConfig {
+		instances: vec![HttpInstance {
+			port,
+			..Default::default()
+		}],
+		..Default::default()
+	};
+	let mut server = Builder::build_http_server(config)?;
+	server.start()?;
+	info!("listener on port 8080")?;
+
+	#[cfg(not(test))]
+	park();
 
 	Ok(())
 }

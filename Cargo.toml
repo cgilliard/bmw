@@ -28,6 +28,7 @@ bmw_test   = { path = "./test"   }
 bmw_derive = { path = "./derive" }
 bmw_ser    = { path = "./ser"    }
 bmw_evh    = { path = "./evh"    }
+bmw_http   = { path = "./http"   }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = "0.5.0"

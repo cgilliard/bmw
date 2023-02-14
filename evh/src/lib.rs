@@ -82,7 +82,7 @@
 //!     let mut evh = eventhandler!()?;
 //!
 //!     // set the on read handler for this evh
-//!     evh.set_on_read(move |cd, _ctx| {
+//!     evh.set_on_read(move |cd, _ctx, _attachment| {
 //!         // log the connection_id of this connection. The connection_id is a random u128
 //!         //value. Each connection has a unique id.
 //!         info!("read data on connection {}", cd.get_connection_id())?;
@@ -183,7 +183,7 @@
 //!     };
 //!
 //!     // add our server connection to the evh.
-//!     evh.add_server(sc)?;
+//!     evh.add_server(sc, Box::new(""))?;
 //!
 //!     // create a client connection to test the evh
 //!     let mut connection = TcpStream::connect(addr)?;
@@ -224,8 +224,9 @@ mod types;
 mod win;
 
 pub use crate::types::{
-	Builder, ClientConnection, ConnData, ConnectionData, EventHandler, EventHandlerConfig,
-	ServerConnection, ThreadContext, TlsClientConfig, TlsServerConfig, WriteHandle,
+	AttachmentHolder, Builder, ClientConnection, ConnData, ConnectionData, EventHandler,
+	EventHandlerConfig, ServerConnection, ThreadContext, TlsClientConfig, TlsServerConfig,
+	WriteHandle,
 };
 
 pub use crate::evh::{create_listeners, READ_SLAB_DATA_SIZE};
