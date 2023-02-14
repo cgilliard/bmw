@@ -3426,8 +3426,8 @@ mod test {
 		let config = EventHandlerConfig {
 			threads,
 			housekeeping_frequency_millis: 100_000,
-			read_slab_count: 1,
-			max_handles_per_thread: 2,
+			read_slab_count: 10,
+			max_handles_per_thread: 20,
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
@@ -4921,7 +4921,7 @@ mod test {
 			threads,
 			housekeeping_frequency_millis: 10_000,
 			read_slab_count: 30,
-			max_handles_per_thread: 20,
+			max_handles_per_thread: 2,
 			..Default::default()
 		};
 		let mut evh = EventHandlerImpl::new(config)?;
