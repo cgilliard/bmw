@@ -26,6 +26,9 @@ use bmw_evh::{
 use bmw_log::*;
 use bmw_util::*;
 use std::any::{type_name, Any};
+use std::fs::File;
+use std::io::BufReader;
+use std::io::Read;
 
 info!();
 
@@ -118,13 +121,34 @@ impl HttpServerImpl {
 
 	fn process_file(
 		_config: &HttpConfig,
-		_path: String,
+		path: String,
 		conn_data: &mut ConnectionData,
+		instance: &HttpInstance,
 	) -> Result<(), Error> {
-		let res = b"HTTP/1.1 200 OK\r\n\
+		let fpath = format!("{}/{}", instance.http_dir, path);
+		info!("path={},dir={}", path, instance.http_dir)?;
+		let metadata = std::fs::metadata(fpath.clone())?;
+		let file = File::open(fpath)?;
+		let mut buf_reader = BufReader::new(file);
+
+		let res = format!(
+			"HTTP/1.1 200 OK\r\n\
 Date: Thu, 10 Nov 2022 22:31:52 GMT\r\n\
-Content-Length: 11\r\n\r\nTest page\r\n";
-		conn_data.write_handle().write(&res[..])?;
+Content-Length: {}\r\n\r\n",
+			metadata.len()
+		);
+		conn_data.write_handle().write(&res.as_bytes()[..])?;
+
+		loop {
+			let mut buf = vec![0u8; 100];
+			let len = buf_reader.read(&mut buf)?;
+			info!("read len = {}", len)?;
+			conn_data.write_handle().write(&buf[0..len])?;
+			if len == 0 {
+				break;
+			}
+		}
+
 		Ok(())
 	}
 
@@ -211,6 +235,13 @@ Content-Length: 11\r\n\r\nTest page\r\n";
 			Self::type_of(attachment.clone())
 		)?;
 		let attachment = attachment.attachment.downcast_ref::<HttpInstance>();
+
+		let attachment = match attachment {
+			Some(attachment) => attachment,
+			None => {
+				return Err(err!(ErrKind::Http, "no instance found for this request2"));
+			}
+		};
 		info!("conn_data.tid={},att={:?}", conn_data.tid(), attachment)?;
 		let ctx = Self::build_ctx(ctx)?;
 		debug!("on read slab_offset = {}", conn_data.slab_offset())?;
@@ -267,7 +298,7 @@ Content-Length: 11\r\n\r\nTest page\r\n";
 				let path = headers.path()?;
 				start = headers.termination_point;
 				last_term = headers.termination_point;
-				Self::process_file(config, path, conn_data)?;
+				Self::process_file(config, path, conn_data, attachment)?;
 			}
 
 			info!("start={}", headers.start)?;
@@ -365,6 +396,8 @@ mod test {
 	use bmw_err::*;
 	use bmw_log::*;
 	use bmw_test::port::pick_free_port;
+	use bmw_test::testdir::{setup_test_dir, tear_down_test_dir};
+	use std::fs::File;
 	use std::io::Read;
 	use std::io::Write;
 	use std::net::TcpStream;
@@ -375,9 +408,17 @@ mod test {
 	#[test]
 	fn test_http_slow_requests() -> Result<(), Error> {
 		let port = pick_free_port()?;
+		let test_dir = ".test_http_slow_requests.bmw";
+		setup_test_dir(test_dir)?;
+		let mut file = File::create(format!("{}/abc.html", test_dir))?;
+		file.write_all(b"Hello, world!")?;
+
+		let mut file = File::create(format!("{}/def1.html", test_dir))?;
+		file.write_all(b"Hello, world2!")?;
 		let config = HttpConfig {
 			instances: vec![HttpInstance {
 				port,
+				http_dir: test_dir.to_string(),
 				..Default::default()
 			}],
 			..Default::default()
@@ -393,12 +434,13 @@ mod test {
 		client.write(b"GET /abc.html HTTP/1.1\r\nHost: localhost\r\nUser-agent: test")?;
 		std::thread::sleep(std::time::Duration::from_millis(1_000));
 		client.write(b"\r\n\r\n")?;
+		std::thread::sleep(std::time::Duration::from_millis(1_000));
 		let mut buf = [0; 128];
 		let len = client.read(&mut buf)?;
 		let data = from_utf8(&buf)?;
 		info!("len={}", len)?;
 		info!("data='{}'", data)?;
-		assert_eq!(len, 87);
+		assert_eq!(len, 89);
 
 		std::thread::sleep(std::time::Duration::from_millis(1_000));
 
@@ -406,11 +448,12 @@ mod test {
 		std::thread::sleep(std::time::Duration::from_millis(1_000));
 		client.write(b"POST /def1.html HTTP/1.1\r\nHost: localhost\r\nUser-agent: test\r\n\r\n")?;
 		let mut buf = [0; 128];
+		std::thread::sleep(std::time::Duration::from_millis(1_000));
 		let len = client.read(&mut buf)?;
 		let data = from_utf8(&buf)?;
 		info!("len={}", len)?;
 		info!("data='{}'", data)?;
-		assert_eq!(len, 87);
+		assert_eq!(len, 90);
 
 		std::thread::sleep(std::time::Duration::from_millis(1_000));
 		Ok(())
@@ -418,10 +461,16 @@ mod test {
 
 	#[test]
 	fn test_http_server_basic() -> Result<(), Error> {
+		let test_dir = ".test_http_server_basic.bmw";
+		setup_test_dir(test_dir)?;
+		let mut file = File::create(format!("{}/foo.html", test_dir))?;
+		file.write_all(b"Hello, world!")?;
 		let port = pick_free_port()?;
+		info!("port={}", port)?;
 		let config = HttpConfig {
 			instances: vec![HttpInstance {
 				port,
+				http_dir: test_dir.to_string(),
 				..Default::default()
 			}],
 			..Default::default()
@@ -434,27 +483,31 @@ mod test {
 		let mut client = TcpStream::connect(addr)?;
 		std::thread::sleep(std::time::Duration::from_millis(1_000));
 
-		client.write(b"GET /xyz.html HTTP/1.1\r\nHost: localhost\r\nUser-agent: test\r\n\r\n")?;
+		client.write(b"GET /foo.html HTTP/1.1\r\nHost: localhost\r\nUser-agent: test\r\n\r\n")?;
+		std::thread::sleep(std::time::Duration::from_millis(1_000));
 		let mut buf = [0; 128];
 		let len = client.read(&mut buf)?;
 		let data = from_utf8(&buf)?;
 		info!("len={}", len)?;
 		info!("data='{}'", data)?;
-		assert_eq!(len, 87);
+		assert_eq!(len, 89);
 
 		std::thread::sleep(std::time::Duration::from_millis(1_000));
 
 		let mut client = TcpStream::connect(addr)?;
 		std::thread::sleep(std::time::Duration::from_millis(1_000));
-		client.write(b"POST / HTTP/1.1\r\nHost: localhost\r\nUser-agent: test\r\n\r\n")?;
+		client.write(b"POST /foo.html HTTP/1.1\r\nHost: localhost\r\nUser-agent: test\r\n\r\n")?;
+		std::thread::sleep(std::time::Duration::from_millis(1_000));
 		let mut buf = [0; 128];
 		let len = client.read(&mut buf)?;
 		let data = from_utf8(&buf)?;
 		info!("len={}", len)?;
 		info!("data='{}'", data)?;
-		assert_eq!(len, 87);
+		assert_eq!(len, 89);
 
 		std::thread::sleep(std::time::Duration::from_millis(1_000));
+
+		tear_down_test_dir(test_dir)?;
 
 		Ok(())
 	}
