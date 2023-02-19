@@ -353,8 +353,10 @@ pub(crate) fn get_events_impl(
 	}
 	.try_into()?;
 
-	let mut epoll_events: [epoll_event; MAX_EVENTS as usize] =
-		unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+	let mut epoll_events: [epoll_event; MAX_EVENTS as usize] = [epoll_event {
+		events: 0,
+		data: epoll_data_t { fd: 0 },
+	}; MAX_EVENTS as usize];
 
 	debug!("wakeup req = {}", wakeup_requested)?;
 	set_errno(Errno(0));
