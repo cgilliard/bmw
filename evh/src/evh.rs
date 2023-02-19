@@ -86,7 +86,7 @@ const READ_SLAB_SIZE: usize = 518;
 const READ_SLAB_NEXT_OFFSET: usize = 514;
 
 const HANDLE_SLAB_SIZE: usize = 42;
-const CONNECTION_SLAB_SIZE: usize = 90;
+const CONNECTION_SLAB_SIZE: usize = 98;
 #[cfg(target_os = "windows")]
 const WRITE_SET_SIZE: usize = 42;
 
