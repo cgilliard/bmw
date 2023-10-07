@@ -4221,7 +4221,7 @@ mod test {
 		evh2.set_housekeeper(move |_thread_context| Ok(()))?;
 		evh2.start()?;
 
-		let connection = TcpStream::connect(addr.clone())?;
+		let connection = TcpStream::connect(addr)?;
 		connection.set_nonblocking(true)?;
 		#[cfg(unix)]
 		let connection_handle = connection.into_raw_fd();

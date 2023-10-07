@@ -411,6 +411,7 @@ impl From<ed25519::Error> for Error {
 
 #[cfg(test)]
 mod test {
+	#![allow(invalid_from_utf8)]
 	use crate as bmw_err;
 	use crate::{err, ErrKind, Error, ErrorKind};
 	use bmw_deps::rustls::client::InvalidDnsNameError;

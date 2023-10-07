@@ -633,9 +633,9 @@ where
 			return Err(e);
 		}
 
-		let (slab_reader, slab_writer, slabs) = match &slabs {
+		let (slab_reader, slab_writer, slabs) = match slabs.clone() {
 			Some(slabs) => {
-				let slabs2: Rc<RefCell<(dyn SlabAllocator + 'static)>> = slabs.clone().clone();
+				let slabs2: Rc<RefCell<(dyn SlabAllocator + 'static)>> = slabs.clone();
 				(
 					SlabReader::new(Some(slabs2.clone()), 0, Some(ptr_size))?,
 					SlabWriter::new(Some(slabs2.clone()), 0, Some(ptr_size))?,
